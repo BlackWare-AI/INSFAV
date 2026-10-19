@@ -109,10 +109,17 @@ public class LocalImagesTest {
         images.scan((event,value)->{}); assertEquals(1, images.snapshot(true).getInt("matched"));
         assertEquals(32, images.snapshot(true).getJSONObject("profiles").getJSONObject("example").getInt("width"));
     }
+    @Test public void actualJpegAndWebpSourcesAreDecodedAndMatched() throws Exception {
+        provider.add("root/missing.webp", "missing.webp", 128, 128); selectAndScan();
+        assertEquals(2, images.snapshot(true).getInt("matched"));
+        assertEquals(128, images.snapshot(true).getJSONObject("profiles").getJSONObject("missing").getInt("width"));
+        assertTrue(images.image("missing", true).length > 0);
+        assertTrue(images.image("example", false).length > 0);
+    }
     public static final class FixtureProvider extends ContentProvider {
         File directory; final Map<String,File> files = new LinkedHashMap<>(); final Map<String,String> names = new HashMap<>();
         int childQueries, opens, writes; boolean available = true, parentHasThumbnailChild;
-        void add(String id,String name,int w,int h) throws Exception {File file = new File(directory, name); Bitmap image = Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888); try(FileOutputStream output = new FileOutputStream(file)){if(!image.compress(Bitmap.CompressFormat.PNG,100,output))throw new IOException("Fixture encoding failed");}finally{image.recycle();} files.put(id,file); names.put(id,name);}
+        void add(String id,String name,int w,int h) throws Exception {File file = new File(directory, name); Bitmap image = Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888); try(FileOutputStream output = new FileOutputStream(file)){if(!image.compress(name.toLowerCase(Locale.ROOT).endsWith(".webp") ? Bitmap.CompressFormat.WEBP : name.toLowerCase(Locale.ROOT).matches(".*\\.jpe?g$") ? Bitmap.CompressFormat.JPEG : Bitmap.CompressFormat.PNG,100,output))throw new IOException("Fixture encoding failed");}finally{image.recycle();} files.put(id,file); names.put(id,name);}
         void addBroken(String id,String name) throws Exception {File file = new File(directory,name); Files.write(file.toPath(), new byte[]{1,2,3}); files.put(id,file); names.put(id,name);}
         Map<String,byte[]> contents() throws Exception {Map<String,byte[]> out=new HashMap<>(); for(String id:files.keySet())out.put(id,Files.readAllBytes(files.get(id).toPath()));return out;}
         @Override public boolean onCreate(){return true;}
