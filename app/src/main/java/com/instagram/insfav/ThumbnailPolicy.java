@@ -22,7 +22,10 @@ final class ThumbnailPolicy {
         final long size, modified;
         final boolean readable;
         Candidate(String name, String uri, int width, int height, long size, long modified, boolean readable) {
-            this.name = name; this.uri = uri; this.user = username(name);
+            this(name, uri, width, height, size, modified, readable, username(name));
+        }
+        Candidate(String name, String uri, int width, int height, long size, long modified, boolean readable, String resolvedUser) {
+            this.name = name; this.uri = uri; this.user = resolvedUser;
             this.width = width; this.height = height; this.size = size; this.modified = modified; this.readable = readable;
         }
     }

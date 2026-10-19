@@ -116,8 +116,31 @@ public class LocalImagesTest {
         assertTrue(images.image("missing", true).length > 0);
         assertTrue(images.image("example", false).length > 0);
     }
+    @Test public void fetcherHashAndExactMisspelledFolderAreCompatible() throws Exception {
+        String filename = "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c.webp";
+        assertEquals(Store.key(Store.normalize(" @EXAMPLE ")) + ".webp", filename);
+        File file = new File(provider.directory, filename);
+        Bitmap bitmap = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888);
+        bitmap.eraseColor(android.graphics.Color.BLUE);
+        try (FileOutputStream output = new FileOutputStream(file)) {assertTrue(bitmap.compress(Bitmap.CompressFormat.WEBP, 78, output));} finally {bitmap.recycle();}
+        provider.files.put("root/" + filename, file); provider.names.put("root/" + filename, filename);
+        provider.parentHasThumbnailChild = true; provider.folderName = ".thumnails";
+        images.select(Uri.parse("content://insfav.test/tree/parent"), Intent.FLAG_GRANT_READ_URI_PERMISSION); images.scan((event, value) -> {});
+        assertEquals("root", store.settings.getString("directoryId"));
+        assertEquals(filename, store.index.getJSONObject("profiles").getJSONObject("example").getString("name"));
+        assertArrayEquals(Files.readAllBytes(file.toPath()), images.image("example", false));
+        assertEquals(RAW, store.original());
+    }
+    @Test public void legacyPrivateWebpRemainsAvailableWithoutExternalFolder() throws Exception {
+        File legacy = new File(store.root, "thumbnails"); legacy.mkdirs(); File file = new File(legacy, Store.key("example") + ".webp");
+        Bitmap bitmap = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888);
+        try (FileOutputStream output = new FileOutputStream(file)) {assertTrue(bitmap.compress(Bitmap.CompressFormat.WEBP, 78, output));} finally {bitmap.recycle();}
+        images.checkAccess(); assertEquals(1, images.snapshot(true).getInt("matched"));
+        assertArrayEquals(Files.readAllBytes(file.toPath()), images.image("example", false)); assertEquals(RAW, store.original());
+    }
     public static final class FixtureProvider extends ContentProvider {
         File directory; final Map<String,File> files = new LinkedHashMap<>(); final Map<String,String> names = new HashMap<>();
+        String folderName = ".thumbnails";
         int childQueries, opens, writes; boolean available = true, parentHasThumbnailChild;
         void add(String id,String name,int w,int h) throws Exception {File file = new File(directory, name); Bitmap image = Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888); try(FileOutputStream output = new FileOutputStream(file)){if(!image.compress(name.toLowerCase(Locale.ROOT).endsWith(".webp") ? Bitmap.CompressFormat.WEBP : name.toLowerCase(Locale.ROOT).matches(".*\\.jpe?g$") ? Bitmap.CompressFormat.JPEG : Bitmap.CompressFormat.PNG,100,output))throw new IOException("Fixture encoding failed");}finally{image.recycle();} files.put(id,file); names.put(id,name);}
         void addBroken(String id,String name) throws Exception {File file = new File(directory,name); Files.write(file.toPath(), new byte[]{1,2,3}); files.put(id,file); names.put(id,name);}
@@ -128,9 +151,9 @@ public class LocalImagesTest {
             String id=DocumentsContract.getDocumentId(uri);
             if(uri.getLastPathSegment().equals("children")) {
                 childQueries++;
-                if(id.equals("parent")&&parentHasThumbnailChild)row(cursor,projection,"root",".thumbnails",null,true);
+                if(id.equals("parent")&&parentHasThumbnailChild)row(cursor,projection,"root",folderName,null,true);
                 else if(id.equals("root"))for(String fileId:files.keySet())row(cursor,projection,fileId,names.get(fileId),files.get(fileId),false);
-            } else row(cursor,projection,id,id.equals("parent")?"Media":".thumbnails",null,true);
+            } else row(cursor,projection,id,id.equals("parent")?"Media":folderName,null,true);
             return cursor;
         }
         private void row(MatrixCursor cursor,String[] columns,String id,String name,File file,boolean dir) {

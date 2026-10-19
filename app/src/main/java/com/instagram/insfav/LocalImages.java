@@ -24,6 +24,25 @@ final class LocalImages {
     private volatile CancellationSignal cancellation;
     private volatile long cacheBytes;
     private long lastProgressAt;
+    private final Map<String, String> legacySignatures = new HashMap<>();
+    private final Set<String> legacyValid = new HashSet<>();
+    private synchronized File legacy(String user) {
+        File file = new File(new File(store.root, "thumbnails"), Store.key(Store.normalize(user)) + ".webp");
+        if (!file.isFile() || file.length() > 256 * 1024) return null;
+        String signature = file.length() + ":" + file.lastModified();
+        if (!signature.equals(legacySignatures.get(user))) {
+            legacySignatures.put(user, signature); legacyValid.remove(user);
+            try (InputStream input = new FileInputStream(file)) {
+                android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options(); bounds.inJustDecodeBounds = true;
+                android.graphics.BitmapFactory.decodeStream(input, null, bounds);
+                if (bounds.outWidth == 128 && bounds.outHeight == 128 && "image/webp".equals(bounds.outMimeType)) {
+                    android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeFile(file.getAbsolutePath());
+                    if (bitmap != null) {bitmap.recycle(); legacyValid.add(user);}
+                }
+            } catch (Exception | OutOfMemoryError ignored) { }
+        }
+        return legacyValid.contains(user) ? file : null;
+    }
     LocalImages(Context context, Store store) {
         this.resolver = context.getContentResolver(); this.store = store;
         cache = new File(context.getCacheDir(), "local-thumbnails"); cache.mkdirs(); cacheBytes = size(cache);
@@ -56,10 +75,10 @@ final class LocalImages {
             label = cursor.getString(0);
         }
         // Some system pickers hide dot folders. A selected parent may grant its .thumbnails child.
-        if (!".thumbnails".equalsIgnoreCase(label)) {
+        if (!".thumnails".equals(label) && !".thumbnails".equalsIgnoreCase(label)) {
             Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, directoryId);
             try (Cursor cursor = resolver.query(children, new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE}, null, null, null)) {
-                if (cursor != null) while (cursor.moveToNext()) if (".thumbnails".equalsIgnoreCase(cursor.getString(1)) && DocumentsContract.Document.MIME_TYPE_DIR.equals(cursor.getString(2))) {directoryId = cursor.getString(0); label = cursor.getString(1); break;}
+                if (cursor != null) while (cursor.moveToNext()) if ((".thumnails".equals(cursor.getString(1)) || ".thumbnails".equalsIgnoreCase(cursor.getString(1))) && DocumentsContract.Document.MIME_TYPE_DIR.equals(cursor.getString(2))) {directoryId = cursor.getString(0); label = cursor.getString(1); if (".thumnails".equals(label)) break;}
             }
         }
         label += " · " + directoryId;
@@ -83,6 +102,8 @@ final class LocalImages {
             String directoryId; synchronized (store) {directoryId = store.settings.optString("directoryId", DocumentsContract.getTreeDocumentId(Uri.parse(treeValue)));}
             Uri tree = Uri.parse(treeValue), children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, directoryId);
             String[] columns = {DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_SIZE, DocumentsContract.Document.COLUMN_LAST_MODIFIED, DocumentsContract.Document.COLUMN_MIME_TYPE};
+            Map<String, String> hashUsers = new HashMap<>();
+            for (String user : store.users()) hashUsers.put(Store.key(Store.normalize(user)) + ".webp", user);
             ThumbnailPolicy.Catalog catalog = new ThumbnailPolicy.Catalog(); int folderEntries;
             try (Cursor cursor = resolver.query(children, columns, null, null, null, cancellation)) {
                 if (cursor == null) throw new IOException("Folder could not be read.");
@@ -94,14 +115,16 @@ final class LocalImages {
                     if (!DocumentsContract.Document.MIME_TYPE_DIR.equals(cursor.getString(4)) && ThumbnailPolicy.supported(name)) {
                         Uri uri = DocumentsContract.buildDocumentUriUsingTree(tree, cursor.getString(0));
                         long bytes = cursor.isNull(2) ? -1 : cursor.getLong(2), modified = cursor.isNull(3) ? 0 : cursor.getLong(3);
-                        int w = 0, h = 0; boolean readable = false;
+                        int w = 0, h = 0; String mime = ""; boolean readable = false;
                         try {
                             if (bytes > 64L * 1024 * 1024) throw new IOException("Image size limit");
-                            BitmapFactory.Options bounds = ImageCodec.bounds(resolver, uri); w = bounds.outWidth; h = bounds.outHeight;
+                            BitmapFactory.Options bounds = ImageCodec.bounds(resolver, uri); w = bounds.outWidth; h = bounds.outHeight; mime = bounds.outMimeType;
                             readable = ImageCodec.validate(resolver, uri, bounds);
                         } catch (SecurityException error) {throw error;}
                         catch (IOException | RuntimeException | OutOfMemoryError error) {store.log("image_validation", "UNREADABLE");}
-                        catalog.add(new ThumbnailPolicy.Candidate(name, uri.toString(), w, h, bytes, modified, readable));
+                        String resolvedUser = hashUsers.getOrDefault(name, ThumbnailPolicy.username(name));
+                        if (name.matches("[0-9a-f]{64}\\.webp")) readable &= w == 128 && h == 128 && "image/webp".equals(mime);
+                        catalog.add(new ThumbnailPolicy.Candidate(name, uri.toString(), w, h, bytes, modified, readable, resolvedUser));
                     }
                     processed++; if (processed % 16 == 0 || processed == total) publish(listener, "scanning", processed, total, started);
                 }
@@ -145,6 +168,8 @@ final class LocalImages {
                 JSONObject image = source.optJSONObject(user);
                 if (usable && image != null && image.optBoolean("readable")) {
                     matched++; if (includeProfiles) profiles.put(user, new JSONObject().put("file", true).put("width", image.optInt("width")).put("height", image.optInt("height")));
+                } else if (legacy(user) != null) {
+                    matched++; if (includeProfiles) profiles.put(user, new JSONObject().put("file", true).put("width", 128).put("height", 128));
                 }
             }
             JSONObject out = new JSONObject().put("total", store.total()).put("unique", users.size()).put("matched", matched).put("missing", users.size() - matched).put("unreadable", store.index.optInt("unreadable")).put("duplicates", store.index.optInt("duplicates")).put("folderBytes", store.index.optLong("bytes")).put("unknownSizes", store.index.optInt("unknownSizes")).put("lastScan", store.index.optLong("scannedAt")).put("folder", store.settings.optString("folderLabel", "Not selected")).put("folderStatus", accessible ? "ready" : store.settings.optString("treeUri").isEmpty() ? "not_selected" : "unavailable").put("folderMessage", accessMessage).put("scanState", scanning ? "scanning" : store.settings.optString("scanState", "idle")).put("scan", progress).put("revision", store.index.optLong("revision")).put("cacheBytes", cacheBytes);
@@ -152,6 +177,18 @@ final class LocalImages {
         }
     }
     byte[] image(String user, boolean full) {
+        byte[] external = externalImage(user, full);
+        if (external.length > 0) return external;
+        File fallback = legacy(user);
+        if (fallback != null) try {
+            byte[] bytes = java.nio.file.Files.readAllBytes(fallback.toPath());
+            if (!full) return bytes;
+            android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+            if (bitmap != null) try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output); return output.toByteArray();} finally {bitmap.recycle();}
+        } catch (IOException | RuntimeException | OutOfMemoryError error) {store.log("legacy_image", "READ_FAILED");}
+        return new byte[0];
+    }
+    private byte[] externalImage(String user, boolean full) {
         synchronized (cacheLock) {
             try {
                 JSONObject image; String revision;
@@ -160,6 +197,13 @@ final class LocalImages {
                     JSONObject profiles = store.index.optJSONObject("profiles"); image = profiles == null ? null : profiles.optJSONObject(user);
                     if (image == null || !image.optBoolean("readable")) return new byte[0];
                     image = new JSONObject(image.toString()); revision = store.index.optString("revision");
+                }
+                if (!full && image.optString("name").equals(Store.key(Store.normalize(user)) + ".webp") && image.optInt("width") == 128 && image.optInt("height") == 128) {
+                    try (InputStream input = ImageCodec.open(resolver, Uri.parse(image.getString("uri"))); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+                        byte[] buffer = new byte[4096]; int count;
+                        while ((count = input.read(buffer)) != -1) {if (output.size() + count > 256 * 1024) throw new IOException("Thumbnail size limit"); output.write(buffer, 0, count);}
+                        return output.toByteArray();
+                    }
                 }
                 File cached = new File(cache, Store.key(user + "|" + revision + "|" + image.getString("uri")) + ".webp");
                 if (!full && cached.isFile()) return java.nio.file.Files.readAllBytes(cached.toPath());
@@ -191,7 +235,8 @@ final class LocalImages {
 
         }
     }
-    void clearLegacyCache() {
+    synchronized void clearLegacyCache() {
+        legacySignatures.clear(); legacyValid.clear();
             for (File legacy : new File[]{new File(store.root, "thumbnails"), new File(cache.getParentFile(), "full-resolution")}) {File[] old = legacy.listFiles(); if (old != null) for (File file : old) if (file.isFile()) file.delete();}
     }
     void clearIndex() throws Exception {
