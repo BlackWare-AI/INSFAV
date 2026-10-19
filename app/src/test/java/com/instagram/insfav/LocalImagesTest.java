@@ -15,8 +15,7 @@ import org.robolectric.annotation.GraphicsMode;
 import java.io.*;
 import java.nio.file.Files;
 import java.util.*;
-import java.awt.image.BufferedImage;
-import javax.imageio.ImageIO;
+import android.graphics.Bitmap;
 import static org.junit.Assert.*;
 
 /** Real Store/LocalImages code against an isolated read-only SAF test provider. No personal files. */
@@ -96,7 +95,7 @@ public class LocalImagesTest {
     public static final class FixtureProvider extends ContentProvider {
         File directory; final Map<String,File> files = new LinkedHashMap<>(); final Map<String,String> names = new HashMap<>();
         int childQueries, opens, writes; boolean available = true, parentHasThumbnailChild;
-        void add(String id,String name,int w,int h) throws Exception {File file = new File(directory, name); ImageIO.write(new BufferedImage(w,h,BufferedImage.TYPE_INT_RGB), "PNG", file); files.put(id,file); names.put(id,name);}
+        void add(String id,String name,int w,int h) throws Exception {File file = new File(directory, name); Bitmap image = Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888); try(FileOutputStream output = new FileOutputStream(file)){if(!image.compress(Bitmap.CompressFormat.PNG,100,output))throw new IOException("Fixture encoding failed");}finally{image.recycle();} files.put(id,file); names.put(id,name);}
         void addBroken(String id,String name) throws Exception {File file = new File(directory,name); Files.write(file.toPath(), new byte[]{1,2,3}); files.put(id,file); names.put(id,name);}
         Map<String,byte[]> contents() throws Exception {Map<String,byte[]> out=new HashMap<>(); for(String id:files.keySet())out.put(id,Files.readAllBytes(files.get(id).toPath()));return out;}
         @Override public boolean onCreate(){return true;}
