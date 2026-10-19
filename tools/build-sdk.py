@@ -4,7 +4,8 @@ import argparse, pathlib, os, subprocess, zipfile, shutil, tempfile
 P=pathlib.Path(__file__).resolve().parents[1]
 p=argparse.ArgumentParser();p.add_argument('--release',action='store_true');args=p.parse_args()
 sdk=pathlib.Path(os.environ['ANDROID_HOME']);jdk=pathlib.Path(os.environ['JAVA_HOME']);tools=sdk/'build-tools'/'35.0.0';android=sdk/'platforms'/'android-35'/'android.jar'
-variant='release' if args.release else 'debug';out=P/'app'/'build'/'sdk'/variant;shutil.rmtree(out,ignore_errors=True);out.mkdir(parents=True)
+variant='release' if args.release else 'debug';buildroot=P/'app'/'build'/'sdk';buildroot.mkdir(parents=True,exist_ok=True)
+out=pathlib.Path(tempfile.mkdtemp(prefix=variant+'-',dir=buildroot))
 def run(*a):subprocess.run([str(x) for x in a],check=True)
 manifest=(P/'app/src/main/AndroidManifest.xml').read_text().replace('<manifest ', '<manifest package="com.instagram.insfav" ',1).replace('<application ', '<application android:debuggable="'+('false' if args.release else 'true')+'" ',1)
 (out/'AndroidManifest.xml').write_text(manifest)
@@ -43,4 +44,7 @@ if keystore:
  subprocess.run([str(tools/'apksigner'),'sign','--ks',str(keystore),'--ks-key-alias',alias,'--ks-pass','env:SDK_SIGN_STORE_PASS','--key-pass','env:SDK_SIGN_KEY_PASS','--out',str(final),str(aligned)],env=env,check=True)
  run(tools/'apksigner','verify','--verbose',final)
 else:shutil.copy(aligned,final)
-print(final)
+destination=buildroot/variant;destination.mkdir(parents=True,exist_ok=True)
+shutil.copy2(final,destination/final.name)
+if (out/'mapping.txt').exists():shutil.copy2(out/'mapping.txt',destination/'mapping.txt')
+print(destination/final.name)
