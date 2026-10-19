@@ -23,6 +23,7 @@ final class LocalImages {
     private volatile JSONObject progress = new JSONObject();
     private volatile CancellationSignal cancellation;
     private volatile long cacheBytes;
+    private long lastProgressAt;
     LocalImages(Context context, Store store) {
         this.resolver = context.getContentResolver(); this.store = store;
         cache = new File(context.getCacheDir(), "local-thumbnails"); cache.mkdirs(); cacheBytes = size(cache);
@@ -128,6 +129,9 @@ final class LocalImages {
         } finally {scanning = false; try {listener.event("status", snapshot(true));} catch (Exception ignored) { }}
     }
     private void publish(Listener listener, String state, int processed, int total, long started) throws JSONException {
+        long now = android.os.SystemClock.elapsedRealtime();
+        if ("scanning".equals(state) && processed > 0 && processed < total && now - lastProgressAt < 100) return;
+        lastProgressAt = now;
         JSONObject value = new JSONObject().put("state", state).put("processed", processed).put("total", total).put("elapsedMs", android.os.SystemClock.elapsedRealtime() - started);
         progress = value; listener.event("scan-progress", value);
     }
