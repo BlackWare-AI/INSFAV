@@ -14,13 +14,25 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run web
+      - run: git diff --exit-code -- app/src/main/assets tools/web-bundle.json web/maps
       - run: node --test tests/core.test.cjs
       - run: |
-          mkdir -p /tmp/insfav-parser
-          javac -d /tmp/insfav-parser app/src/main/java/com/instagram/insfav/ProfileParser.java tests/java/com/instagram/insfav/ProfileParserTest.java
-          java -cp /tmp/insfav-parser com.instagram.insfav.ProfileParserTest
-      - run: gradle :app:assembleDebug :app:assembleRelease :app:lintDebug
+          mkdir -p /tmp/insfav-policy
+          javac -d /tmp/insfav-policy app/src/main/java/com/instagram/insfav/ThumbnailPolicy.java tests/java/com/instagram/insfav/ThumbnailPolicyTest.java
+          java -cp /tmp/insfav-policy com.instagram.insfav.ThumbnailPolicyTest
+      - run: gradle :app:assembleDebug :app:assembleRelease :app:lintDebug :app:testDebugUnitTest
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: INSFAV-builds
-          path: app/build/outputs/apk/
+          path: |
+            app/build/outputs/apk/
+            app/build/outputs/mapping/release/mapping.txt
+            app/build/reports/lint-results-debug.*
+            app/build/test-results/
+            app/build/reports/tests/

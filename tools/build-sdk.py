@@ -4,13 +4,14 @@ import argparse, pathlib, os, subprocess, zipfile, shutil, tempfile
 P=pathlib.Path(__file__).resolve().parents[1]
 p=argparse.ArgumentParser();p.add_argument('--release',action='store_true');args=p.parse_args()
 sdk=pathlib.Path(os.environ['ANDROID_HOME']);jdk=pathlib.Path(os.environ['JAVA_HOME']);tools=sdk/'build-tools'/'35.0.0';android=sdk/'platforms'/'android-35'/'android.jar'
+version=dict(line.split('=',1) for line in (P/'version.properties').read_text().splitlines() if '=' in line)
 variant='release' if args.release else 'debug';buildroot=P/'app'/'build'/'sdk';buildroot.mkdir(parents=True,exist_ok=True)
 out=pathlib.Path(tempfile.mkdtemp(prefix=variant+'-',dir=buildroot))
 def run(*a):subprocess.run([str(x) for x in a],check=True)
 manifest=(P/'app/src/main/AndroidManifest.xml').read_text().replace('<manifest ', '<manifest package="com.instagram.insfav" ',1).replace('<application ', '<application android:debuggable="'+('false' if args.release else 'true')+'" ',1)
 (out/'AndroidManifest.xml').write_text(manifest)
 run(tools/'aapt2','compile','--dir',P/'app/src/main/res','-o',out/'res.zip')
-run(tools/'aapt2','link','-o',out/'resources.apk','--manifest',out/'AndroidManifest.xml','-I',android,'--java',out/'generated','--min-sdk-version','26','--target-sdk-version','35','--version-code','1','--version-name','3.0.0'+('' if args.release else '-debug'),'-A',P/'app/src/main/assets',out/'res.zip')
+run(tools/'aapt2','link','-o',out/'resources.apk','--manifest',out/'AndroidManifest.xml','-I',android,'--java',out/'generated','--min-sdk-version','26','--target-sdk-version','35','--version-code',version['VERSION_CODE'],'--version-name',version['VERSION_NAME']+('' if args.release else '-debug'),'-A',P/'app/src/main/assets',out/'res.zip')
 buildconfig=out/'generated/com/instagram/insfav/BuildConfig.java';buildconfig.write_text('package com.instagram.insfav; public final class BuildConfig {public static final boolean DEBUG='+('false' if args.release else 'true')+';}')
 classes=out/'classes';classes.mkdir();sources=list((P/'app/src/main/java').rglob('*.java'))+list((out/'generated').rglob('*.java'))
 run(jdk/'bin/javac','-source','17','-target','17','-encoding','UTF-8','-classpath',android,'-d',classes,*sources)
@@ -20,7 +21,6 @@ with zipfile.ZipFile(classjar,'w',zipfile.ZIP_DEFLATED) as z:
 dex=out/'dex';dex.mkdir()
 if args.release:
  rules=out/'rules.pro';rules.write_text('''-keep public class com.instagram.insfav.MainActivity extends android.app.Activity { public <init>(); }
--keep public class com.instagram.insfav.RetrievalService extends android.app.Service { public <init>(); }
 -keepclassmembers class com.instagram.insfav.MainActivity$Bridge { @android.webkit.JavascriptInterface <methods>; }
 -keepattributes *Annotation*
 -dontwarn java.lang.invoke.StringConcatFactory

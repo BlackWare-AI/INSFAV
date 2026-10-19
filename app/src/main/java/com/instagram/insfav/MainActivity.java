@@ -2,9 +2,11 @@ package com.instagram.insfav;
 
 import android.app.*;
 import android.content.*;
+import android.content.pm.PackageInfo;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.*;
+import android.provider.DocumentsContract;
 import android.view.*;
 import android.webkit.*;
 import android.widget.FrameLayout;
@@ -16,14 +18,14 @@ import java.util.concurrent.*;
 public final class MainActivity extends Activity {
     private WebView web;
     private Store store;
-    private final ExecutorService io=Executors.newSingleThreadExecutor();
-    private final ExecutorService imageIo=Executors.newSingleThreadExecutor();
-    private volatile int viewerGeneration;
+    private LocalImages images;
+    private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private final ExecutorService scans = Executors.newSingleThreadExecutor();
     private String pendingExport;
-    private static final int IMPORT=20,EXPORT=21;
-    @Override public void onCreate(Bundle state){
-        super.onCreate(state);store=Store.get(this);
-        try{synchronized(store){if(!RetrievalService.active&&"running".equals(store.queue.optString("state"))){store.queue.put("state","paused");store.queue.put("reason","APP_RESTARTED");store.saveQueue();}}}catch(Exception e){store.log("startup",e.getClass().getSimpleName());}
+    private final java.util.concurrent.atomic.AtomicBoolean scanPending = new java.util.concurrent.atomic.AtomicBoolean();
+    private static final int IMPORT = 20, EXPORT = 21, FOLDER = 22;
+    @Override public void onCreate(Bundle state) {
+        super.onCreate(state); store = Store.get(this); images = new LocalImages(this, store);
         getWindow().setStatusBarColor(Color.BLACK);getWindow().setNavigationBarColor(Color.BLACK);
         getWindow().getDecorView().setSystemUiVisibility(0);
         if(Build.VERSION.SDK_INT>=29)getWindow().setNavigationBarContrastEnforced(false);
@@ -31,67 +33,140 @@ public final class MainActivity extends Activity {
         FrameLayout root=new FrameLayout(this);root.setBackgroundColor(Color.BLACK);
         root.setOnApplyWindowInsetsListener((v,insets)->{if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()|WindowInsets.Type.ime());v.setPadding(bars.left,bars.top,bars.right,bars.bottom);}else{v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());}return insets.consumeSystemWindowInsets();});
         web=new WebView(this);web.setBackgroundColor(Color.BLACK);web.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        WebSettings s=web.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);s.setAllowFileAccess(false);s.setAllowContentAccess(false);s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setSupportZoom(false);s.setMediaPlaybackRequiresUserGesture(true);
+        WebSettings s=web.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(false);s.setCacheMode(WebSettings.LOAD_NO_CACHE);s.setAllowFileAccess(false);s.setAllowContentAccess(false);s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setSupportZoom(false);s.setMediaPlaybackRequiresUserGesture(true);
         CookieManager.getInstance().setAcceptCookie(false);CookieManager.getInstance().setAcceptThirdPartyCookies(web,false);
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);web.addJavascriptInterface(new Bridge(),"Android");
-        web.setWebViewClient(new WebViewClient(){
-            @Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest request){
-                Uri uri=request.getUrl();if(!"https".equals(uri.getScheme())||!"insfav.local".equals(uri.getHost()))return response("text/plain",new byte[0]);
-                String p=uri.getPath();try{
-                    if(p.startsWith("/thumb/")||p.startsWith("/full/")){String user=Store.normalize(uri.getLastPathSegment());if(!user.matches("[a-z0-9._]{1,30}"))return response("image/webp",new byte[0]);File file=p.startsWith("/thumb/")?store.thumbnail(user):store.fullImage(user);return new WebResourceResponse("image/webp",null,new FileInputStream(file));}
-                    String name="/".equals(p)?"index.html":p.substring(1);if(!name.matches("[a-zA-Z0-9._-]+"))return response("text/plain",new byte[0]);String mime=name.endsWith(".woff2")?"font/woff2":name.endsWith(".ttf")?"font/ttf":name.endsWith(".js")?"application/javascript":name.endsWith(".css")?"text/css":"text/html";return new WebResourceResponse(mime,"UTF-8",getAssets().open(name));
-                }catch(Exception e){return response("text/plain",new byte[0]);}
+        web.setWebViewClient(new WebViewClient() {
+            @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                Uri uri = request.getUrl();
+                if (!"https".equals(uri.getScheme()) || !"insfav.local".equals(uri.getHost())) return response("text/plain", new byte[0]);
+                String path = uri.getPath();
+                try {
+                    if (path.startsWith("/thumb/") || path.startsWith("/full/")) {
+                        String user = Store.normalize(uri.getLastPathSegment());
+                        if (!user.matches("[a-z0-9._]{1,30}")) return response("image/webp", new byte[0]);
+                        return response(path.startsWith("/full/") ? "image/png" : "image/webp", images.image(user, path.startsWith("/full/")));
+                    }
+                    String name = "/".equals(path) ? "index.html" : path.substring(1);
+                    if (!name.matches("[a-zA-Z0-9._-]+")) return response("text/plain", new byte[0]);
+                    String mime = name.endsWith(".woff2") ? "font/woff2" : name.endsWith(".webp") ? "image/webp" : name.endsWith(".js") ? "application/javascript" : name.endsWith(".css") ? "text/css" : "text/html";
+                    return new WebResourceResponse(mime, "UTF-8", getAssets().open(name));
+                } catch (Exception error) {store.log("local_resource", "READ_ERROR"); return response("text/plain", new byte[0]);}
             }
-            @Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest req){return true;}
-            @Override public boolean onRenderProcessGone(WebView v,RenderProcessGoneDetail detail){store.log("web_renderer","stopped");root.removeView(v);v.destroy();recreate();return true;}
+            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {return true;}
+            @Override public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+                store.log("web_renderer", "stopped"); root.removeView(view); web = null; view.destroy(); recreate(); return true;
+            }
         });
-        root.addView(web,new FrameLayout.LayoutParams(-1,-1));setContentView(root);root.requestApplyInsets();web.loadUrl("https://insfav.local/index.html");
-        Thread.setDefaultUncaughtExceptionHandler((thread,error)->{store.log("uncaught",error.getClass().getSimpleName());android.os.Process.killProcess(android.os.Process.myPid());});
+        root.addView(web, new FrameLayout.LayoutParams(-1, -1)); setContentView(root); root.requestApplyInsets();
+        web.loadUrl("https://insfav.local/index.html");
     }
-    private WebResourceResponse response(String mime,byte[] bytes){return new WebResourceResponse(mime,"UTF-8",new ByteArrayInputStream(bytes));}
-    private void send(String event,Object data){runOnUiThread(()->{if(web==null||isDestroyed())return;String value=data instanceof JSONObject||data instanceof JSONArray?data.toString():JSONObject.quote(String.valueOf(data));web.evaluateJavascript("window.nativeEvent&&window.nativeEvent("+JSONObject.quote(event)+","+value+")",null);});}
-    private void error(Exception e){store.log("operation_error",e.getClass().getSimpleName());send("error",e.getMessage()==null?"Operation failed":e.getMessage());}
+    @Override protected void onResume() {
+        super.onResume();
+        io.execute(() -> {images.checkAccess(); try {send("status", images.snapshot(true));} catch (Exception error) {error(error);}});
+    }
+    private WebResourceResponse response(String mime, byte[] bytes) {return new WebResourceResponse(mime, null, new ByteArrayInputStream(bytes));}
+    private void send(String event, Object data) {
+        runOnUiThread(() -> {
+            if (web == null || isDestroyed()) return;
+            String value = data instanceof JSONObject ? data.toString() : JSONObject.quote(String.valueOf(data));
+            web.evaluateJavascript("window.nativeEvent&&window.nativeEvent(" + JSONObject.quote(event) + "," + value + ")", null);
+        });
+    }
+    private void error(Exception error) {store.log("operation_error", error.getClass().getSimpleName()); send("error", error.getMessage() == null ? "Operation failed" : error.getMessage());}
+    private JSONObject appInfo() throws Exception {
+        PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
+        return new JSONObject().put("version", info.versionName).put("build", Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode);
+    }
     public final class Bridge {
-        @JavascriptInterface public void request(String raw){io.execute(()->{try{JSONObject p=new JSONObject(raw);String command=p.getString("command");
-            switch(command){
-                case "bootstrap":{JSONObject b=store.snapshot();b.put("raw",store.original());b.put("stats",new JSONObject().put("usage",incrementUsage()).put("load",getPreferences(0).getInt("load",0)).put("clear",getPreferences(0).getInt("clear",0)));send("bootstrap",b);break;}
-                case "status":send("status",store.snapshot(false));break;
-                case "import":runOnUiThread(()->{Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);i.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"application/json","text/json","text/plain","application/octet-stream"});startActivityForResult(i,IMPORT);});break;
-                case "export":if(store.original().isEmpty())throw new Exception("No collections to export");export(store.original(),"INSFAV-backup.json","application/json");break;
-                case "frontend-error":store.log("web_error",p.optString("code","script"));break;
-                case "logs":export(store.logs(),"INSFAV-diagnostics.txt","text/plain");break;
-                case "clear-data":ensureIdle();store.clearDocument();getPreferences(0).edit().putInt("clear",getPreferences(0).getInt("clear",0)+1).apply();send("cleared","");break;
-                case "clear-thumbs":ensureIdle();store.clearImages(false);send("status",store.snapshot());send("message","Thumbnails cleared. Collections are unchanged.");break;
-                case "clear-temp":viewerGeneration++;synchronized(ProfileProvider.NETWORK_LOCK){store.clearImages(true);}send("message","Temporary images cleared.");break;
-                case "clear-failures":ensureIdle();store.clearFailures();send("status",store.snapshot());break;
-                case "start":startQueue(p.optString("mode","missing"));break;
-                case "pause":case "cancel":synchronized(store){store.queue.put("state",command.equals("pause")?"paused":"cancelled");store.queue.put("reason","user");store.saveQueue();}if(RetrievalService.active)startService(new Intent(MainActivity.this,RetrievalService.class).setAction(command));send("status",store.snapshot());break;
-                case "resume":synchronized(store){if(!"paused".equals(store.queue.optString("state")))throw new Exception("No paused retrieval to resume");if(store.queue.optLong("retryAfter")>System.currentTimeMillis())throw new Exception("Please wait for the server cooldown before resuming.");store.queue.put("state","running");store.saveQueue();}launchService();break;
-                case "open":openInstagram(p.getString("user"));break;
-                case "full":fetchFull(p.getString("user"));break;
-                case "close-viewer":viewerGeneration++;break;
-                default:throw new Exception("Unsupported operation");
+        @JavascriptInterface public void request(String raw) {
+            if (io.isShutdown()) return;
+            try {io.execute(() -> {
+                try {
+                    JSONObject input = new JSONObject(raw); String command = input.getString("command");
+                    switch (command) {
+                        case "bootstrap": {
+                            images.checkAccess(); JSONObject result = images.snapshot(true);
+                            result.put("raw", store.original()).put("app", appInfo()).put("stats", new JSONObject().put("usage", incrementUsage()).put("load", getPreferences(0).getInt("load", 0)).put("clear", getPreferences(0).getInt("clear", 0)));
+                            send("bootstrap", result); break;
+                        }
+                        case "status": send("status", images.snapshot(true)); break;
+                        case "select-folder": selectFolder(); break;
+                        case "rescan": startScan(); break;
+                        case "clear-cache": images.clearCache(); images.clearLegacyCache(); send("status", images.snapshot(true)); send("message", "Image cache cleared. Source photos and collections are unchanged."); break;
+                        case "clear-index": images.clearIndex(); send("status", images.snapshot(true)); send("message", "Thumbnail index cleared. Source photos and collections are unchanged."); break;
+                        case "image-failed": send("status", images.snapshot(true)); break;
+                        case "import": runOnUiThread(() -> {
+                            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);
+                            intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/json", "text/plain", "application/octet-stream"}); startActivityForResult(intent, IMPORT);
+                        }); break;
+                        case "export": if (store.original().isEmpty()) throw new IOException("No collections to export"); export(store.original(), "INSFAV-backup.json", "application/json"); break;
+                        case "logs": export(store.logs(), "INSFAV-diagnostics.txt", "text/plain"); break;
+                        case "frontend-error": store.log("web_error", input.optString("code", "script")); break;
+                        case "clear-data": store.clearDocument(); getPreferences(0).edit().putInt("clear", getPreferences(0).getInt("clear", 0) + 1).apply(); send("cleared", ""); break;
+                        case "open": openInstagram(input.getString("user")); break;
+                        default: throw new IOException("Unsupported operation");
+                    }
+                } catch (Exception error) {error(error);}
+            });} catch (RejectedExecutionException ignored) { }
+        }
+    }
+    private int incrementUsage() {int value = getPreferences(0).getInt("usage", 0) + 1; getPreferences(0).edit().putInt("usage", value).apply(); return value;}
+    private void selectFolder() {
+        if (images.scanning() || scanPending.get()) {send("error", "Wait for the scan to finish."); return;}
+        runOnUiThread(() -> {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+            String current; synchronized (store) {current = store.settings.optString("treeUri");}
+            if (!current.isEmpty()) intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, Uri.parse(current));
+            startActivityForResult(intent, FOLDER);
+        });
+    }
+    private void startScan() {
+        if (!scanPending.compareAndSet(false, true)) {send("message", "A scan is already in progress."); return;}
+        scans.execute(() -> {try {images.scan((event, result) -> send(event, result));} finally {scanPending.set(false);}});
+    }
+    private void openInstagram(String name) {
+        String user = Store.normalize(name);
+        if (!user.matches("[a-z0-9._]{1,30}")) {send("error", "Invalid Instagram username"); return;}
+        runOnUiThread(() -> {
+            try {startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("instagram://user?username=" + Uri.encode(user))));}
+            catch (ActivityNotFoundException error) {
+                try {startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.instagram.com/" + user + "/")));}
+                catch (ActivityNotFoundException missing) {send("error", "No app can open this profile.");}
             }
-        }catch(Exception e){error(e);}});}
+        });
     }
-    private int incrementUsage(){int n=getPreferences(0).getInt("usage",0)+1;getPreferences(0).edit().putInt("usage",n).apply();return n;}
-    private void ensureIdle() throws Exception {synchronized(store){if(RetrievalService.active||"running".equals(store.queue.optString("state")))throw new Exception("Pause retrieval before changing stored data.");}}
-    private void startQueue(String mode) throws Exception {
-        ensureIdle();if(!mode.equals("missing")&&!mode.equals("refresh")&&!mode.equals("failed"))throw new Exception("Invalid retrieval mode");
-        synchronized(store){JSONArray users=new JSONArray();for(String u:store.users()){JSONObject p=store.profiles.optJSONObject(u);if(mode.equals("failed")?(p!=null&&p.has("error")&&!store.thumbnail(u).isFile()):mode.equals("refresh")||!store.thumbnail(u).isFile())users.put(u);}
-            store.queue=new JSONObject().put("users",users).put("mode",mode).put("state",users.length()==0?"completed":"running").put("cursor",0).put("success",0).put("failed",0).put("skipped",0).put("elapsedMs",0).put("started",System.currentTimeMillis());store.saveQueue();store.log("queue_start",mode);if(users.length()>0)launchService();}
-        send("status",store.snapshot());
+    private void export(String content, String name, String mime) {
+        if (pendingExport != null) {send("error", "Finish the current export first."); return;}
+        pendingExport = content;
+        runOnUiThread(() -> startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).setType(mime).addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE, name), EXPORT));
     }
-    private void launchService(){runOnUiThread(()->{try{if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},7);startForegroundService(new Intent(this,RetrievalService.class).setAction("run"));}catch(Exception e){try{synchronized(store){store.queue.put("state","paused");store.queue.put("reason","ANDROID_START_RESTRICTED");store.saveQueue();}}catch(Exception ignored){}error(e);}});}
-    private void openInstagram(String name){String u=Store.normalize(name);if(!u.matches("[a-z0-9._]{1,30}")){send("error","Invalid Instagram username");return;}runOnUiThread(()->{try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("instagram://user?username="+Uri.encode(u))));}catch(ActivityNotFoundException e){try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("https://www.instagram.com/"+u+"/")));}catch(ActivityNotFoundException noBrowser){send("error","No app can open this profile.");}}});}
-    private void fetchFull(String name){String u=Store.normalize(name);final int generation=++viewerGeneration;
-        imageIo.execute(()->{try{if(store.fullImage(u).isFile()){if(generation==viewerGeneration)send("full-ready",u);return;}if(RetrievalService.active){send("full-unavailable",u);return;}ProfileProvider.retrieve(store,u,true,()->generation!=viewerGeneration||isDestroyed());if(generation==viewerGeneration)send("full-ready",u);}catch(InterruptedException ignored){}catch(Exception e){store.log("full_image",e instanceof ProfileProvider.Failure?((ProfileProvider.Failure)e).code:e.getClass().getSimpleName());if(generation==viewerGeneration)send("full-unavailable",u);}});
+    @Override protected void onActivityResult(int request, int result, Intent intent) {
+        super.onActivityResult(request, result, intent);
+        if (result != RESULT_OK || intent == null || intent.getData() == null) {if (request == EXPORT) pendingExport = null; return;}
+        Uri uri = intent.getData(); int flags = intent.getFlags();
+        io.execute(() -> {
+            try {
+                if (request == FOLDER) {images.select(uri, flags); send("status", images.snapshot(true)); startScan();}
+                else if (request == IMPORT) {
+                    String raw;
+                    try (InputStream input = getContentResolver().openInputStream(uri); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+                        if (input == null) throw new IOException("Document cannot be opened"); byte[] bytes = new byte[8192]; int length;
+                        while ((length = input.read(bytes)) != -1) {if (output.size() + length > 32 * 1024 * 1024) throw new IOException("JSON exceeds 32 MiB"); output.write(bytes, 0, length);}
+                        raw = output.toString("UTF-8");
+                    }
+                    store.importDocument(raw); getPreferences(0).edit().putInt("load", getPreferences(0).getInt("load", 0) + 1).apply();
+                    JSONObject snapshot = images.snapshot(true); snapshot.put("raw", raw); send("imported", snapshot);
+                } else if (request == EXPORT && pendingExport != null) {
+                    try (OutputStream output = getContentResolver().openOutputStream(uri, "wt")) {if (output == null) throw new IOException("Destination cannot be opened"); output.write(pendingExport.getBytes(StandardCharsets.UTF_8));}
+                    pendingExport = null; store.log("export", "success"); send("message", "Export complete.");
+                }
+            } catch (Exception error) {if (request == EXPORT) pendingExport = null; error(error);}
+        });
     }
-    private void export(String content,String name,String mime){pendingExport=content;runOnUiThread(()->{Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType(mime).addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,name);startActivityForResult(i,EXPORT);});}
-    @Override protected void onActivityResult(int request,int result,Intent intent){super.onActivityResult(request,result,intent);if(result!=RESULT_OK||intent==null||intent.getData()==null){pendingExport=null;return;}Uri uri=intent.getData();io.execute(()->{try{
-        if(request==IMPORT){ensureIdle();byte[] bytes;try(InputStream in=getContentResolver().openInputStream(uri);ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] buffer=new byte[8192];int n;while((n=in.read(buffer))!=-1){if(out.size()+n>32*1024*1024)throw new IOException("JSON exceeds 32 MiB");out.write(buffer,0,n);}bytes=out.toByteArray();}store.importDocument(new String(bytes,StandardCharsets.UTF_8));getPreferences(0).edit().putInt("load",getPreferences(0).getInt("load",0)+1).apply();JSONObject s=store.snapshot();s.put("raw",store.original());send("imported",s);}
-        else if(request==EXPORT&&pendingExport!=null){try(OutputStream out=getContentResolver().openOutputStream(uri,"wt")){out.write(pendingExport.getBytes(StandardCharsets.UTF_8));}pendingExport=null;store.log("export","success");send("message","Export complete.");}
-    }catch(Exception e){error(e);}});}
-    @Override public void onBackPressed(){web.evaluateJavascript("window.handleBack&&window.handleBack()",value->{if(!"true".equals(value))super.onBackPressed();});}
-    @Override protected void onDestroy(){viewerGeneration++;io.shutdownNow();imageIo.shutdownNow();if(web!=null){web.removeJavascriptInterface("Android");web.destroy();web=null;}super.onDestroy();}
+    @Override public void onBackPressed() {if (web == null) {super.onBackPressed(); return;} web.evaluateJavascript("window.handleBack&&window.handleBack()", value -> {if (!"true".equals(value)) super.onBackPressed();});}
+    @Override protected void onDestroy() {
+        images.cancelScan(); scans.shutdownNow(); io.shutdownNow();
+        if (web != null) {web.removeJavascriptInterface("Android"); web.destroy(); web = null;} super.onDestroy();
+    }
 }

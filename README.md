@@ -1,87 +1,101 @@
 # INSFAV
 
-Independent Android collection browser based on the supplied HTML/CSS/JavaScript UI. Not affiliated with Instagram or Meta. Application ID: `com.instagram.insfav`. Minimum Android 8.0 (API 26), target/compile API 35. The main reference device is Galaxy A72 / Android 14.
+INSFAV is an independent Instagram account collection manager by **BlackWare**, with **OpenAI ChatGPT** providing AI development assistance. It is not affiliated with Meta or Instagram.
+
+Version/build are defined in `version.properties` and read from the actual Android package by the About screen. Application ID: `com.instagram.insfav`. Minimum Android 8.0 / API 26; compile and target API 35.
+
+## Local-only profile images
+
+INSFAV does not download profile photos, scrape Instagram, run retrieval services or request network/storage-wide permissions. Account-name taps still open the Instagram application or an external browser. All in-app image requests resolve to selected local documents through the private intercepted WebView origin.
+
+1. Open **Application Information → Settings → Select Thumbnail Folder**.
+2. Select `.thumbnails` using the Android system folder picker. If your picker hides dot folders, select its parent; INSFAV recognizes a direct `.thumbnails` child automatically.
+3. Grant read access. INSFAV persists the SAF read grant and scans the folder without modifying source files.
+4. Use **Rescan Thumbnails** after changing the folder contents. Scrolling never rescans the directory.
+
+```text
+.thumbnails/
+  example.user.webp
+  second_user.jpg
+  third_user.JPEG
+  another_user.PNG
+```
+
+Names are trimmed, one leading `@` is removed, and matching is case insensitive. Periods within usernames are preserved. Supported extensions are `.webp`, `.jpg`, `.jpeg`, and `.png`. Only direct children of the chosen folder are scanned. Filename mapping is sufficient; a `manifest.json` is not required and is currently ignored. Account JSON records do not need image-path fields.
+
+Each candidate is checked with bounded image decoding. Malformed, unsupported, oversized and unreadable files do not crash the application. Missing photos use a gray person glyph in the original 40 dp rounded rectangular box. Lists decode 128 px center-cropped thumbnails. Fullscreen uses the same selected local source, retains its aspect ratio and supports pinch zoom, double tap, pan and Back. Source images up to 2048 px are shown at their available decoded resolution; larger images use a memory-bounded preview up to 2048 px, explicitly labeled. Fullscreen previews are encoded losslessly in memory and are not saved to permanent storage. No save-photo button or artificial Full HD source is provided.
+
+If duplicate candidates normalize to the same username, readable images win; then higher pixel area, WebP/JPEG/PNG preference at equal resolution, exact filename and URI provide deterministic tie breaking. Provider enumeration order does not change the choice.
+
+### Statistics
+
+- **Total Accounts**: all collection memberships, including repeated accounts.
+- **Unique Accounts**: normalized nonempty usernames in the current JSON.
+- **Matched Images**: unique current accounts whose indexed selected candidate passed validation and whose folder remains accessible.
+- **Missing Images**: unique current accounts minus matched accounts; includes accounts with only unreadable candidates.
+- **Unreadable Images**: candidate files that failed validation across the whole scanned folder, plus selected files found unreadable during later access.
+- **Duplicate Image Candidates**: extra files beyond the first candidate for a normalized username across the folder, including invalid candidates.
+- **Indexed Folder Size**: sum of known sizes of supported-extension source files. Unknown sizes are marked separately. This is not app cache usage.
+- **Last Scan Date**: last successfully committed complete scan.
+- **Selected Folder**: friendly name and provider document ID. Folder URIs are never written to diagnostic logs.
+
+Counts describe the last committed index, not a continuously watched filesystem. If files change, rescan. A lost grant, removed/moved folder or unavailable provider is reported in Settings; reselecting the folder restores access when available. Android's folder picker restrictions still apply: no access is requested to restricted system directories, storage roots or other apps' private data.
+
+**Clear Image Cache** removes only app-owned disposable display files, including former v3.0 image-cache files. **Clear Thumbnail Index** removes only the app's mapping and display cache; it keeps the selected folder and its read grant. Neither operation deletes source photos or the collection JSON. Both require confirmation. Folder replacement invalidates the old mapping and releases the old read grant after the new selection is saved. Scans are foreground, cancellable with Activity destruction and transactional: an interrupted rescan preserves the last completed index for the same folder; it never publishes a partial catalog. Rescan manually after interruption.
+
+## Collection data and migration
+
+Import accepts a collection array or an object whose `favorite_page_pref` is an array or a JSON-encoded collection string. Original import text is retained atomically and exported unchanged, including unknown fields, preferences, ordering, case and multi-collection memberships. Invalid input does not replace the existing document. Import size is limited to 32 MiB.
+
+Updating a release signed with the same key preserves `document.json`, usage/import/reset counters and settings. Former retrieval queue, cooldown and failure-state files are removed; no retrieval can resume. The old `thumbnails` private files are not used as external sources and can be removed with explicit **Clear Image Cache**. The `.thumbnails` directory belongs to the user and is never written by INSFAV.
+
+Collection management currently means importing/exporting backups, browsing, expanding/collapsing collections and resetting the imported document. Arbitrary manual account/category editing is not presented as an implemented capability.
+
+## Architecture
+
+- `MainActivity`: protected local WebView, native window insets, read-only SAF folder selection, JSON system pickers, app metadata, external profile intents and bounded task lifetimes.
+- `Store`: atomic original JSON, preferences, index metadata and rotated redacted diagnostics.
+- `LocalImages`: transactional SAF scan, persisted URI/index, permission checks and a disposable 24 MiB thumbnail cache (trimmed to 18 MiB on overflow).
+- `ImageCodec`: validated, bounded local decoding and prompt stream/bitmap cleanup.
+- `ThumbnailPolicy`: Android-independent identity, duplicate ordering and statistics policy.
+- `web/`: readable UI source. `app/src/main/assets/`: reproducible minified runtime bundles, fonts and supplied logo.
+
+The application has no third-party runtime dependency. JUnit/Robolectric and npm packages are development-only. About credits do not imply ownership by OpenAI. The original supplied logo is retained in `artwork/` and packaged into launcher, adaptive and in-app assets through normal sizing, without redesigning it.
 
 ## Build
 
-Install JDK 17 and Android SDK Platform 35 / Build Tools 35.0.0. Open the root directory in Android Studio, allow Gradle sync, then build:
+Install JDK 17, Android SDK Platform 35 / Build Tools 35.0.0, then open the project root in Android Studio:
 
 ```sh
-./gradlew :app:assembleDebug :app:assembleRelease :app:lintDebug
+./gradlew :app:assembleDebug :app:assembleRelease :app:lintDebug :app:testDebugUnitTest
 ```
 
-Windows: use `gradlew.bat`. Gradle 8.13 and Android Gradle Plugin 8.9.1 are pinned. The app has no third-party runtime library dependency. JavaScript and CSS are bundled locally, including licensed Inter fonts. Network access is unnecessary for the collection UI after installation.
-
-`assembleRelease` uses R8 and resource shrinking. Without signing environment variables, Gradle produces an unsigned release. To sign your release, set these variables privately:
-
-- `INSFAV_KEYSTORE`: absolute path to your PKCS12/JKS file
-- `INSFAV_KEY_ALIAS`: defaults to `insfav`
-- `INSFAV_STORE_PASSWORD`
-- `INSFAV_KEY_PASSWORD`: defaults to the store password
-
-Never commit these values or the signing key. The delivered release uses the separately delivered signing kit. Keep that key for future updates. Debug and release use the same application ID and different signatures, so switching between them requires uninstalling the other build. Export your JSON first; Android uninstall removes private app data.
-
-### SDK-only fallback
-
-If Gradle dependency repositories are inaccessible, this project also includes an independently verified SDK build path:
+Windows: `gradlew.bat`. Gradle 8.13 / AGP 8.9.1 are pinned. Generated web bundles are committed, so Android Studio does not require Node to build. To edit the UI, edit `web/`, then run:
 
 ```sh
-export JAVA_HOME=/path/to/jdk17
-export ANDROID_HOME=/path/to/android-sdk
-python3 tools/build-sdk.py
-python3 tools/build-sdk.py --release
+npm ci --ignore-scripts
+npm run web
 ```
 
-Outputs: `app/build/sdk/debug/INSFAV-debug.apk` and the equivalent release directory. This path uses AAPT2, javac, D8 / R8, zipalign and apksigner from Build Tools 35.0.0. Release signing uses the same environment variables. It performs code shrinking through R8; Gradle additionally provides resource shrinking. There are only two application XML resources, both used, so no large unused resource set is bundled.
+Pinned Terser/CleanCSS tooling preserves global bridge bindings and creates source maps outside the APK. CI regenerates bundles and rejects drift. R8 and resource shrinking are enabled for release. Never edit generated assets directly.
 
-## Use
+Release signing uses private environment variables `INSFAV_KEYSTORE`, `INSFAV_KEY_ALIAS` (default `insfav`), `INSFAV_STORE_PASSWORD`, and `INSFAV_KEY_PASSWORD` (defaults to store password). Without them Gradle produces an unsigned release. The supplied release uses the same private release key as v3.0, allowing a normal update. Debug and release signatures differ; export data before uninstalling to switch variants.
 
-1. Tap `+` to import a JSON document with the Android system picker.
-2. Tap a collection header to expand or collapse it. Search by display name or username.
-3. Tap an account name to open Instagram, falling back to its HTTPS profile page. Tap a cached image to open the separate fullscreen viewer.
-4. Tap the information button, then **Settings**, for retrieval, storage, JSON export and diagnostic logs.
+The alternative `tools/build-sdk.py` uses AAPT2, javac, D8/R8, zipalign and apksigner directly with `JAVA_HOME` and `ANDROID_HOME`; add `--release` for R8. It reads the same version properties and supports the same signing variables. Gradle additionally performs resource shrinking.
 
-### Original data preservation
-
-Accepted documents: a collection array, an object with an array `favorite_page_pref`, or an object with a JSON-encoded string in that field. Collection entries require `name` and `items`; account entries require a string `pageId` and an optional string `name`. The original import text is saved atomically and exported unchanged, including unrelated preferences, unknown fields, original casing, ordering and repeated collection memberships. Search indexes and image identities are separate derived data. Invalid imports do not replace the stored document. Import size is limited to 32 MiB.
-
-Do not put personal backups, usernames, screenshots, private logs or signing credentials in this public repository. Tests contain anonymous fixtures only. The actual supplied backup was checked privately and is not included.
-
-### Profile retrieval limitations
-
-`ProfileProvider` uses only cookie-free, public HTTPS pages; no Meta key, login, private endpoints, CAPTCHA bypass or hidden session data. `ProfileParser` requires matching `og:url` and account identity in `og:title`, plus an HTTPS image from an allowed Instagram CDN. Generic logos, static assets, malformed images and ambiguous pages are rejected. Images must also pass bounded decoding validation. Generic HTTP 404 responses do **not** prove account deletion and remain missing-data failures. A confirmed-unavailable status is reserved for a provider that can establish that fact reliably.
-
-In the real small-scale tests on two public profiles, HTTP 200 pages contained no `og:image`, so real login-free image retrieval was **not successful in this environment**. The downloader is implemented, but reliable access to actual photos is not claimed. Website changes or restrictions may require replacing the provider. The application remains useful for all collection and JSON operations without images.
-
-Retrieval starts only from Settings. One profile is processed at a time, with a persisted random 6–25 second interval between profile attempts. One profile attempt can include its HTML request and its validated CDN image request. Shared serialization also applies to fullscreen fetches. Existing images are skipped except during an explicit refresh. Failed-only retrieval skips profiles with an existing image. HTTP 429 respects `Retry-After`; access restrictions/login requirements pause retrieval. Three consecutive other failures also pause it to avoid thousands of useless requests. Resuming is a deliberate user action. These delays do not guarantee that Instagram will allow access.
-
-The foreground service saves cursor, counters, failures, cooldown and work state. Pause and cancel are cooperative; an in-flight request may finish or reach its bounded timeout before stopping. Process death leaves a resumable queue; reopening converts interrupted work to paused state and does not restart network work. Android may suspend/stop the service and modern Android versions impose data-sync time limits. `onTimeout` checkpoints and stops work; return to the app to resume manually. No boot receiver or exact alarm is used.
-
-A fullscreen viewer shows the 128 px cached thumbnail immediately and requests available larger metadata images after a random 2–6 seconds. It does not manufacture a Full HD URL or upscale a tiny image into a claimed high-resolution photo. Existing temporary larger images are reused. New larger-image requests are skipped while batch retrieval is active. Pinch zoom, double tap and panning are implemented. No image-save button is provided.
-
-### Storage and privacy
-
-- Original JSON, queue, profile status and 128 × 128 WebP thumbnails: private `filesDir`, persistent across normal updates signed with the same key.
-- Larger images: only the temporary `cacheDir/full-resolution` directory, bounded to 2048 px, trimmed to 32 MiB / seven days after writes, manually clearable and eligible for Android eviction.
-- Cache clearing never removes the JSON collection document. Collection clearing cancels pending retrieval but leaves image caches separate.
-- Diagnostic logs: two rotated files of approximately 256 KiB each. Logs contain event/error codes without usernames, original JSON, request URLs, cookies or API keys.
-- A local HTTPS origin is served by WebView request interception. File/content access, remote scripts, cookies and remote WebView navigation are disabled. Instagram is opened in an external app/browser.
-- Native window insets reserve status bars, cutouts, gesture/navigation area and the keyboard. The page has a pure-black background and original rounded rectangular image boxes.
-
-## Tests
+## Verification
 
 ```sh
 node --test tests/core.test.cjs
-javac -d /tmp/insfav-test app/src/main/java/com/instagram/insfav/ProfileParser.java tests/java/com/instagram/insfav/ProfileParserTest.java
-java -cp /tmp/insfav-test com.instagram.insfav.ProfileParserTest
-```
-
-For browser integration tests, install Playwright outside the runtime application and set `CHROME_BIN` to your Chromium executable:
-
-```sh
+javac -d /tmp/insfav-policy app/src/main/java/com/instagram/insfav/ThumbnailPolicy.java tests/java/com/instagram/insfav/ThumbnailPolicyTest.java
+java -cp /tmp/insfav-policy com.instagram.insfav.ThumbnailPolicyTest
 CHROME_BIN=/path/to/chromium node tests/browser.cjs
 ```
 
-The optional `PRIVATE_JSON` variable points to a local backup for private verification; it is never printed or copied into the project. `UI_SCREENSHOT` optionally writes a screenshot of anonymous test data only. Browser tests emulate native bridge responses: they verify UI dispatch and rendering, **not** execution of Android services or real image retrieval. Device testing is still required for actual service lifecycle, notifications, background power restrictions, OEM keyboard/insets behavior and APK installation.
+Browser tests use a simulated Android bridge and anonymous data. `PRIVATE_JSON` optionally verifies a local private backup without printing/copying its contents; `UI_SCREENSHOT` writes an anonymous test screenshot. They do not prove physical device behavior.
 
-The JavaScript tests cover schema validation, lossless preservation, search, memberships, image deduplication and bounded virtual windows at 1,000/5,000/10,000 accounts. JVM parser tests cover identity matching, logo rejection, CDN restrictions and ambiguous pages. CI builds debug/release and runs lint and JavaScript tests on GitHub Actions. A neutral temporary icon is provided in `ic_app.xml` for later replacement.
+Robolectric tests run the actual storage, scan and image modules against an isolated SAF provider at simulated Android API 28 and 34. They cover JSON preservation, duplicate matching, malformed images, read-grant persistence/loss, folder replacement, hidden-child selection, cache/index isolation and absence of directory rescans on image access. Real Samsung/system-picker behavior, USB/cloud providers and physical-device frame pacing still require device testing.
+
+Do not commit personal backups, usernames, private logs or signing keys. Diagnostic logs are limited to two approximately 256 KiB files and omit document URIs, account names and original JSON.
+
+Android SAF references: https://developer.android.com/training/data-storage/shared/documents-files and https://developer.android.com/reference/android/provider/DocumentsContract .
