@@ -60,7 +60,7 @@ Collection management currently means importing/exporting backups, browsing, exp
 - `ThumbnailPolicy`: Android-independent identity, duplicate ordering and statistics policy.
 - `web/`: readable UI source. `app/src/main/assets/`: reproducible minified runtime bundles, fonts and supplied logo.
 
-The application has no third-party runtime dependency. JUnit/Robolectric and npm packages are development-only. About credits do not imply ownership by OpenAI. The original supplied logo is retained in `artwork/` and packaged into launcher, adaptive and in-app assets through normal sizing, without redesigning it.
+The application has no third-party runtime dependency. JUnit/Robolectric and npm packages are development-only. About credits do not imply ownership by OpenAI. The original supplied logo is retained in `artwork/` and packaged into launcher, adaptive and in-app assets through normal sizing, without redesigning it. `tools/prepare-icons.py` (optional Pillow development tool) reproduces the lossless WebP sizes and validates decoded pixels.
 
 ## Build
 
