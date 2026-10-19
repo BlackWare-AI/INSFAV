@@ -1,0 +1,12 @@
+*.apk
+*.aab
+*.jks
+*.keystore
+local.properties
+.gradle/
+**/build/
+.private/
+node_modules/
+test-results/
+*backup*.json
+*log*.txt
