@@ -22,7 +22,6 @@ public final class ThumbnailPolicyTest {
         check(catalog.duplicates==2,"duplicates count additional candidate files");
         check(catalog.unreadable==1,"unreadable counts files independently");
         check(catalog.bytes==300,"folder bytes count source candidate files");
-        check(catalog.matched(new HashSet<>(Arrays.asList("example","missing")))==1,"matched counts unique current accounts");
         check(catalog.best.size()==1,"different case and extension share one index identity");
         ThumbnailPolicy.Catalog reversed=new ThumbnailPolicy.Catalog();
         reversed.add(c("EXAMPLE.jpg",1024,true));reversed.add(c("example.webp",128,true));reversed.add(c("Example.png",512,false));
@@ -32,7 +31,7 @@ public final class ThumbnailPolicyTest {
         for(int n:new int[]{1000,5000,10000}) {
             long started=System.nanoTime();ThumbnailPolicy.Catalog large=new ThumbnailPolicy.Catalog();Set<String> users=new HashSet<>();
             for(int i=0;i<n;i++){String user="user"+i;users.add(user);large.add(c(user+".webp",128,true));}
-            check(large.matched(users)==n,"catalog matches "+n+" unique accounts");System.out.println("Catalog "+n+": "+((System.nanoTime()-started)/1000000)+" ms");
+            check(large.best.size()==n && large.best.values().stream().allMatch(candidate -> candidate.readable),"catalog matches "+n+" unique accounts");System.out.println("Catalog "+n+": "+((System.nanoTime()-started)/1000000)+" ms");
         }
         System.out.println(passed+" policy checks passed");
     }

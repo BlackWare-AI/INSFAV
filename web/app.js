@@ -1,9 +1,7 @@
 'use strict';
 const C=InsfavCore,$=id=>document.getElementById(id),native=!!window.Android;
 let doc=null,profiles={},stats={usage:0,load:0,clear:0},state={},opened=new Set(),query='',rows=[],positions=[0],mounted=new Map(),scheduled=false,previousFocus=null,lastFocus=null,viewerUser='',toastTimer=0,cacheVersion=0,lastRevision='',imageFailureTimer=0,fullLoader=null,appInfo={};
-const person='<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></svg>';
-const personTemplate=document.createElement('template');personTemplate.innerHTML=person;
-function placeholder(button){button.replaceChildren(personTemplate.content.cloneNode(true));}
+function placeholder(button){const icon=document.createElement('span');icon.className='person-placeholder';icon.setAttribute('aria-hidden','true');button.replaceChildren(icon);}
 function request(command,extra={}){if(native)Android.request(JSON.stringify({command,...extra}));else previewCommand(command,extra);}
 function message(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,4200);}
 function setDocument(raw){const next=C.parseDocument(raw);doc=next;opened.clear();query='';$('search-input').value='';$('clear-search').hidden=true;rebuild();}
@@ -38,10 +36,10 @@ function rebuild(preserve=false){
 function highlighted(el,text){el.replaceChildren();const q=query.trim();if(!q){el.textContent=text;return;}const source=text.toLocaleLowerCase('en'),needle=q.toLocaleLowerCase('en');let p=0,i;while((i=source.indexOf(needle,p))!==-1){el.append(document.createTextNode(text.slice(p,i)));const mark=document.createElement('mark');mark.textContent=text.slice(i,i+q.length);el.append(mark);p=i+q.length;}el.append(document.createTextNode(text.slice(p)));}
 function notifyImageFailure(){clearTimeout(imageFailureTimer);imageFailureTimer=setTimeout(()=>request('image-failed'),180);}
 function avatarFor(button,user){
- button.replaceChildren();button.dataset.user=user;
+ button.dataset.user=user;
  if(profiles[user]?.file){
   const img=document.createElement('img');img.alt='';img.loading='lazy';img.decoding='async';img.src='/thumb/'+encodeURIComponent(user)+'?v='+cacheVersion;
-  img.onerror=()=>{placeholder(button);notifyImageFailure();};button.append(img);
+  img.onerror=()=>{placeholder(button);notifyImageFailure();};button.replaceChildren(img);
  }else placeholder(button);
 }
 function makeRow(r,index){const node=document.createElement('div');node.className='virtual-row';node.style.top=positions[index]+'px';node.style.height=r.height+'px';node.dataset.key=r.key;

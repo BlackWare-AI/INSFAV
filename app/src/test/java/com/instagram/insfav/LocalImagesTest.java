@@ -92,6 +92,23 @@ public class LocalImagesTest {
         assertEquals("unavailable", images.snapshot(false).getString("folderStatus")); assertEquals(scanned, store.index.getLong("scannedAt"));
         assertEquals(0, images.image("example", false).length);
     }
+    @Test public void interruptedRescanPreservesLastCompletedIndex() throws Exception {
+        selectAndScan(); long revision = store.index.getLong("revision");
+        images.scan((event,value) -> {if (event.equals("scan-progress") && value.optString("state").equals("scanning")) images.cancelScan();});
+        assertEquals(revision, store.index.getLong("revision")); assertEquals("interrupted", store.settings.getString("scanState"));
+        assertEquals(1, images.snapshot(true).getInt("matched"));
+    }
+    @Test public void migrationDropsRetrievalStateButPreservesOriginalDocument() throws Exception {
+        for (String name : new String[]{"queue.json", "network.json", "profiles.json"}) store.write(name,"{\"obsolete\":true}");
+        Store upgraded = new Store(context); assertEquals(RAW, upgraded.original());
+        for (String name : new String[]{"queue.json", "network.json", "profiles.json"}) assertFalse(new File(upgraded.root,name).exists());
+    }
+    @Test public void removedImageIsReportedAndManualRescanFindsReadableAlternative() throws Exception {
+        selectAndScan(); assertTrue(provider.files.get("root/example.PNG").delete());
+        assertEquals(0, images.image("example",false).length); assertEquals(0, images.snapshot(true).getInt("matched"));
+        images.scan((event,value)->{}); assertEquals(1, images.snapshot(true).getInt("matched"));
+        assertEquals(32, images.snapshot(true).getJSONObject("profiles").getJSONObject("example").getInt("width"));
+    }
     public static final class FixtureProvider extends ContentProvider {
         File directory; final Map<String,File> files = new LinkedHashMap<>(); final Map<String,String> names = new HashMap<>();
         int childQueries, opens, writes; boolean available = true, parentHasThumbnailChild;

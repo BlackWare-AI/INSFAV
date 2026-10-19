@@ -111,8 +111,8 @@ final class LocalImages {
                 ThumbnailPolicy.Candidate c = entry.getValue();
                 profiles.put(entry.getKey(), new JSONObject().put("uri", c.uri).put("name", c.name).put("readable", c.readable).put("width", c.width).put("height", c.height).put("size", c.size).put("modified", c.modified));
             }
-            long now = System.currentTimeMillis();
-            JSONObject next = new JSONObject().put("schema", 1).put("treeUri", treeValue).put("revision", now).put("scannedAt", now).put("profiles", profiles).put("unreadable", catalog.unreadable).put("duplicates", catalog.duplicates).put("files", catalog.files).put("bytes", catalog.bytes).put("unknownSizes", catalog.unknownSizes);
+            long now = System.currentTimeMillis(), revision; synchronized (store) {revision = Math.max(now, store.index.optLong("revision") + 1);}
+            JSONObject next = new JSONObject().put("schema", 1).put("treeUri", treeValue).put("revision", revision).put("scannedAt", now).put("profiles", profiles).put("unreadable", catalog.unreadable).put("duplicates", catalog.duplicates).put("files", catalog.files).put("bytes", catalog.bytes).put("unknownSizes", catalog.unknownSizes);
             synchronized (store) {
                 if (!treeValue.equals(store.settings.optString("treeUri"))) throw new IOException("Folder changed during scan.");
                 store.replaceIndex(next); store.settings.put("scanState", "completed"); store.saveSettings();

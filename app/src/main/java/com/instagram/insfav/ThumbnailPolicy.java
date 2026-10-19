@@ -50,10 +50,6 @@ final class ThumbnailPolicy {
             Candidate old = best.get(candidate.user);
             if (old == null || ORDER.compare(candidate, old) < 0) best.put(candidate.user, candidate);
         }
-        int matched(Set<String> users) {
-            int count = 0;
-            for (String user : users) {Candidate c = best.get(normalize(user)); if (c != null && c.readable) count++;}
-            return count;
-        }
+
     }
 }
