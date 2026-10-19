@@ -22,7 +22,7 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
    window.Android={request(raw){const input=JSON.parse(raw);commands.push(input);
     if(input.command==='bootstrap')nativeEvent('bootstrap',{...snapshot,raw:JSON.stringify({preserved:'yes',favorite_page_pref:JSON.stringify(fixture)})});
     else if(input.command==='status')nativeEvent('status',structuredClone(snapshot));
-    else if(input.command==='clear-index'){snapshot={...snapshot,profiles:{},matched:0,missing:10000,revision:0};nativeEvent('status',structuredClone(snapshot));}
+    else if(input.command==='clear-index'){snapshot={...snapshot,profiles:{},matched:0,missing:10000,revision:0,scanState:'not_scanned'};nativeEvent('status',structuredClone(snapshot));}
    }};
   },{fixture});
   await page.goto('http://127.0.0.1:'+server.address().port);await page.waitForSelector('#splash[hidden]',{state:'attached'});
@@ -63,7 +63,7 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
   check((await page.locator('#dialog-body').innerText()).includes('AI Development Assistance'),'AI assistance is separately labeled');
   check((await page.locator('#dialog-body').innerText()).includes('3.1.0'),'About uses native version metadata');
   check(await page.locator('.features li').count()===10,'About lists ten implemented capability descriptions');
-  await page.getByRole('button',{name:'Settings',exact:true}).click();check(await page.locator('#settings').isVisible(),'Settings remains accessible');
+  await page.getByRole('button',{name:'Settings',exact:true}).click();check(await page.locator('#settings').isVisible(),'Settings remains accessible');check(await page.locator('#progress').evaluate(el=>el.value===el.max),'completed persisted scan shows a full progress bar');
   check(await page.locator('#profile-actions button').count()===4,'download controls replaced with four local image controls');
   check(!(await page.locator('#settings').innerText()).includes('Retry Failed'),'obsolete retry controls removed');
   await page.getByRole('button',{name:'Select Thumbnail Folder',exact:true}).click();check(await page.evaluate(()=>commands.at(-1).command==='select-folder'),'SAF selection command is dispatched');
@@ -75,7 +75,7 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
   await page.getByRole('button',{name:'Clear Image Cache',exact:true}).click();check(await page.locator('#dialog').isVisible(),'cache deletion requires confirmation');
   await page.getByRole('button',{name:'Confirm',exact:true}).click();check(await page.evaluate(()=>commands.at(-1).command==='clear-cache'),'cache clear is separate from source data');
   await page.getByRole('button',{name:'Clear Thumbnail Index',exact:true}).click();await page.getByRole('button',{name:'Confirm',exact:true}).click();
-  check(await page.evaluate(()=>doc.total===10001),'index clearing preserves collection memberships');
+  check(await page.evaluate(()=>doc.total===10001),'index clearing preserves collection memberships');check(await page.locator('#progress').evaluate(el=>el.value===0),'index clearing resets scan progress display');
   check((await page.locator('#metrics').innerText()).includes('Missing Images'),'matched and missing metrics are separately named');
   await page.evaluate(()=>nativeEvent('status',{...snapshot,folderMessage:'Folder permission was lost.',folderStatus:'unavailable'}));
   check(await page.locator('#folder-warning').isVisible(),'lost permission warning appears');

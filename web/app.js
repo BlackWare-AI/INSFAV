@@ -104,7 +104,7 @@ function updateSettings(){
  $('metrics').replaceChildren();
  for(const [label,value]of values){const metric=document.createElement('div');metric.className='metric';const detail=document.createElement('b');detail.textContent=value;const name=document.createElement('span');name.textContent=label;metric.append(detail,name);$('metrics').append(metric);}
  $('scan-state').textContent=(state.scanState||'idle').replaceAll('_',' ').replace(/^./,value=>value.toUpperCase());
- $('progress').max=Math.max(1,scan.total||1);$('progress').value=scan.processed||0;
+ $('progress').max=busy?Math.max(1,scan.total||1):1;$('progress').value=busy?(scan.processed||0):state.scanState==='completed'?1:0;
  $('progress-detail').textContent=scan.message||(busy?`${scan.processed||0} / ${scan.total||0} folder entries checked`:'Photos stay in the selected folder. Rescan after changing its contents.');
  $('folder-warning').hidden=!state.folderMessage;$('folder-warning').textContent=state.folderMessage||'';
  $('version-info').textContent=`INSFAV ${appInfo.version||''} · Build ${appInfo.build??'—'} · BlackWare`;

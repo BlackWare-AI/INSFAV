@@ -6,10 +6,10 @@
     "bundleSha256": "90184ae810bfd27780a4dd61150deebd6173dc83b389860aa1756a3640b27841"
   },
   "app.js": {
-    "sourceBytes": 19475,
-    "bundleBytes": 17266,
-    "sourceSha256": "06f93c40e67e4f710d56d683dcbaf4df066827bd43cf175ae2d00442f4fde057",
-    "bundleSha256": "d601fb98e5da7ded5fa3b8579e7ff4423482237ac4f6b89ae44a729171fd0bfe"
+    "sourceBytes": 19523,
+    "bundleBytes": 17306,
+    "sourceSha256": "9605f951d1d31737663136445e4c05c88ed50263ba9f897f86738eb02217912c",
+    "bundleSha256": "014733aad1bc81d78441140d2baad2659a2e0de9bdd36f839d5ddbf7157cb040"
   },
   "style.css": {
     "sourceBytes": 9038,
