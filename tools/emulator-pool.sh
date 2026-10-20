@@ -12,5 +12,5 @@ adb exec-out run-as com.instagram.insfav cat files/pool-matrix.json > emulator-p
 adb shell am start -W -n com.instagram.insfav/.MainActivity
 sleep 4
 adb shell dumpsys activity activities > emulator-pool/activity.txt
-rg 'mResumedActivity.*com.instagram.insfav/.MainActivity' emulator-pool/activity.txt
+grep -E 'mResumedActivity.*com.instagram.insfav/.MainActivity' emulator-pool/activity.txt
 adb logcat -b crash -d > emulator-pool/crash.txt

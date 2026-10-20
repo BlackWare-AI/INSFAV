@@ -42,7 +42,7 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
   await page.locator('.folder-header').first().click();
   await page.locator('.card-link').first().click();check(await page.evaluate(()=>commands.at(-1).command==='open'),'account action remains external profile opening');
   await page.locator('.avatar').first().click();check(await page.locator('#viewer').isVisible(),'viewer opens cached local thumbnail');
-  await page.waitForFunction(()=>document.getElementById('full-image').src.includes('/full/'));
+  for(let i=0;i<100&&!await page.locator('#full-image').evaluate(el=>el.src.includes('/full/'));i++)await page.waitForTimeout(50);
   check(await page.evaluate(()=>commands.filter(c=>c.command==='view-remote').length===1),'viewer submits one interactive request to the shared native broker');
   const cdp=await page.context().newCDPSession(page);
   await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:170,y:350,id:1},{x:220,y:350,id:2}]});
@@ -56,7 +56,8 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
   check(await page.evaluate(()=>scale>1),'double tap zoom works');
   const remoteToken=await page.evaluate(()=>viewerToken),zoomBeforeRemote=await page.evaluate(()=>scale);
   await page.evaluate(token=>nativeEvent('remote-full',{token,user:'test.user',width:640,height:480}),remoteToken);
-  await page.waitForFunction(()=>document.getElementById('full-image').src.includes('/remote-full/'));
+  for(let i=0;i<100&&!await page.locator('#full-image').evaluate(el=>el.src.includes('/remote-full/'));i++)await page.waitForTimeout(50);
+  check(await page.locator('#full-image').evaluate(el=>el.src.includes('/remote-full/')),'remote image becomes visible without weakening the app CSP');
   check((await page.locator('#viewer-caption').innerText()).includes('640 × 480'),'viewer reports the actual remote image dimensions');
   check(await page.evaluate(z=>scale===z,zoomBeforeRemote),'remote replacement preserves zoom');
   await page.evaluate(()=>fullLoader.onload?.());check(await page.locator('#full-image').evaluate(el=>el.src.includes('/remote-full/')),'late local image never overwrites the ready remote image');

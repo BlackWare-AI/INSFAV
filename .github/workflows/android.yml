@@ -29,7 +29,9 @@ jobs:
           java -cp /tmp/insfav-policy com.instagram.insfav.ThumbnailPolicyTest
       - run: gradle :app:assembleDebug :app:assembleRelease :app:lintDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest
       - name: Web UI and counter regressions
+        shell: bash
         run: |
+          set -euo pipefail
           npm install --no-save --package-lock=false playwright@1.51.1
           npx playwright install --with-deps chromium
           export CHROME_BIN="$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")"
