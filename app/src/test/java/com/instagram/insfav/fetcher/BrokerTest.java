@@ -19,4 +19,10 @@ public class BrokerTest{
   Fetcher.initialize(c,new Fetcher.Host(){public Collection<String> users(){return Collections.emptyList();}public String tree(){return "";}public String directory(){return "";}public long revision(){return 0;}public boolean hasImage(String u){return false;}public void imageWritten(String u,android.net.Uri uri,String tree){}});
   byte[] data=new byte[]{1,2,3};java.lang.reflect.Field bytes=Fetcher.class.getDeclaredField("fullBytes"),token=Fetcher.class.getDeclaredField("viewerToken");bytes.setAccessible(true);token.setAccessible(true);bytes.set(null,data);token.set(null,"token");assertEquals(3,Fetcher.full("token").length);Fetcher.closeViewer();assertArrayEquals(new byte[3],data);assertEquals(0,Fetcher.full("token").length);assertNull(bytes.get(null));
  }
+ @Test public void resumeReplacesGloballyFailedSessionEvenWithoutProviderBarrier()throws Exception{
+  AtomicInteger opened=new AtomicInteger();FetchBroker b=new FetchBroker(c,full->{boolean bad=opened.incrementAndGet()==1;return new ProfileProvider(){public byte[] fetch(String u)throws Failure{if(bad)throw new Failure("COOKIE_WEBVIEW_SETUP_TIMEOUT",0,0,true);return new byte[]{9};}public void cancel(){}};},new TestTime());b.batch=true;
+  try{b.submit("first",false).get(3,TimeUnit.SECONDS);fail();}catch(ExecutionException expected){}
+  SessionState.prefs(c).edit().putString("blocked","").commit();assertArrayEquals(new byte[]{9},b.submit("second",false).get(3,TimeUnit.SECONDS));assertEquals(2,opened.get());b.endBatch();
+ }
+
 }
