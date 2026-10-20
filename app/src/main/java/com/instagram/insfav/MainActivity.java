@@ -104,6 +104,12 @@ public final class MainActivity extends Activity {
                         }
                         case "status": send("status", images.snapshot(true)); break;
                         case "fetcher-status": if(!Fetcher.running())Fetcher.sync();send("fetcher-status",Fetcher.snapshot());break;
+                        case "fetcher-paste": {
+                            android.content.ClipboardManager clipboard=getSystemService(android.content.ClipboardManager.class);
+                            android.content.ClipData clip=clipboard.getPrimaryClip();CharSequence text=clip==null||clip.getItemCount()==0?null:clip.getItemAt(0).getText();
+                            if(text==null)throw new IOException("No plain text is available in the clipboard.");if(text.length()>131072)throw new IOException("Cookie text is too large.");
+                            send("cookie-paste",text.toString());break;
+                        }
                         case "fetcher-cookies-save": Fetcher.saveCookies(input.getString("text"));send("fetcher-status",Fetcher.snapshot());send("message","Cookies saved securely.");break;
                         case "fetcher-cookies-remove": Fetcher.removeCookies();send("fetcher-status",Fetcher.snapshot());break;
                         case "fetcher-config": Fetcher.configure(input.getInt("minimum"),input.getInt("maximum"),input.getString("start"),input.getString("end"),input.optBoolean("background"));send("fetcher-status",Fetcher.snapshot());break;

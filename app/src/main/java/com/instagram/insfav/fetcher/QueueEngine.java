@@ -16,7 +16,7 @@ final class QueueEngine {
  boolean interrupted(){return cancelled||stopped.getAsBoolean()||QueueControl.requested||Thread.currentThread().isInterrupted();}
  void state(String value){QueueControl.phase=value;settings.edit().putString("state",value).apply();reporter.update(value);Fetcher.publish();}
  void run(String action,boolean single){
-  long started=android.os.SystemClock.elapsedRealtime();int done=0;long generation=settings.getLong("datasetGeneration",0);
+  long started=android.os.SystemClock.elapsedRealtime();int done=0;long generation=settings.getLong("datasetGeneration",0);settings.edit().putLong("startedAt",System.currentTimeMillis()).apply();
   try(QueueStore queue=new QueueStore(context)){
    if(action.equals("missing")){queue.prepareMissing();for(String user:queue.completedImages())if(!Fetcher.host().hasImage(user)){queue.requeueLost(user);}}
    OutputFolder output=new OutputFolder(context,settings.getString("tree",""));
@@ -58,6 +58,6 @@ final class QueueEngine {
    state(QueueControl.requested?QueueControl.requestedState:cancelledState);
   }catch(SecurityException error){settings.edit().putString("blocked","STORAGE_PERMISSION_LOST").commit();state("Paused: folder write permission required");}
   catch(Exception|OutOfMemoryError error){settings.edit().putString("blocked","PROCESSING_ERROR").commit();state("Paused: processing error; queue preserved");}
-  finally{settings.edit().putLong("elapsedSeconds",settings.getLong("elapsedSeconds",0)+(android.os.SystemClock.elapsedRealtime()-started)/1000).apply();QueueControl.current="";QueueControl.etaSeconds=-1;Fetcher.publish();}
+  finally{settings.edit().putLong("elapsedSeconds",settings.getLong("elapsedSeconds",0)+(android.os.SystemClock.elapsedRealtime()-started)/1000).putLong("startedAt",0).apply();QueueControl.current="";QueueControl.etaSeconds=-1;Fetcher.publish();}
  }
 }

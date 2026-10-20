@@ -23,6 +23,7 @@ window.nativeEvent=(event,data)=>{
   }
   if(event==='scan-progress'){state.scan=data;state.scanState=data.state;updateSettings();}
   if(event==='cleared'){doc=null;stats.clear++;opened.clear();rebuild();message('Collections cleared. Local photos are unchanged.');request('status');}
+  if(event==='cookie-paste'&&!$('fetcher-screen').hidden)$('cookie-text').value=data;
   if(event==='fetcher-status'){
    const revision=fetcherState.imageRevision;fetcherState=data;updateFetcher();
    if(data.imageRevision&&data.imageRevision!==revision)request('status');
@@ -149,7 +150,7 @@ function updateFetcher(){
 }
 $('fetcher-menu').onclick=openFetcher;$('fetcher-back').onclick=closeFetcher;
 for(const input of $('fetcher-screen').querySelectorAll('input'))input.addEventListener('input',()=>input.dataset.edited='true');
-$('cookie-paste').onclick=async()=>{try{$('cookie-text').value=await navigator.clipboard.readText();}catch(error){$('cookie-text').focus();message('Use the Android Paste command in the cookie field.');}};
+$('cookie-paste').onclick=async()=>{if(native){request('fetcher-paste');return;}try{$('cookie-text').value=await navigator.clipboard.readText();}catch(error){$('cookie-text').focus();message('Use the Android Paste command in the cookie field.');}};
 $('cookie-save').onclick=()=>{const text=$('cookie-text').value;$('cookie-text').value='';request('fetcher-cookies-save',{text});};
 $('cookie-remove').onclick=()=>{$('cookie-text').value='';confirmAction('Remove Instagram Cookies?','Retrieval stops. Collections and local photos stay unchanged.',()=>request('fetcher-cookies-remove'));};
 $('fetcher-save').onclick=()=>{request('fetcher-config',{minimum:Number($('fetcher-min').value),maximum:Number($('fetcher-max').value),start:$('fetcher-start').value,end:$('fetcher-end').value,background:$('fetcher-background').checked});for(const input of $('fetcher-screen').querySelectorAll('input'))delete input.dataset.edited;};

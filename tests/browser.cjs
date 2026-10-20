@@ -110,7 +110,8 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
   await page.locator('#fetcher-menu').click();check(await page.locator('#fetcher-screen').isVisible(),'Thumbnail Fetcher opens its own settings screen');
   check(await page.getByRole('button',{name:'Test Cookies',exact:true}).count()===0,'no Test Cookies gate or button remains');
   check(await page.locator('#cookie-state').innerText()==='Cookies saved · session checked during retrieval','cookie status does not claim verified authentication');
-  await page.locator('#cookie-text').fill('sessionid=FAKE_FOR_TEST; ds_user_id=1');await page.locator('#cookie-save').click();
+  await page.locator('#cookie-paste').click();check(await page.evaluate(()=>commands.at(-1).command==='fetcher-paste'),'Paste uses the Android foreground clipboard adapter');
+  await page.evaluate(()=>nativeEvent('cookie-paste','sessionid=FAKE_FOR_TEST; ds_user_id=1'));check((await page.locator('#cookie-text').inputValue()).startsWith('sessionid='),'native paste fills only the transient cookie editor');await page.locator('#cookie-save').click();
   check(await page.locator('#cookie-text').inputValue()==='','cookie editor clears immediately after Save');check(await page.evaluate(()=>commands.at(-1).command==='fetcher-cookies-save'),'cookie saving is sent only to native private storage');
   await page.locator('#fetcher-min').fill('8');await page.locator('#fetcher-max').fill('20');await page.locator('#fetcher-background').check();await page.locator('#fetcher-save').click();
   check(await page.evaluate(()=>commands.at(-1).command==='fetcher-config'&&commands.at(-1).minimum===8&&commands.at(-1).maximum===20&&commands.at(-1).background),'delays, working hours and background choice are saved together');
