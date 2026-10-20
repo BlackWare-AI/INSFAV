@@ -5,7 +5,7 @@
    <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
   </activity>
  <receiver android:name=".fetcher.QueueControlReceiver" android:exported="false"/>
- <service android:name=".fetcher.FetchService" android:exported="false" android:foregroundServiceType="dataSync"/>
+ <service android:name=".fetcher.FetchService" android:exported="false" android:stopWithTask="false" android:foregroundServiceType="dataSync"/>
  <service android:name="androidx.work.impl.foreground.SystemForegroundService" android:foregroundServiceType="dataSync" tools:node="merge"/>
  </application>
 </manifest>

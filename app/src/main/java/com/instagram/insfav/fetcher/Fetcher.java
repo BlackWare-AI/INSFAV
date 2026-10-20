@@ -12,6 +12,7 @@ public final class Fetcher {
  public interface Host{
   Collection<String> users()throws Exception;
   String tree();String directory();long revision();boolean hasImage(String user);
+  default boolean legacyImage(String user){return false;}
   void imageWritten(String user,Uri uri,String tree)throws Exception;
  }
  public interface Listener{void changed();void fullReady(String user,String token,int width,int height);void fullFailed(String token,String code);}
@@ -27,6 +28,7 @@ public final class Fetcher {
   try(QueueStore q=new QueueStore(context)){q.sync(host().users());}
   if(!tree.equals(s.getString("tree",""))||!dir.equals(s.getString("directoryId","")))s.edit().putString("tree",tree).putString("directoryId",dir).putLong("datasetGeneration",s.getLong("datasetGeneration",0)+1).putBoolean("armed",false).putBoolean("userPaused",true).commit();
  }
+ public static void memoryPressure(){QueueControl.memoryPressure=true;}
  public static boolean running(){return QueueControl.lock.get();}
  public static boolean writable(){String tree=host().tree();for(UriPermission p:context.getContentResolver().getPersistedUriPermissions())if(p.getUri().toString().equals(tree)&&p.isWritePermission()&&p.isReadPermission())return true;return false;}
  public static void saveCookies(String text)throws Exception{
@@ -35,14 +37,16 @@ public final class Fetcher {
   CookieJar jar=CookieJar.parse(text,System.currentTimeMillis());new CookieVault(context).save(jar);SessionState.changed(context);new Diagnostics(context).log("COOKIE","SAVED",0);publish();
  }
  public static void removeCookies(){QueueControl.pause(context,true);closeViewer();FetchBroker.get(context).cancelAll();new CookieVault(context).remove();SessionState.changed(context);publish();}
- public static void configure(int min,int max,String start,String end,boolean background)throws Exception{
+ public static void configure(int min,int max,String start,String end,boolean background)throws Exception{configure(min,max,start,end,background,SessionState.prefs(context).getInt("concurrentWebViews",1));}
+ public static void configure(int min,int max,String start,String end,boolean background,int concurrent)throws Exception{
+  ConcurrencyPolicy.validate(concurrent);if(running())throw new IOException("Pause retrieval before changing the schedule or worker count.");
   new RunPolicy(min,max,RunPolicy.minute(start),RunPolicy.minute(end));
-  SessionState.prefs(context).edit().putInt("minimum",min).putInt("maximum",max).putInt("startMinute",RunPolicy.minute(start)).putInt("endMinute",RunPolicy.minute(end)).putBoolean("background",background).putLong("nextRequestAt",Math.max(SessionState.prefs(context).getLong("nextRequestAt",0),System.currentTimeMillis()+min*1000L)).commit();
+  SessionState.prefs(context).edit().putInt("minimum",min).putInt("maximum",max).putInt("startMinute",RunPolicy.minute(start)).putInt("endMinute",RunPolicy.minute(end)).putBoolean("background",background).putInt("concurrentWebViews",concurrent).putLong("nextRequestAt",Math.max(SessionState.prefs(context).getLong("nextRequestAt",0),System.currentTimeMillis()+min*1000L)).commit();
   WorkScheduler.cancel(context);WorkScheduler.recovery(context);WorkScheduler.plan(context,false);publish();
  }
  public static void action(String action)throws Exception{
   if(action.equals("pause")||action.equals("stop")){QueueControl.pause(context,action.equals("stop"));return;}
-  if(!action.equals("missing")&&!action.equals("resume"))throw new IOException("Unknown fetcher action");
+  if(!action.equals("missing")&&!action.equals("resume")&&!action.equals("retry_skipped")&&!action.equals("refresh_legacy"))throw new IOException("Unknown fetcher action");
   if(running())return;sync();if(!new CookieVault(context).configured())throw new IOException("Paste and save Instagram cookies first.");
   if(host().tree().isEmpty())throw new IOException("Select the thumbnail folder in Profile Images first.");
   if(!writable())throw new IOException("Grant write access to the selected thumbnail folder first.");
@@ -54,8 +58,8 @@ public final class Fetcher {
  public static JSONObject snapshot()throws Exception{
   SharedPreferences p=SessionState.prefs(context);JSONObject out=new JSONObject();int total=0;Map<String,Integer> counts;
   try(QueueStore q=new QueueStore(context)){counts=q.counts();}for(int n:counts.values())total+=n;
-  int pending=counts.getOrDefault("PENDING",0),retry=counts.getOrDefault("RETRY_LATER",0),failed=counts.getOrDefault("FAILED",0),success=counts.getOrDefault("SUCCESS",0),existing=counts.getOrDefault("EXISTING",0),skipped=counts.getOrDefault("SKIPPED_UNAVAILABLE",0);
-  RunPolicy r=RunPolicy.read(p);long started=p.getLong("startedAt",0),elapsed=p.getLong("elapsedSeconds",0)+(running()&&started>0?Math.max(0,(System.currentTimeMillis()-started)/1000):0);return out.put("total",total).put("success",success).put("existing",existing).put("failed",failed).put("skipped",skipped).put("retry",retry).put("pending",pending).put("processed",total-pending-retry).put("current",QueueControl.current).put("etaSeconds",QueueControl.etaSeconds).put("state",p.getString("state","Idle")).put("running",running()).put("cookiesSaved",new CookieVault(context).configured()).put("writable",writable()).put("minimum",r.minimum).put("maximum",r.maximum).put("start",RunPolicy.time(r.start)).put("end",RunPolicy.time(r.end)).put("background",p.getBoolean("background",false)).put("elapsedSeconds",elapsed).put("blocked",p.getString("blocked","")).put("imageRevision",host().revision()).put("folder",host().tree().isEmpty()?"Not selected":"Current INSFAV thumbnail folder");
+  int pending=counts.getOrDefault("PENDING",0),retry=counts.getOrDefault("RETRY_LATER",0),failed=counts.getOrDefault("FAILED",0),success=counts.getOrDefault("SUCCESS",0),existing=counts.getOrDefault("EXISTING",0),skipped=counts.getOrDefault("SKIPPED_UNAVAILABLE",0)+counts.getOrDefault("SKIPPED_NO_IMAGE",0);
+  RunPolicy r=RunPolicy.read(p);long started=p.getLong("startedAt",0),elapsed=p.getLong("elapsedSeconds",0)+(running()&&started>0?Math.max(0,(System.currentTimeMillis()-started)/1000):0);return out.put("total",total).put("success",success).put("existing",existing).put("failed",failed).put("skipped",skipped).put("retry",retry).put("pending",pending).put("processed",total-pending-retry).put("current",QueueControl.current).put("etaSeconds",QueueControl.etaSeconds).put("state",p.getString("state","Idle")).put("running",running()).put("cookiesSaved",new CookieVault(context).configured()).put("writable",writable()).put("minimum",r.minimum).put("maximum",r.maximum).put("start",RunPolicy.time(r.start)).put("end",RunPolicy.time(r.end)).put("background",p.getBoolean("background",false)).put("elapsedSeconds",elapsed).put("blocked",p.getString("blocked","")).put("imageRevision",host().revision()).put("requestedViews",p.getInt("concurrentWebViews",1)).put("effectiveViews",running()?QueueControl.effectiveViews:ConcurrencyPolicy.initial(context,p.getInt("concurrentWebViews",1))).put("activeViews",QueueControl.activeViews).put("activeAccounts",QueueControl.activeAccounts).put("peakAccounts",QueueControl.peakAccounts).put("completedPerMinute",QueueControl.completedPerMinute).put("memoryPssKiB",android.os.Debug.getPss()).put("folder",host().tree().isEmpty()?"Not selected":"Current INSFAV thumbnail folder");
  }
  public static String diagnostics()throws IOException{try(ByteArrayOutputStream out=new ByteArrayOutputStream()){new Diagnostics(context).export(out);return out.toString("UTF-8");}}
  public static synchronized String fullMime(String token){return fullMime;}

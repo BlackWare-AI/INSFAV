@@ -29,6 +29,8 @@ final class QueueStore extends SQLiteOpenHelper {
     List<String> completedImages(){ArrayList<String> out=new ArrayList<>();try(Cursor c=getReadableDatabase().rawQuery("SELECT username FROM accounts WHERE status IN ('SUCCESS','EXISTING')",null)){while(c.moveToNext())out.add(c.getString(0));}return out;}
     int attempts(String user) {try(Cursor c=getReadableDatabase().rawQuery("SELECT attempts FROM accounts WHERE username=?",new String[]{user})){return c.moveToFirst()?c.getInt(0):0;}}
     void attempted(String user) {getWritableDatabase().execSQL("UPDATE accounts SET attempts=attempts+1 WHERE username=?",new String[]{user});}
+    void retrySkipped(){getWritableDatabase().execSQL("UPDATE accounts SET status='PENDING',code='',attempts=0 WHERE status IN ('SKIPPED_UNAVAILABLE','SKIPPED_NO_IMAGE','FAILED','RETRY_LATER')");}
+    void refreshLegacy(){getWritableDatabase().execSQL("UPDATE accounts SET status='PENDING',code='',attempts=0 WHERE status IN ('SUCCESS','EXISTING')");}
     void prepareMissing() {getWritableDatabase().execSQL("UPDATE accounts SET status='PENDING',code='',attempts=0,eligible=1 WHERE status NOT IN ('SUCCESS','EXISTING','SKIPPED_UNAVAILABLE')");}
     String next(){
         for(String condition:new String[]{"status='PENDING'","status='RETRY_LATER' AND attempts<3"})try(Cursor c=getReadableDatabase().rawQuery("SELECT username FROM accounts WHERE "+condition+" ORDER BY position LIMIT 1",null)){if(c.moveToFirst())return c.getString(0);}return null;

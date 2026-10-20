@@ -112,7 +112,7 @@ public final class MainActivity extends Activity {
                         }
                         case "fetcher-cookies-save": Fetcher.saveCookies(input.getString("text"));send("fetcher-status",Fetcher.snapshot());send("message","Cookies saved securely.");break;
                         case "fetcher-cookies-remove": Fetcher.removeCookies();send("fetcher-status",Fetcher.snapshot());break;
-                        case "fetcher-config": Fetcher.configure(input.getInt("minimum"),input.getInt("maximum"),input.getString("start"),input.getString("end"),input.optBoolean("background"));send("fetcher-status",Fetcher.snapshot());break;
+                        case "fetcher-config": Fetcher.configure(input.getInt("minimum"),input.getInt("maximum"),input.getString("start"),input.getString("end"),input.optBoolean("background"),input.optInt("concurrentWebViews",1));send("fetcher-status",Fetcher.snapshot());break;
                         case "fetcher-action": if(images.scanning())throw new IOException("Wait for the thumbnail scan to finish.");runOnUiThread(()->{try{if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},24);Fetcher.action(input.getString("action"));}catch(Exception problem){error(problem);}});break;
                         case "fetcher-write-access": grantFetcherWrite();break;
                         case "fetcher-logs": export(Fetcher.diagnostics(),"INSFAV-fetcher-diagnostics.txt","text/plain");break;

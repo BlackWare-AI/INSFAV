@@ -20,9 +20,10 @@ public class CodecTest {
     @Test public void convertsLandscapePortraitAndSmallImages() throws Exception {
         for (int[] shape : new int[][]{{900, 300}, {300, 900}, {24, 24}}) {
             byte[] bytes = ThumbnailCodec.convert(png(shape[0], shape[1])); assertTrue(ThumbnailCodec.valid(bytes));
-            Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length); assertEquals(128, bitmap.getWidth()); assertEquals(128, bitmap.getHeight()); bitmap.recycle();
+            Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length); assertEquals(256, bitmap.getWidth()); assertEquals(256, bitmap.getHeight()); bitmap.recycle();
         }
     }
+    @Test public void acceptsLegacy128WebpWithoutRewritingIt(){Bitmap b=Bitmap.createBitmap(128,128,Bitmap.Config.ARGB_8888);ByteArrayOutputStream o=new ByteArrayOutputStream();b.compress(Bitmap.CompressFormat.WEBP,78,o);b.recycle();assertTrue(ThumbnailCodec.valid(o.toByteArray()));}
     @Test public void rejectsBrokenTruncatedAndWrongSizeOutput() throws Exception {
         assertFalse(ThumbnailCodec.valid(png(128, 128)));
         try { ThumbnailCodec.convert(new byte[]{1,2,3}); fail(); } catch (IOException expected) { }

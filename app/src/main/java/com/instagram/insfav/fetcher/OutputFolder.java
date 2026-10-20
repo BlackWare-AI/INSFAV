@@ -55,6 +55,7 @@ final class OutputFolder {
         catch (FileNotFoundException error) { throw new IOException("OUTPUT_UNAVAILABLE", error); }
         catch (IOException error) { if ("OUTPUT_SIZE_REJECTED".equals(error.getMessage())) return false; throw error; }
     }
+    boolean legacy(String filename)throws IOException {Uri file=files.get(filename);if(file==null)return false;byte[] b=read(resolver.openInputStream(file));android.graphics.BitmapFactory.Options bounds=new android.graphics.BitmapFactory.Options();bounds.inJustDecodeBounds=true;android.graphics.BitmapFactory.decodeByteArray(b,0,b.length,bounds);return ThumbnailCodec.valid(b)&&bounds.outWidth==128;}
     void recover(String filename) throws IOException {
         Uri partial = files.get(filename + ".part");
         if (partial != null) {

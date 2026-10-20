@@ -13,10 +13,10 @@ public final class FetchService extends Service {
     private volatile boolean owns;
     @Override public void onCreate() { super.onCreate(); DownloadNotification.channel(this); }
     @Override public int onStartCommand(Intent intent, int flags, int id) {
-        if (intent == null) { stopSelf(id); return START_NOT_STICKY; }
-        String action = intent.getAction();
+        if (intent == null && !WorkScheduler.enabled(SessionState.prefs(this))) {stopSelf(id);return START_NOT_STICKY;}
+        String action = intent == null ? "resume" : intent.getAction();
         if ("pause".equals(action) || "stop".equals(action)) { QueueControl.pause(this, "stop".equals(action)); if (!owns) stopSelf(id); return START_NOT_STICKY; }
-        if (!("missing".equals(action) || "resume".equals(action))) { stopSelf(id); return START_NOT_STICKY; }
+        if (!("missing".equals(action) || "resume".equals(action) || "refresh_legacy".equals(action) || "retry_skipped".equals(action))) { stopSelf(id); return START_NOT_STICKY; }
         if (owns || !QueueControl.lock.compareAndSet(false, true)) { if (!owns) stopSelf(id); return START_NOT_STICKY; }
         owns = true; running = true; QueueControl.requested = false;
         try {
@@ -33,7 +33,7 @@ public final class FetchService extends Service {
                 stopForeground(STOP_FOREGROUND_REMOVE); stopSelf();
                 WorkScheduler.recovery(this); WorkScheduler.plan(this, false);
             }
-        }, "thumbnail-foreground"); worker.start(); return START_NOT_STICKY;
+        }, "thumbnail-foreground"); worker.start(); return START_STICKY;
     }
     static void request(Context context, String action) { context.startForegroundService(new Intent(context, FetchService.class).setAction(action)); }
     @Override public IBinder onBind(Intent intent) { return null; }
@@ -43,8 +43,12 @@ public final class FetchService extends Service {
         new Diagnostics(this).log("SERVICE", "TIMEOUT", 0);
         QueueEngine current = engine; if (current != null) current.cancel("Android service time limit; next working window scheduled"); stopForeground(STOP_FOREGROUND_REMOVE); stopSelf();
     }
+    @Override public void onTaskRemoved(Intent rootIntent) {
+        // Removing the UI task is not Pause or Stop. The foreground worker stays owned by this service.
+        WorkScheduler.recovery(this); WorkScheduler.plan(this,false); super.onTaskRemoved(rootIntent);
+    }
     @Override public void onDestroy() {
         QueueEngine current = engine; if (owns && current != null) current.cancel();
-        Thread thread = worker; if (owns && thread != null) thread.interrupt(); super.onDestroy();
+        Thread thread = worker; if (owns && thread != null) thread.interrupt(); WorkScheduler.recovery(this); WorkScheduler.plan(this,false); super.onDestroy();
     }
 }

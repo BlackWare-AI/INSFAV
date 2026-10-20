@@ -1,4 +1,4 @@
-function (expected, expectedId) {
+function (expected, expectedId, preferHigh) {
     "use strict";
     const result = {page: location.href, username: expected};
     const wall = code => JSON.stringify(Object.assign(result, {wall: code}));
@@ -12,11 +12,14 @@ function (expected, expectedId) {
         if (action.includes("/challenge") || action.includes("/checkpoint")) return wall("CHALLENGE_REQUIRED");
         if (f.id === "loginForm" || action.includes("/accounts/login")) return wall("COOKIE_INVALID_EXPIRED");
     }
+    const pageText = document.body && typeof document.body.innerText === "string" ? document.body.innerText.slice(0, 24000).toLowerCase() : "";
+    if (/please wait a few minutes before you try again|we restrict certain activity/.test(pageText)) return wall("RATE_LIMITED");
+    if (/sorry, this page isn.t available|bu sayfa kullanılamıyor/.test(pageText)) return wall("PROFILE_PAGE_UNAVAILABLE");
     const structured = new Set();
     let viewer = false, anonymous = false, routedError = false, visits = 0;
     const normalize = x => typeof x === "string" ? x.trim().replace(/^@/, "").toLowerCase() : "";
-    const picture = x => x && (x.profile_pic_url_hd || x.profile_pic_url ||
-        (x.hd_profile_pic_url_info || x.profile_pic_url_info || {}).url);
+    const picture = x => x && (x.profile_pic_url_hd || (x.hd_profile_pic_url_info || {}).url ||
+        x.profile_pic_url || (x.profile_pic_url_info || {}).url);
     function walk(o, depth) {
         if (!o || typeof o !== "object" || depth > 32 || ++visits > 30000) return;
         if (o.rootView && o.rootView.resource && o.rootView.resource.__dr === "PolarisErrorRoot.react") routedError = true;
@@ -71,7 +74,9 @@ function (expected, expectedId) {
         if (bound && img.closest("header,main") && safe(img.currentSrc || img.src)) candidates.set(img.currentSrc || img.src, img);
     }
     let url = "", kind = "", img;
-    if (candidates.size === 1) {
+    if (preferHigh && structured.size === 1) {
+        url = Array.from(structured)[0]; kind = "profile_json";
+    } else if (candidates.size === 1) {
         [url, img] = candidates.entries().next().value;
         kind = "profile_header";
     } else if (candidates.size > 1) return wall("PROFILE_DATA_AMBIGUOUS");
@@ -86,6 +91,22 @@ function (expected, expectedId) {
             }
             img = window.__insfavImage;
         }
+    }
+    if (preferHigh && kind === "profile_header" && img) {
+        let best = img.naturalWidth || 0;
+        for (const item of (img.getAttribute("srcset") || "").split(",")) {
+            const parts = item.trim().split(/\s+/);
+            if (parts.length === 2 && /^\d+w$/.test(parts[1]) && safe(parts[0]) && parseInt(parts[1], 10) > best) {
+                best = parseInt(parts[1], 10); url = parts[0];
+            }
+        }
+    }
+    if (url && (!img || (img.currentSrc || img.src) !== url)) {
+        if (!safe(url)) return wall("UNTRUSTED_SOURCE");
+        if (!window.__insfavImage || window.__insfavImage.src !== url) {
+            window.__insfavImage = new Image(); window.__insfavImage.src = url;
+        }
+        img = window.__insfavImage;
     }
     if (!url || !img || !img.complete || img.naturalWidth < 32 || img.naturalHeight < 32) return JSON.stringify(result);
     return JSON.stringify(Object.assign(result, {url, kind, loaded: true, width: img.naturalWidth, height: img.naturalHeight}));

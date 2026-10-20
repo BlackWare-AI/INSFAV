@@ -13,11 +13,11 @@ final class ThumbnailCodec {
         if (riff + 8 != bytes.length) return false;
         BitmapFactory.Options bounds = new BitmapFactory.Options(); bounds.inJustDecodeBounds = true;
         BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
-        if (bounds.outWidth != 128 || bounds.outHeight != 128 || !"image/webp".equals(bounds.outMimeType)) return false;
+        if ((bounds.outWidth != 128 && bounds.outWidth != 256) || bounds.outHeight != bounds.outWidth || !"image/webp".equals(bounds.outMimeType)) return false;
         Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
         if (bitmap == null) return false; bitmap.recycle(); return true;
     }
-    private static boolean completeContainer(byte[] bytes) {
+    static boolean completeContainer(byte[] bytes) {
         int n = bytes.length;
         if (n >= 4 && (bytes[0] & 255) == 255 && (bytes[1] & 255) == 216)
             return (bytes[n - 2] & 255) == 255 && (bytes[n - 1] & 255) == 217;
@@ -51,9 +51,9 @@ final class ThumbnailCodec {
         if (source == null) throw new IOException("IMAGE_DECODE_FAILED");
         Bitmap result = null;
         try {
-            result = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888);
+            result = Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888);
             int side = Math.min(source.getWidth(), source.getHeight()), left = (source.getWidth() - side) / 2, top = (source.getHeight() - side) / 2;
-            new Canvas(result).drawBitmap(source, new Rect(left, top, left + side, top + side), new Rect(0, 0, 128, 128), new Paint(Paint.FILTER_BITMAP_FLAG));
+            new Canvas(result).drawBitmap(source, new Rect(left, top, left + side, top + side), new Rect(0, 0, 256, 256), new Paint(Paint.FILTER_BITMAP_FLAG));
             ByteArrayOutputStream output = new ByteArrayOutputStream();
             if (!result.compress(Bitmap.CompressFormat.WEBP, 78, output)) throw new IOException("WEBP_ENCODE_FAILED");
             byte[] bytes = output.toByteArray(); if (!valid(bytes)) throw new IOException("WEBP_VERIFY_FAILED"); return bytes;

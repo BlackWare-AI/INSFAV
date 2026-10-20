@@ -4,7 +4,7 @@ rootProject.file('version.properties').withInputStream { appVersion.load(it) }
 android {
     namespace 'com.instagram.insfav'
     compileSdk 35
-    defaultConfig { applicationId 'com.instagram.insfav'; minSdk 26; targetSdk 35; versionCode appVersion.VERSION_CODE.toInteger(); versionName appVersion.VERSION_NAME }
+    defaultConfig { applicationId 'com.instagram.insfav'; minSdk 26; targetSdk 35; versionCode appVersion.VERSION_CODE.toInteger(); versionName appVersion.VERSION_NAME; testInstrumentationRunner 'com.instagram.insfav.fetcher.PoolInstrumentation' }
     testOptions { unitTests.includeAndroidResources = true }
     buildFeatures { buildConfig true }
     signingConfigs {

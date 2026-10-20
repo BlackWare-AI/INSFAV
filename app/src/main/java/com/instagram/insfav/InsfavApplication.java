@@ -8,6 +8,8 @@ import java.util.*;
 public final class InsfavApplication extends Application implements Fetcher.Host {
  private Store store;
  @Override public void onCreate(){super.onCreate();store=Store.get(this);Fetcher.initialize(this,this);}
+ @Override public void onTrimMemory(int level){super.onTrimMemory(level);if(level==TRIM_MEMORY_RUNNING_LOW||level==TRIM_MEMORY_RUNNING_CRITICAL||level==TRIM_MEMORY_COMPLETE)Fetcher.memoryPressure();}
+ @Override public void onLowMemory(){super.onLowMemory();Fetcher.memoryPressure();}
  public Collection<String> users()throws Exception{return new ArrayList<>(store.users());}
  public String tree(){synchronized(store){return store.settings.optString("treeUri");}}
  public String directory(){synchronized(store){return store.settings.optString("directoryId");}}
@@ -17,6 +19,7 @@ public final class InsfavApplication extends Application implements Fetcher.Host
   synchronized(store){JSONObject p=store.index.optJSONObject("profiles"),i=p==null?null:p.optJSONObject(user);if(!tree().equals(store.index.optString("treeUri"))||i==null||!i.optBoolean("readable"))return false;uri=i.optString("uri");}
   try{android.graphics.BitmapFactory.Options b=ImageCodec.bounds(getContentResolver(),Uri.parse(uri));return ImageCodec.validate(getContentResolver(),Uri.parse(uri),b);}catch(Exception|OutOfMemoryError error){return false;}
  }
+ public boolean legacyImage(String user){synchronized(store){JSONObject profiles=store.index.optJSONObject("profiles"),i=profiles==null?null:profiles.optJSONObject(user);return i!=null&&i.optBoolean("readable")&&i.optInt("width")==128&&i.optInt("height")==128&&i.optString("name").toLowerCase(java.util.Locale.ROOT).endsWith(".webp");}}
  public void imageWritten(String user,Uri uri,String tree)throws Exception{
   synchronized(store){
    if(!tree.equals(tree()))return;

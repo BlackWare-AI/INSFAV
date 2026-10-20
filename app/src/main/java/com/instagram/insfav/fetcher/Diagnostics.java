@@ -7,10 +7,11 @@ import java.util.Locale;
 
 /** Fixed vocabulary and numeric details only. No raw URLs, usernames, exceptions, or headers. */
 final class Diagnostics {
+    private static final Object FILE_LOCK = new Object();
     private final File current, previous;
     private final Context context;
     Diagnostics(Context context) { this.context = context.getApplicationContext(); current = new File(context.getFilesDir(), "fetcher-diagnostics.txt"); previous = new File(context.getFilesDir(), "fetcher-diagnostics.previous.txt"); }
-    synchronized void log(String event, String code, long detail) {
+    void log(String event, String code, long detail) { synchronized(FILE_LOCK){
         if (!event.matches("[A-Z_]+") || !code.matches("[A-Z_0-9]+")) return;
         try {
             if (current.length() > 128 * 1024) { if (previous.exists() && !previous.delete()) return; if (!current.renameTo(previous)) return; }
@@ -18,6 +19,7 @@ final class Diagnostics {
                 output.write(String.format(Locale.ROOT, "%d %s %s %d%n", System.currentTimeMillis(), event, code, detail).getBytes(StandardCharsets.UTF_8));
             }
         } catch (IOException ignored) { }
+    }
     }
     static String storageCode(IOException error) {
         String code = error.getMessage();
@@ -34,13 +36,13 @@ final class Diagnostics {
         for (String allowed : new String[]{"JSON_TOO_LARGE", "JSON_TOO_DEEP", "JSON_OPEN_FAILED", "DUPLICATE_BACKUP_FIELD", "TRAILING_JSON", "BACKUP_FIELD_MISSING", "INVALID_BACKUP_ROOT", "INVALID_JSON", "DUPLICATE_ITEMS", "COLLECTION_ITEMS_MISSING"}) if (allowed.equals(code)) return allowed;
         return error instanceof OutOfMemoryError ? "IMPORT_MEMORY_LIMIT" : "INVALID_OR_UNREADABLE_JSON";
     }
-    synchronized void export(OutputStream output) throws IOException {
+    void export(OutputStream output) throws IOException { synchronized(FILE_LOCK){
         output.write("INSFAV integrated WebView fetcher\nEngine: hidden Android WebView + trusted HTTPS image download.\nAccount identifiers and cookies redacted. No secret values exported.\n".getBytes(StandardCharsets.UTF_8));
         try (QueueStore queue = new QueueStore(context)) {
-            output.write(("Android SDK: " + android.os.Build.VERSION.SDK_INT + "\nCounters: " + queue.counts() + "\nFailures: " + queue.failures() + "\nSession evidence: " + SessionState.evidence(SessionState.prefs(context)) + "\n").getBytes(StandardCharsets.UTF_8));
+            output.write(("Requested WebViews: " + SessionState.prefs(context).getInt("concurrentWebViews",1) + "\nEffective WebViews: " + QueueControl.effectiveViews + "\nActive WebViews: " + QueueControl.activeViews + "\nActive Accounts: " + QueueControl.activeAccounts + "\nPeak Active Accounts: " + QueueControl.peakAccounts + "\nCompleted Per Minute: " + QueueControl.completedPerMinute + "\nApp PSS KiB: " + android.os.Debug.getPss() + "\nAndroid SDK: " + android.os.Build.VERSION.SDK_INT + "\nCounters: " + queue.counts() + "\nFailures: " + queue.failures() + "\nSession evidence: " + SessionState.evidence(SessionState.prefs(context)) + "\n").getBytes(StandardCharsets.UTF_8));
         }
         for (File file : new File[]{previous, current}) if (file.exists()) try (FileInputStream input = new FileInputStream(file)) {
             byte[] buffer = new byte[4096]; int n; while ((n = input.read(buffer)) != -1) output.write(buffer, 0, n);
         }
-    }
+    }}
 }

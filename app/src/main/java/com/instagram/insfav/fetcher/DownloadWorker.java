@@ -5,7 +5,7 @@ import android.content.pm.ServiceInfo;
 import android.os.Build;
 import androidx.work.*;
 
-/** One bounded profile per scheduled job; never a sleep loop or an exact alarm. */
+/** Bounded two-minute pooled recovery job; never a sleep loop or an exact alarm. */
 public final class DownloadWorker extends Worker {
     private volatile QueueEngine engine;
     public DownloadWorker(Context c, WorkerParameters p) { super(c, p); }
@@ -23,7 +23,7 @@ public final class DownloadWorker extends Worker {
             new Diagnostics(c).log("SERVICE", "SYSTEM_RESTRICTED", 0);
         } finally {
             QueueControl.current = ""; QueueControl.lock.set(false);
-            if (!isStopped()) WorkScheduler.plan(c, true);
+            WorkScheduler.plan(c, true);
         }
         return isStopped() ? Result.retry() : Result.success();
     }
