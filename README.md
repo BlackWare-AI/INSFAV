@@ -60,7 +60,7 @@ Collection management currently means importing/exporting backups, browsing, exp
 - `ThumbnailPolicy`: Android-independent identity, duplicate ordering and statistics policy.
 - `web/`: readable UI source. `app/src/main/assets/`: reproducible minified runtime bundles, fonts and supplied logo.
 
-The application has no third-party runtime dependency. JUnit/Robolectric and npm packages are development-only. About credits do not imply ownership by OpenAI. The original supplied logo is retained in `artwork/` and packaged into launcher, adaptive and in-app assets through normal sizing, without redesigning it. `tools/prepare-icons.py` (optional Pillow development tool) reproduces the lossless WebP sizes and validates decoded pixels.
+AndroidX WorkManager 2.10.1 is the integrated fetcher’s runtime scheduling dependency, with its transitive AndroidX/Kotlin libraries. JUnit/Robolectric and npm packages remain development-only. About credits do not imply ownership by OpenAI. The original supplied logo is retained in `artwork/` and packaged into launcher, adaptive and in-app assets through normal sizing, without redesigning it. `tools/prepare-icons.py` (optional Pillow development tool) reproduces the lossless WebP sizes and validates decoded pixels.
 
 ## Build
 
@@ -81,7 +81,7 @@ Pinned Terser/CleanCSS tooling preserves global bridge bindings and creates sour
 
 Release signing uses private environment variables `INSFAV_KEYSTORE`, `INSFAV_KEY_ALIAS` (default `insfav`), `INSFAV_STORE_PASSWORD`, and `INSFAV_KEY_PASSWORD` (defaults to store password). Without them Gradle produces an unsigned release. The supplied release uses the same private release key as v3.0, allowing a normal update. Debug and release signatures differ; export data before uninstalling to switch variants.
 
-The alternative `tools/build-sdk.py` uses AAPT2, javac, D8/R8, zipalign and apksigner directly with `JAVA_HOME` and `ANDROID_HOME`; add `--release` for R8. It reads the same version properties and supports the same signing variables. Gradle additionally performs resource shrinking.
+The legacy `tools/build-sdk.py` entrypoint now delegates to the pinned Gradle wrapper (add `--release` for release). The former SDK-only path cannot resolve WorkManager and is no longer advertised as a standalone build route.
 
 ## Verification
 
