@@ -11,6 +11,7 @@ import android.view.*;
 import android.webkit.*;
 import android.widget.FrameLayout;
 import org.json.*;
+import com.instagram.insfav.fetcher.Fetcher;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.*;
@@ -23,9 +24,14 @@ public final class MainActivity extends Activity {
     private final ExecutorService scans = Executors.newSingleThreadExecutor();
     private String pendingExport;
     private final java.util.concurrent.atomic.AtomicBoolean scanPending = new java.util.concurrent.atomic.AtomicBoolean();
-    private static final int IMPORT = 20, EXPORT = 21, FOLDER = 22;
+    private static final int IMPORT = 20, EXPORT = 21, FOLDER = 22, WRITE_FOLDER = 23;
+    private final Fetcher.Listener fetchListener=new Fetcher.Listener(){
+        public void changed(){if(!io.isShutdown())try{io.execute(()->{try{send("fetcher-status",Fetcher.snapshot());}catch(Exception ignored){}});}catch(RejectedExecutionException ignored){}}
+        public void fullReady(String user,String token,int width,int height){try{send("remote-full",new JSONObject().put("user",user).put("token",token).put("width",width).put("height",height));}catch(Exception ignored){}}
+        public void fullFailed(String token,String code){try{send("remote-full-failed",new JSONObject().put("token",token).put("code",code));}catch(Exception ignored){}}
+    };
     @Override public void onCreate(Bundle state) {
-        super.onCreate(state); store = Store.get(this); images = new LocalImages(this, store);
+        super.onCreate(state); Fetcher.addListener(fetchListener); store = Store.get(this); images = new LocalImages(this, store);
         getWindow().setStatusBarColor(Color.BLACK);getWindow().setNavigationBarColor(Color.BLACK);
         getWindow().getDecorView().setSystemUiVisibility(0);
         if(Build.VERSION.SDK_INT>=29)getWindow().setNavigationBarContrastEnforced(false);
@@ -34,14 +40,19 @@ public final class MainActivity extends Activity {
         root.setOnApplyWindowInsetsListener((v,insets)->{if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()|WindowInsets.Type.ime());v.setPadding(bars.left,bars.top,bars.right,bars.bottom);}else{v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());}return insets.consumeSystemWindowInsets();});
         web=new WebView(this);web.setBackgroundColor(Color.BLACK);web.setOverScrollMode(View.OVER_SCROLL_NEVER);
         WebSettings s=web.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(false);s.setCacheMode(WebSettings.LOAD_NO_CACHE);s.setAllowFileAccess(false);s.setAllowContentAccess(false);s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setSupportZoom(false);s.setMediaPlaybackRequiresUserGesture(true);
-        CookieManager.getInstance().setAcceptCookie(false);CookieManager.getInstance().setAcceptThirdPartyCookies(web,false);
-        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);web.addJavascriptInterface(new Bridge(),"Android");
+        CookieManager.getInstance().setAcceptThirdPartyCookies(web,false);
+        WebView.setWebContentsDebuggingEnabled(false);web.addJavascriptInterface(new Bridge(),"Android");
         web.setWebViewClient(new WebViewClient() {
             @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
                 if (!"https".equals(uri.getScheme()) || !"insfav.local".equals(uri.getHost())) return response("text/plain", new byte[0]);
                 String path = uri.getPath();
                 try {
+                    if(path.startsWith("/remote-full/")){
+                        byte[] data=Fetcher.full(uri.getLastPathSegment());
+                        java.util.Map<String,String> headers=new java.util.HashMap<>();headers.put("Cache-Control","no-store, no-cache, must-revalidate");
+                        return new WebResourceResponse(Fetcher.fullMime(uri.getLastPathSegment()),null,200,"OK",headers,new ByteArrayInputStream(data));
+                    }
                     if (path.startsWith("/thumb/") || path.startsWith("/full/")) {
                         String user = Store.normalize(uri.getLastPathSegment());
                         if (!user.matches("[a-z0-9._]{1,30}")) return response("image/webp", new byte[0]);
@@ -91,6 +102,15 @@ public final class MainActivity extends Activity {
                             send("bootstrap", result); break;
                         }
                         case "status": send("status", images.snapshot(true)); break;
+                        case "fetcher-status": if(!Fetcher.running())Fetcher.sync();send("fetcher-status",Fetcher.snapshot());break;
+                        case "fetcher-cookies-save": Fetcher.saveCookies(input.getString("text"));send("fetcher-status",Fetcher.snapshot());send("message","Cookies saved securely.");break;
+                        case "fetcher-cookies-remove": Fetcher.removeCookies();send("fetcher-status",Fetcher.snapshot());break;
+                        case "fetcher-config": Fetcher.configure(input.getInt("minimum"),input.getInt("maximum"),input.getString("start"),input.getString("end"),input.optBoolean("background"));send("fetcher-status",Fetcher.snapshot());break;
+                        case "fetcher-action": runOnUiThread(()->{try{if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},24);Fetcher.action(input.getString("action"));}catch(Exception problem){error(problem);}});break;
+                        case "fetcher-write-access": grantFetcherWrite();break;
+                        case "fetcher-logs": export(Fetcher.diagnostics(),"INSFAV-fetcher-diagnostics.txt","text/plain");break;
+                        case "view-remote": Fetcher.view(Store.normalize(input.getString("user")),input.getString("token"));break;
+                        case "view-closed": Fetcher.closeViewer();break;
                         case "select-folder": selectFolder(); break;
                         case "rescan": startScan(); break;
                         case "clear-cache": images.clearCache(); images.clearLegacyCache(); send("status", images.snapshot(true)); send("message", "Image cache cleared. Source photos and collections are unchanged."); break;
@@ -103,7 +123,7 @@ public final class MainActivity extends Activity {
                         case "export": if (store.original().isEmpty()) throw new IOException("No collections to export"); export(store.original(), "INSFAV-backup.json", "application/json"); break;
                         case "logs": export(store.logs(), "INSFAV-diagnostics.txt", "text/plain"); break;
                         case "frontend-error": store.log("web_error", input.optString("code", "script")); break;
-                        case "clear-data": store.clearDocument(); getPreferences(0).edit().putInt("clear", getPreferences(0).getInt("clear", 0) + 1).apply(); send("cleared", ""); break;
+                        case "clear-data": if(Fetcher.running())throw new IOException("Pause the fetcher before clearing collections.");store.clearDocument(); getPreferences(0).edit().putInt("clear", getPreferences(0).getInt("clear", 0) + 1).apply(); send("cleared", ""); break;
                         case "open": openInstagram(input.getString("user")); break;
                         default: throw new IOException("Unsupported operation");
                     }
@@ -113,12 +133,21 @@ public final class MainActivity extends Activity {
     }
     private int incrementUsage() {int value = getPreferences(0).getInt("usage", 0) + 1; getPreferences(0).edit().putInt("usage", value).apply(); return value;}
     private void selectFolder() {
+        if (Fetcher.running()) {send("error","Pause the fetcher before changing folders.");return;}
         if (images.scanning() || scanPending.get()) {send("error", "Wait for the scan to finish."); return;}
         runOnUiThread(() -> {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
             String current; synchronized (store) {current = store.settings.optString("treeUri");}
             if (!current.isEmpty()) intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, Uri.parse(current));
             startActivityForResult(intent, FOLDER);
+        });
+    }
+    private void grantFetcherWrite(){
+        String current; synchronized(store){current=store.settings.optString("treeUri");}
+        if(current.isEmpty()){send("error","Select a thumbnail folder in Profile Images first.");return;}
+        runOnUiThread(()->{
+            Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION|Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+            intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI,Uri.parse(current));startActivityForResult(intent,WRITE_FOLDER);
         });
     }
     private void startScan() {
@@ -147,7 +176,13 @@ public final class MainActivity extends Activity {
         Uri uri = intent.getData(); int flags = intent.getFlags();
         io.execute(() -> {
             try {
-                if (request == FOLDER) {images.select(uri, flags); send("status", images.snapshot(true)); startScan();}
+                if(request==WRITE_FOLDER){
+                    String current; synchronized(store){current=store.settings.optString("treeUri");}
+                    if(!uri.toString().equals(current))throw new IOException("Select the same INSFAV thumbnail folder. The existing folder and index were preserved.");
+                    int grant=flags&(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                    if((grant&Intent.FLAG_GRANT_WRITE_URI_PERMISSION)==0)throw new IOException("Folder write access was not granted.");
+                    getContentResolver().takePersistableUriPermission(uri,grant);Fetcher.sync();send("fetcher-status",Fetcher.snapshot());
+                }else if (request == FOLDER) {images.select(uri, flags); send("status", images.snapshot(true)); startScan();}
                 else if (request == IMPORT) {
                     String raw;
                     try (InputStream input = getContentResolver().openInputStream(uri); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
@@ -155,6 +190,7 @@ public final class MainActivity extends Activity {
                         while ((length = input.read(bytes)) != -1) {if (output.size() + length > 32 * 1024 * 1024) throw new IOException("JSON exceeds 32 MiB"); output.write(bytes, 0, length);}
                         raw = output.toString("UTF-8");
                     }
+                    if(Fetcher.running())throw new IOException("Pause the fetcher before importing collections.");
                     store.importDocument(raw); getPreferences(0).edit().putInt("load", getPreferences(0).getInt("load", 0) + 1).apply();
                     JSONObject snapshot = images.snapshot(true); snapshot.put("raw", raw); send("imported", snapshot);
                 } else if (request == EXPORT && pendingExport != null) {
@@ -165,7 +201,9 @@ public final class MainActivity extends Activity {
         });
     }
     @Override public void onBackPressed() {if (web == null) {super.onBackPressed(); return;} web.evaluateJavascript("window.handleBack&&window.handleBack()", value -> {if (!"true".equals(value)) super.onBackPressed();});}
+    @Override protected void onStop(){Fetcher.foregroundStopped();super.onStop();}
     @Override protected void onDestroy() {
+        Fetcher.removeListener(fetchListener);Fetcher.closeViewer();
         images.cancelScan(); scans.shutdownNow(); io.shutdownNow();
         if (web != null) {web.removeJavascriptInterface("Android"); web.destroy(); web = null;} super.onDestroy();
     }

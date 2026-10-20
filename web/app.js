@@ -1,6 +1,6 @@
 'use strict';
 const C=InsfavCore,$=id=>document.getElementById(id),native=!!window.Android;
-let doc=null,profiles={},stats={usage:0,load:0,clear:0},state={},opened=new Set(),query='',rows=[],positions=[0],mounted=new Map(),scheduled=false,previousFocus=null,lastFocus=null,viewerUser='',toastTimer=0,cacheVersion=0,lastRevision='',imageFailureTimer=0,fullLoader=null,appInfo={};
+let doc=null,profiles={},stats={usage:0,load:0,clear:0},state={},opened=new Set(),query='',rows=[],positions=[0],mounted=new Map(),scheduled=false,previousFocus=null,lastFocus=null,viewerUser='',toastTimer=0,cacheVersion=0,lastRevision='',imageFailureTimer=0,fullLoader=null,appInfo={},fetcherState={},viewerToken='',remoteLoader=null,remoteShown=false,fetcherPoll=0;
 function placeholder(button){const icon=document.createElement('span');icon.className='person-placeholder';icon.setAttribute('aria-hidden','true');button.replaceChildren(icon);}
 const motionStyle=getComputedStyle(document.documentElement),motion={duration:parseFloat(motionStyle.getPropertyValue('--motion-base'))||160,easing:motionStyle.getPropertyValue('--motion-ease').trim()||'ease-out'};
 function request(command,extra={}){if(native)Android.request(JSON.stringify({command,...extra}));else previewCommand(command,extra);}
@@ -23,6 +23,16 @@ window.nativeEvent=(event,data)=>{
   }
   if(event==='scan-progress'){state.scan=data;state.scanState=data.state;updateSettings();}
   if(event==='cleared'){doc=null;stats.clear++;opened.clear();rebuild();message('Collections cleared. Local photos are unchanged.');request('status');}
+  if(event==='fetcher-status'){
+   const revision=fetcherState.imageRevision;fetcherState=data;updateFetcher();
+   if(data.imageRevision&&data.imageRevision!==revision)request('status');
+  }
+  if(event==='remote-full'&&viewerToken===data.token&&viewerUser===data.user){
+   if(remoteLoader){remoteLoader.onload=remoteLoader.onerror=null;remoteLoader.src='';}
+   remoteLoader=new Image();remoteLoader.onload=()=>{if(viewerToken===data.token){remoteShown=true;$('full-image').src=remoteLoader.src;$('viewer-caption').textContent='@'+data.user+' · Instagram image · '+data.width+' × '+data.height;applyTransform();}};
+   remoteLoader.src='/remote-full/'+encodeURIComponent(data.token);
+  }
+  if(event==='remote-full-failed'&&viewerToken===data.token){$('viewer-caption').textContent+=' · Online image unavailable; local image retained';}
   if(event==='message'||event==='error')message(data);
  }catch(error){message('Unable to read data: '+error.message);$('splash').hidden=true;}
 };
@@ -72,9 +82,9 @@ function refreshAvatars(){for(const node of mounted.values()){const button=node.
 window.addEventListener('scroll',schedule,{passive:true});window.addEventListener('resize',schedule,{passive:true});
 let searchTimer;$('search-input').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{query=$('search-input').value;$('clear-search').hidden=!query;window.scrollTo(0,0);rebuild();},130);});$('clear-search').onclick=()=>{$('search-input').value='';query='';$('clear-search').hidden=true;rebuild();$('search-input').focus();};
 function showDialog(title,body,actions){lastFocus=document.activeElement;$('dialog-title').textContent=title;$('dialog-body').replaceChildren();if(typeof body==='string'){const p=document.createElement('p');p.className='muted';p.textContent=body;$('dialog-body').append(p);}else $('dialog-body').append(body);$('dialog-actions').replaceChildren();for(const action of actions){const b=document.createElement('button');b.className='btn'+(action.danger?' destructive':'');b.textContent=action.label;b.onclick=()=>{closeDialog();action.run?.();};$('dialog-actions').append(b);}$('dialog').hidden=false;document.body.classList.add('overlay-open');$('dialog-actions').querySelector('button')?.focus();}
-function closeDialog(){$('dialog').hidden=true;if($('settings').hidden)document.body.classList.remove('overlay-open');lastFocus?.focus?.();}
+function closeDialog(){$('dialog').hidden=true;if($('settings').hidden&&$('fetcher-screen').hidden)document.body.classList.remove('overlay-open');lastFocus?.focus?.();}
 function confirmAction(title,text,action){showDialog(title,text,[{label:'Confirm',danger:true,run:action},{label:'Cancel'}]);}
-const features=['Instagram account collections','JSON import and export','Collection management','Account search','Local profile thumbnails','External thumbnail folder integration','Fullscreen image viewer','Efficient large-list rendering','Persistent settings','AMOLED interface'];
+const features=['Instagram account collections','JSON import and export','Collection management','Account search','Local profile thumbnails','Optional session-based thumbnail retrieval','External thumbnail folder integration','Fullscreen image viewer','Efficient large-list rendering','Persistent settings','AMOLED interface'];
 function showInfo(){
  const container=document.createElement('div'),logo=document.createElement('img');logo.src='logo.webp';logo.alt='INSFAV logo';logo.className='about-logo';container.append(logo);
  for(const [label,value]of [['Application Name','INSFAV'],['Developer','BlackWare'],['AI Development Assistance','OpenAI ChatGPT'],['Version',appInfo.version||'Unavailable'],['Build',appInfo.build??'Unavailable'],['Total Accounts',doc?.total||0],['Usage Count',stats.usage],['Load Count',stats.load],['Reset Count',stats.clear]]){
@@ -120,27 +130,54 @@ document.addEventListener('click',event=>{
  else request(action);
 });
 $('info-btn').onclick=showInfo;$('import-btn').onclick=()=>request('import');$('clear-btn').onclick=()=>confirmAction('Reset collections?','The collection database will be cleared. Profile images are managed separately.',()=>request('clear-data'));$('settings-back').onclick=closeSettings;
+function openFetcher(){
+ previousFocus=document.activeElement;$('settings').inert=true;$('fetcher-screen').hidden=false;$('fetcher-back').focus();request('fetcher-status');
+ clearInterval(fetcherPoll);fetcherPoll=setInterval(()=>request('fetcher-status'),1500);
+}
+function closeFetcher(){clearInterval(fetcherPoll);fetcherPoll=0;$('cookie-text').value='';hideScreen($('fetcher-screen'),()=>{$('settings').inert=false;$('fetcher-menu').focus();});}
+function updateFetcher(){
+ const f=fetcherState;if($('fetcher-screen').hidden)return;
+ $('cookie-state').textContent=f.cookiesSaved?'Cookies saved · session checked during retrieval':'Not configured';
+ $('fetcher-state').textContent=f.state||'Idle';$('fetcher-folder').textContent=(f.folder||'Not selected')+(f.writable?' · Write access granted':' · Read only');$('fetcher-write').hidden=!!f.writable;
+ for(const [id,value] of [['fetcher-min',f.minimum],['fetcher-max',f.maximum],['fetcher-start',f.start],['fetcher-end',f.end]]){const input=$(id);if(value!==undefined&&document.activeElement!==input&&!input.dataset.edited)input.value=value;}
+ if(!$('fetcher-background').dataset.edited)$('fetcher-background').checked=!!f.background;
+ const values=[['Total Unique Accounts',f.total||0],['Successful',f.success||0],['Existing',f.existing||0],['Failed',f.failed||0],['Skipped Unavailable',f.skipped||0],['Retry Later',f.retry||0],['Pending',f.pending||0],['Processed',f.processed||0]];
+ $('fetcher-metrics').replaceChildren();for(const [label,value]of values){const row=document.createElement('div');row.className='metric';const name=document.createElement('span'),count=document.createElement('b');name.textContent=label;count.textContent=value;row.append(count,name);$('fetcher-metrics').append(row);}
+ $('fetcher-progress').max=Math.max(1,f.total||0);$('fetcher-progress').value=f.processed||0;
+ $('fetcher-current').textContent=(f.current?'@'+f.current+' · ':'')+'Elapsed '+(f.elapsedSeconds||0)+' s'+(f.etaSeconds>=0?' · ETA '+f.etaSeconds+' s':'');
+ $('fetcher-missing').disabled=!!f.running;$('fetcher-resume').disabled=!!f.running;
+}
+$('fetcher-menu').onclick=openFetcher;$('fetcher-back').onclick=closeFetcher;
+for(const input of $('fetcher-screen').querySelectorAll('input'))input.addEventListener('input',()=>input.dataset.edited='true');
+$('cookie-paste').onclick=async()=>{try{$('cookie-text').value=await navigator.clipboard.readText();}catch(error){$('cookie-text').focus();message('Use the Android Paste command in the cookie field.');}};
+$('cookie-save').onclick=()=>{const text=$('cookie-text').value;$('cookie-text').value='';request('fetcher-cookies-save',{text});};
+$('cookie-remove').onclick=()=>{$('cookie-text').value='';confirmAction('Remove Instagram Cookies?','Retrieval stops. Collections and local photos stay unchanged.',()=>request('fetcher-cookies-remove'));};
+$('fetcher-save').onclick=()=>{request('fetcher-config',{minimum:Number($('fetcher-min').value),maximum:Number($('fetcher-max').value),start:$('fetcher-start').value,end:$('fetcher-end').value,background:$('fetcher-background').checked});for(const input of $('fetcher-screen').querySelectorAll('input'))delete input.dataset.edited;};
+$('fetcher-write').onclick=()=>request('fetcher-write-access');
+for(const [id,action]of [['fetcher-missing','missing'],['fetcher-pause','pause'],['fetcher-resume','resume'],['fetcher-stop','stop']])$(id).onclick=()=>request('fetcher-action',{action});
+$('fetcher-diagnostics').onclick=()=>request('fetcher-logs');
 let scale=1,tx=0,ty=0,pointers=new Map(),gesture=null,lastTap=0,lastTapX=0,lastTapY=0;
 function applyTransform(){const img=$('full-image'),stage=$('image-stage');const mx=Math.max(0,(img.offsetWidth*scale-stage.clientWidth)/2),my=Math.max(0,(img.offsetHeight*scale-stage.clientHeight)/2);tx=Math.min(mx,Math.max(-mx,tx));ty=Math.min(my,Math.max(-my,ty));img.style.transform=`translate(${tx}px,${ty}px) scale(${scale})`;}
 function resetTransform(){scale=1;tx=ty=0;applyTransform();}
 function openViewer(user){
- if(!profiles[user]?.file){message('No readable local image. Select a thumbnail folder or rescan in Settings.');return;}
- previousFocus=document.activeElement;viewerUser=user;$('viewer').hidden=false;document.body.classList.add('overlay-open');
+ if(!profiles[user]?.file&&!fetcherState.cookiesSaved){message('No readable local image. Select a thumbnail folder or rescan in Settings.');return;}
+ previousFocus=document.activeElement;viewerUser=user;viewerToken='v'+Date.now().toString(36)+Math.random().toString(36).slice(2);remoteShown=false;$('viewer').hidden=false;document.body.classList.add('overlay-open');
  $('full-image').src='/thumb/'+encodeURIComponent(user)+'?v='+cacheVersion;
- const image=profiles[user],dimensions=image.width&&image.height?` · ${image.width} × ${image.height}`:'';
+ const image=profiles[user]||{},dimensions=image.width&&image.height?` · ${image.width} × ${image.height}`:'';
  $('viewer-caption').textContent='@'+user+' · Local image'+dimensions+(Math.max(image.width||0,image.height||0)>2048?' · Preview up to 2048 px':'');
  resetTransform();$('viewer-back').focus();
- fullLoader=new Image();fullLoader.onload=()=>{if(viewerUser===user){$('full-image').src=fullLoader.src;applyTransform();}};
+ fullLoader=new Image();fullLoader.onload=()=>{if(viewerUser===user&&!remoteShown){$('full-image').src=fullLoader.src;applyTransform();}};
  fullLoader.onerror=()=>{if(viewerUser===user)notifyImageFailure();};fullLoader.src='/full/'+encodeURIComponent(user)+'?v='+cacheVersion;
+ request('view-remote',{user,token:viewerToken});
 }
 function closeViewer(){
- viewerUser='';if(fullLoader){fullLoader.onload=fullLoader.onerror=null;fullLoader.src='';fullLoader=null;}
- pointers.clear();hideScreen($('viewer'),()=>{$('full-image').removeAttribute('src');if($('settings').hidden)document.body.classList.remove('overlay-open');previousFocus?.focus?.();});
+ viewerUser='';viewerToken='';remoteShown=false;request('view-closed');if(remoteLoader){remoteLoader.onload=remoteLoader.onerror=null;remoteLoader.src='';remoteLoader=null;}if(fullLoader){fullLoader.onload=fullLoader.onerror=null;fullLoader.src='';fullLoader=null;}
+ pointers.clear();hideScreen($('viewer'),()=>{$('full-image').removeAttribute('src');if($('settings').hidden&&$('fetcher-screen').hidden)document.body.classList.remove('overlay-open');previousFocus?.focus?.();});
 }
 $('viewer-back').onclick=closeViewer;$('full-image').onload=applyTransform;
 const stage=$('image-stage');stage.addEventListener('pointerdown',e=>{stage.setPointerCapture(e.pointerId);pointers.set(e.pointerId,{x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY});if(pointers.size===2){const [a,b]=[...pointers.values()];gesture={distance:Math.hypot(a.x-b.x,a.y-b.y),scale,tx,ty,cx:(a.x+b.x)/2,cy:(a.y+b.y)/2};}else gesture=null;});stage.addEventListener('pointermove',e=>{const p=pointers.get(e.pointerId);if(!p)return;const dx=e.clientX-p.x,dy=e.clientY-p.y;p.x=e.clientX;p.y=e.clientY;if(pointers.size===2&&gesture){const [a,b]=[...pointers.values()];scale=Math.min(6,Math.max(1,gesture.scale*Math.hypot(a.x-b.x,a.y-b.y)/Math.max(1,gesture.distance)));tx=gesture.tx+(a.x+b.x)/2-gesture.cx;ty=gesture.ty+(a.y+b.y)/2-gesture.cy;}else if(scale>1){tx+=dx;ty+=dy;}applyTransform();});function release(e){const p=pointers.get(e.pointerId);if(e.type==='pointerup'&&pointers.size===1&&p&&Math.hypot(p.x-p.startX,p.y-p.startY)<10){const now=Date.now();if(now-lastTap<300&&Math.hypot(p.x-lastTapX,p.y-lastTapY)<40){scale=scale>1?1:2.5;tx=ty=0;applyTransform();lastTap=0;}else{lastTap=now;lastTapX=p.x;lastTapY=p.y;}}pointers.delete(e.pointerId);gesture=null;}stage.addEventListener('pointerup',release);stage.addEventListener('pointercancel',release);stage.addEventListener('wheel',e=>{e.preventDefault();scale=Math.min(6,Math.max(1,scale+(e.deltaY<0?.2:-.2)));applyTransform();},{passive:false});
-window.handleBack=()=>{if(!$('features-screen').hidden){closeFeatures();return true;}if(!$('viewer').hidden){closeViewer();return true;}if(!$('dialog').hidden){closeDialog();return true;}if(!$('settings').hidden){closeSettings();return true;}if(query){$('clear-search').click();return true;}return false;};
-document.addEventListener('keydown',e=>{if(e.key==='Escape')window.handleBack();if(e.key==='Tab'){const surface=!$('features-screen').hidden?$('features-screen'):!$('viewer').hidden?$('viewer'):!$('dialog').hidden?$('dialog'):!$('settings').hidden?$('settings'):null;if(!surface)return;const focus=[...surface.querySelectorAll('button:not(:disabled),input')].filter(el=>!el.hidden);const first=focus[0],last=focus[focus.length-1];if(e.shiftKey&&document.activeElement===first){last.focus();e.preventDefault();}else if(!e.shiftKey&&document.activeElement===last){first.focus();e.preventDefault();}}});
+window.handleBack=()=>{if(!$('dialog').hidden&&!$('fetcher-screen').hidden){closeDialog();return true;}if(!$('fetcher-screen').hidden){closeFetcher();return true;}if(!$('features-screen').hidden){closeFeatures();return true;}if(!$('viewer').hidden){closeViewer();return true;}if(!$('dialog').hidden){closeDialog();return true;}if(!$('settings').hidden){closeSettings();return true;}if(query){$('clear-search').click();return true;}return false;};
+document.addEventListener('keydown',e=>{if(e.key==='Escape')window.handleBack();if(e.key==='Tab'){const surface=!$('dialog').hidden&&!$('fetcher-screen').hidden?$('dialog'):!$('fetcher-screen').hidden?$('fetcher-screen'):!$('features-screen').hidden?$('features-screen'):!$('viewer').hidden?$('viewer'):!$('dialog').hidden?$('dialog'):!$('settings').hidden?$('settings'):null;if(!surface)return;const focus=[...surface.querySelectorAll('button:not(:disabled),input')].filter(el=>!el.hidden);const first=focus[0],last=focus[focus.length-1];if(e.shiftKey&&document.activeElement===first){last.focus();e.preventDefault();}else if(!e.shiftKey&&document.activeElement===last){first.focus();e.preventDefault();}}});
 function previewCommand(command,p){if(command==='bootstrap'){appInfo={version:'Browser preview',build:'—'};try{const raw=localStorage.getItem('insfav-preview-data');window.nativeEvent('bootstrap',{raw:raw||'',profiles:{},stats:{usage:1,load:0,clear:0}});}catch(e){window.nativeEvent('error',e.message);$('splash').hidden=true;}}else if(command==='import'){const input=document.createElement('input');input.type='file';input.accept='.json,application/json';input.onchange=async()=>{try{const raw=await input.files[0].text();C.parseDocument(raw);localStorage.setItem('insfav-preview-data',raw);window.nativeEvent('imported',{raw,profiles:{}});}catch(e){message(e.message);}};input.click();}else if(command==='export'){if(!doc)return;const u=URL.createObjectURL(new Blob([doc.raw],{type:'application/json'}));const a=document.createElement('a');a.href=u;a.download='INSFAV-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);}else if(command==='clear-data'){localStorage.removeItem('insfav-preview-data');window.nativeEvent('cleared','');}else if(command==='open')window.open('https://www.instagram.com/'+encodeURIComponent(p.user)+'/','_blank','noopener');else if(command!=='status'&&command!=='image-failed')message('This feature uses the Android application.');}
 window.addEventListener('error',e=>{if(native)request('frontend-error',{code:'script_line_'+e.lineno});});window.addEventListener('unhandledrejection',()=>{if(native)request('frontend-error',{code:'unhandled_promise'});});
 request('bootstrap');

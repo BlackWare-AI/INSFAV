@@ -6,16 +6,16 @@
     "bundleSha256": "90184ae810bfd27780a4dd61150deebd6173dc83b389860aa1756a3640b27841"
   },
   "app.js": {
-    "sourceBytes": 19840,
-    "bundleBytes": 17635,
-    "sourceSha256": "cb2ac93a252fccb168d07ac70b4264defa6f970933c2b654ede566214aacfef5",
-    "bundleSha256": "3ef6845f592dfa11d143da044a62be2596a39b68f69ee76689d8c85f8836145b"
+    "sourceBytes": 24951,
+    "bundleBytes": 22411,
+    "sourceSha256": "e956106d64132c64e87d41b6f6e41d2909dcf8a14fe31bc26eba669bde831b2a",
+    "bundleSha256": "0db459fa7e08c7d80e12afeec17b23ee499c133f9c570fa43cf07f64b1198ec7"
   },
   "style.css": {
-    "sourceBytes": 9605,
-    "bundleBytes": 9582,
-    "sourceSha256": "39a182ef763ab3f227a584bfc1ba9412d6599405642f6800a2cd15730a4a54fd",
-    "bundleSha256": "b8e2692614248fc0685c451a7a779fa409157403afb9fe01f280eddb1677cdc6"
+    "sourceBytes": 10608,
+    "bundleBytes": 10583,
+    "sourceSha256": "8677deea02900ed0757ff7f293efddc43172131ccee9c5789f6bbc652b0bfa49",
+    "bundleSha256": "54435deb7c5c60e4291c9cce508707280e78265687220aeaeaf109daf3ae907d"
   },
   "fonts.css": {
     "sourceBytes": 2012,

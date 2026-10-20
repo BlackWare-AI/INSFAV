@@ -6,7 +6,7 @@ const fixture=[{name:'SAVED',items:Array.from({length:10000},(_,i)=>({pageId:i==
 let checks=0;function check(value,label){assert.ok(value,label);console.log('PASS '+label);checks++;}
 (async()=>{
  const server=http.createServer((req,res)=>{
-  if(req.url.startsWith('/thumb/')||req.url.startsWith('/full/')){res.setHeader('Content-Type','image/svg+xml');res.end('<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><rect width="512" height="512" fill="#777"/></svg>');return;}
+  if(req.url.startsWith('/thumb/')||req.url.startsWith('/full/')||req.url.startsWith('/remote-full/')){res.setHeader('Content-Type','image/svg+xml');res.end('<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><rect width="512" height="512" fill="#777"/></svg>');return;}
   const name=req.url.split('?')[0]==='/'?'index.html':req.url.split('?')[0].slice(1),file=path.join(root,name);
   if(!file.startsWith(root)||!fs.existsSync(file)){res.writeHead(404).end();return;}
   res.setHeader('Content-Type',name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':name.endsWith('.webp')?'image/webp':name.endsWith('.woff2')?'font/woff2':'text/html');res.end(fs.readFileSync(file));
@@ -67,7 +67,7 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
   const commandsBefore=await page.evaluate(()=>commands.length);
   await page.locator('#features-menu').click();
   check(await page.locator('#features-screen').isVisible(),'Features opens a separate screen');
-  check(await page.locator('#features-list li').count()===10,'Features retains all ten capability descriptions');
+  check(await page.locator('#features-list li').count()===11,'Features retains existing capabilities and adds optional retrieval');
   check(await page.locator('#features-screen').evaluate(el=>getComputedStyle(el).backgroundColor)==='rgb(0, 0, 0)','Features preserves AMOLED black');
   check(await page.locator('#features-screen').evaluate(el=>el.getAnimations()[0]?.effect.getTiming().duration===160),'Features uses the common entry duration');
   await page.keyboard.press('Escape');await page.locator('#features-screen').waitFor({state:'hidden'});
