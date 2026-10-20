@@ -181,8 +181,8 @@ public final class MainActivity extends Activity {
                     String current; synchronized(store){current=store.settings.optString("treeUri");}
                     if(!uri.toString().equals(current))throw new IOException("Select the same INSFAV thumbnail folder. The existing folder and index were preserved.");
                     int grant=flags&(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-                    if((grant&Intent.FLAG_GRANT_WRITE_URI_PERMISSION)==0)throw new IOException("Folder write access was not granted.");
-                    getContentResolver().takePersistableUriPermission(uri,grant);Fetcher.sync();send("fetcher-status",Fetcher.snapshot());
+                    if(grant!=(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION))throw new IOException("Folder read/write access was not granted.");
+                    getContentResolver().takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);Fetcher.sync();send("fetcher-status",Fetcher.snapshot());
                 }else if (request == FOLDER) {images.select(uri, flags); send("status", images.snapshot(true)); startScan();}
                 else if (request == IMPORT) {
                     String raw;

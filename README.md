@@ -47,13 +47,13 @@ Counts describe the last committed index, not a continuously watched filesystem.
 
 Import accepts a collection array or an object whose `favorite_page_pref` is an array or a JSON-encoded collection string. Original import text is retained atomically and exported unchanged, including unknown fields, preferences, ordering, case and multi-collection memberships. Invalid input does not replace the existing document. Import size is limited to 32 MiB.
 
-Updating a release signed with the same key preserves `document.json`, usage/import/reset counters and settings. Former retrieval queue, cooldown and failure-state files are removed; no retrieval can resume. The old `thumbnails` private files are not used as external sources and can be removed with explicit **Clear Image Cache**. The `.thumbnails` directory belongs to the user and is never written by INSFAV.
+Updating a release signed with the same key preserves `document.json`, usage/import/reset counters and settings. Obsolete v3.0 scraping queue/cooldown files are removed and never resumed. The new integrated fetcher has its own persistent SQLite queue and requires explicit user setup. The old `thumbnails` private files are not used as external sources and can be removed with explicit **Clear Image Cache**. The `.thumbnails` directory belongs to the user. Scanning is read-only; only the explicitly configured fetcher can write validated thumbnails after write authorization.
 
 Collection management currently means importing/exporting backups, browsing, expanding/collapsing collections and resetting the imported document. Arbitrary manual account/category editing is not presented as an implemented capability.
 
 ## Architecture
 
-- `MainActivity`: protected local WebView, native window insets, read-only SAF folder selection, JSON system pickers, app metadata, external profile intents and bounded task lifetimes.
+- `MainActivity`: protected local WebView, native window insets, SAF folder selection and optional same-folder write authorization, JSON system pickers, app metadata, external profile intents and bounded task lifetimes.
 - `Store`: atomic original JSON, preferences, index metadata and rotated redacted diagnostics.
 - `LocalImages`: transactional SAF scan, persisted URI/index, permission checks and a disposable 24 MiB thumbnail cache (trimmed to 18 MiB on overflow).
 - `ImageCodec`: validated, bounded local decoding and prompt stream/bitmap cleanup.

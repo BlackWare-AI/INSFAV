@@ -69,7 +69,11 @@ final class LocalImages {
             store.saveSettings(); store.replaceIndex(new JSONObject());
         }
         clearCache();
-        if (!old.isEmpty() && !old.equals(tree.toString())) try {resolver.releasePersistableUriPermission(Uri.parse(old), Intent.FLAG_GRANT_READ_URI_PERMISSION);} catch (Exception ignored) { }
+        if (!old.isEmpty() && !old.equals(tree.toString())) try {
+            int release=Intent.FLAG_GRANT_READ_URI_PERMISSION;
+            for(UriPermission permission:resolver.getPersistedUriPermissions())if(permission.getUri().toString().equals(old)&&permission.isWritePermission())release|=Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
+            resolver.releasePersistableUriPermission(Uri.parse(old), release);
+        } catch (Exception ignored) { }
         checkAccess(); if (!accessible) throw new IOException(accessMessage); store.log("folder_select", "success");
     }
     void cancelScan() {CancellationSignal signal = cancellation; if (signal != null) signal.cancel();}
