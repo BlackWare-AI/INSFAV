@@ -18,6 +18,7 @@ import java.util.concurrent.*;
 
 public final class MainActivity extends Activity {
     private WebView web;
+    private volatile boolean foreground;
     private Store store;
     private LocalImages images;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -26,7 +27,7 @@ public final class MainActivity extends Activity {
     private final java.util.concurrent.atomic.AtomicBoolean scanPending = new java.util.concurrent.atomic.AtomicBoolean();
     private static final int IMPORT = 20, EXPORT = 21, FOLDER = 22, WRITE_FOLDER = 23;
     private final Fetcher.Listener fetchListener=new Fetcher.Listener(){
-        public void changed(){if(!io.isShutdown())try{io.execute(()->{try{send("fetcher-status",Fetcher.snapshot());}catch(Exception ignored){}});}catch(RejectedExecutionException ignored){}}
+        public void changed(){if(!foreground)return;if(!io.isShutdown())try{io.execute(()->{try{send("fetcher-status",Fetcher.snapshot());}catch(Exception ignored){}});}catch(RejectedExecutionException ignored){}}
         public void fullReady(String user,String token,int width,int height){try{send("remote-full",new JSONObject().put("user",user).put("token",token).put("width",width).put("height",height));}catch(Exception ignored){}}
         public void fullFailed(String token,String code){try{send("remote-full-failed",new JSONObject().put("token",token).put("code",code));}catch(Exception ignored){}}
     };
@@ -73,7 +74,7 @@ public final class MainActivity extends Activity {
         web.loadUrl("https://insfav.local/index.html");
     }
     @Override protected void onResume() {
-        super.onResume();
+        super.onResume();foreground=true;
         io.execute(() -> {images.checkAccess(); try {send("status", images.snapshot(true));} catch (Exception error) {error(error);}});
     }
     private WebResourceResponse response(String mime, byte[] bytes) {return new WebResourceResponse(mime, null, new ByteArrayInputStream(bytes));}
@@ -201,7 +202,7 @@ public final class MainActivity extends Activity {
         });
     }
     @Override public void onBackPressed() {if (web == null) {super.onBackPressed(); return;} web.evaluateJavascript("window.handleBack&&window.handleBack()", value -> {if (!"true".equals(value)) super.onBackPressed();});}
-    @Override protected void onStop(){Fetcher.foregroundStopped();super.onStop();}
+    @Override protected void onStop(){foreground=false;Fetcher.foregroundStopped();super.onStop();}
     @Override protected void onDestroy() {
         Fetcher.removeListener(fetchListener);Fetcher.closeViewer();
         images.cancelScan(); scans.shutdownNow(); io.shutdownNow();
