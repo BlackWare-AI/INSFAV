@@ -169,7 +169,7 @@ final class WebViewProfileProvider implements ProfileProvider {
         final Object token = new Object();
         volatile Failure failure; volatile JSONObject result;
         WebView view;
-        volatile boolean finishing; boolean completed, started, broken, counted;
+        volatile boolean finishing; boolean completed, started, broken, counted, timingStarted;
         final java.util.concurrent.atomic.AtomicInteger resourceCount = new java.util.concurrent.atomic.AtomicInteger();
         long deadline;
         Operation(String user, String expectedId, boolean highResolution) { this.user = user; this.expectedId = expectedId; this.highResolution = highResolution; }
@@ -179,12 +179,12 @@ final class WebViewProfileProvider implements ProfileProvider {
             if (finishing) return;
             if (cancelled) { fail(new Failure("REQUEST_CANCELLED")); return; }
             // Includes creation/cookie setup; no indefinitely pending platform callback.
-            later(() -> fail(new Failure("WEBVIEW_TIMEOUT", 0, 0, true)), user.isEmpty() ? 18000 : 55000);
+            if(!timingStarted){timingStarted=true;later(() -> fail(new Failure("WEBVIEW_TIMEOUT", 0, 0, true)), user.isEmpty() ? 18000 : 55000);}
             try {
                 WebView.setWebContentsDebuggingEnabled(false);
                 view = idle.poll();
                 if (view == null) {
-                    if (views.size() >= ceiling) { fail(new Failure("WEBVIEW_POOL_CAPACITY")); return; }
+                    if (views.size() >= ceiling) { later(this::start,50); return; }
                     view = new WebView(context); views.add(view); createdCount++; log.log("POOL", "VIEW_CREATED", views.size());
                 } else { reusedCount++; log.log("POOL", "VIEW_REUSED", views.size()); }
                 counted = true; QueueControl.activeViews = ++activeCount;
