@@ -31,8 +31,29 @@ public final class PoolInstrumentation extends Instrumentation{
    }finally{sampling.set(false);b.endBatch();b.cancelAll();long deadline=SystemClock.elapsedRealtime()+5000;while(!b.active.isEmpty()&&SystemClock.elapsedRealtime()<deadline)Thread.sleep(25);while(b.provider!=null&&SystemClock.elapsedRealtime()<deadline)Thread.sleep(25);}
   }
   try(FileOutputStream out=c.openFileOutput("pool-matrix.json",Context.MODE_PRIVATE)){out.write(matrix.toString(2).getBytes(java.nio.charset.StandardCharsets.UTF_8));}
+  background(c,png);
   result.putString("stream","POOL_MATRIX_OK\n");finish(Activity.RESULT_OK,result);
  }catch(Throwable error){result.putString("stream","POOL_MATRIX_FAILED: "+error.getClass().getSimpleName()+" "+error.getMessage()+"\n");finish(Activity.RESULT_CANCELED,result);}}
+ void background(Context c,byte[] png)throws Exception{
+  c.sendBroadcast(new Intent().setComponent(new ComponentName("com.instagram.insfav.test",FixtureDocuments.Grant.class.getName())));
+  long until=SystemClock.elapsedRealtime()+10000;boolean granted=false;
+  while(SystemClock.elapsedRealtime()<until&&!granted)try{c.getContentResolver().takePersistableUriPermission(FixtureDocuments.tree(),Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);granted=true;}catch(SecurityException e){Thread.sleep(100);}
+  if(!granted)throw new AssertionError("Fixture SAF grant missing");
+  List<String> users=new ArrayList<>();for(int i=0;i<8;i++)users.add("background_"+i);Set<String> written=ConcurrentHashMap.newKeySet();CountDownLatch navigation=new CountDownLatch(2);
+  c.startActivity(new Intent(c,com.instagram.insfav.MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));Thread.sleep(1200);
+  runOnMainSync(()->Fetcher.initialize(c,new Fetcher.Host(){public Collection<String>users(){return users;}public String tree(){return FixtureDocuments.tree().toString();}public String directory(){return "root";}public long revision(){return written.size();}public boolean hasImage(String u){return written.contains(u);}public void imageWritten(String u,android.net.Uri uri,String tree){written.add(u);}}));
+  SessionState.prefs(c).edit().clear().putInt("minimum",1).putInt("maximum",1).putInt("startMinute",0).putInt("endMinute",1439).putInt("concurrentWebViews",2).putBoolean("background",true).putBoolean("armed",true).putBoolean("userPaused",false).putString("tree",FixtureDocuments.tree().toString()).putString("directoryId","root").commit();
+  try(QueueStore q=new QueueStore(c)){q.sync(users);}
+  WebViewProfileProvider p=new WebViewProfileProvider(c,CookieJar.parse("sessionid=OFFLINE_BACKGROUND; ds_user_id=123",System.currentTimeMillis()),(view,url)->{navigation.countDown();view.loadUrl(url);},url->{if(url.startsWith("https://www.instagram.com/")){String u=url.substring("https://www.instagram.com/".length()).replace("/","");String h="<html><head><link rel='canonical' href='"+url+"'></head><body><main><header><img id='a' alt=\""+u+"'s profile picture\"></header></main><script>setTimeout(()=>document.getElementById('a').src='https://fixture.cdninstagram.com/"+u+".png',4000)</script></body></html>";return new WebResourceResponse("text/html","UTF-8",new ByteArrayInputStream(h.getBytes(java.nio.charset.StandardCharsets.UTF_8)));}return new WebResourceResponse("image/png",null,new ByteArrayInputStream(png));},()->new PublicProfileProvider(url->new FixtureConnection(url,png,new AtomicInteger(),new AtomicInteger())));
+  FetchBroker b=new FetchBroker(c,full->p);java.lang.reflect.Field f=FetchBroker.class.getDeclaredField("instance");f.setAccessible(true);f.set(null,b);QueueControl.requested=false;
+  FetchService.request(c,"missing");if(!navigation.await(15,TimeUnit.SECONDS))throw new AssertionError("Service did not start two real pages");
+  getUiAutomation().executeShellCommand("input keyevent KEYCODE_HOME").close();int beforeHome=written.size();until=SystemClock.elapsedRealtime()+20000;while(written.size()<=beforeHome&&SystemClock.elapsedRealtime()<until)Thread.sleep(100);
+  if(written.size()<=beforeHome||QueueControl.requested)throw new AssertionError("Background Home interrupted retrieval");int afterHome=written.size();
+  runOnMainSync(()->{for(ActivityManager.AppTask task:c.getSystemService(ActivityManager.class).getAppTasks())task.finishAndRemoveTask();});int beforeRemove=written.size();until=SystemClock.elapsedRealtime()+45000;while((FetchService.running||written.size()<8)&&SystemClock.elapsedRealtime()<until)Thread.sleep(100);
+  if(written.size()!=8||QueueControl.requested)throw new AssertionError("Removing task interrupted queue, writes="+written.size());
+  JSONObject out=new JSONObject().put("homeBefore",beforeHome).put("homeAfter",afterHome).put("removeTaskBefore",beforeRemove).put("completed",written.size()).put("userPaused",SessionState.prefs(c).getBoolean("userPaused",false)).put("fixture",true);
+  try(FileOutputStream stream=c.openFileOutput("background-fixture.json",Context.MODE_PRIVATE)){stream.write(out.toString(2).getBytes(java.nio.charset.StandardCharsets.UTF_8));}sendStatus(0,status("BACKGROUND_HOME_TASK_OK "+out));
+ }
  static byte[] png(){Bitmap b=Bitmap.createBitmap(640,480,Bitmap.Config.ARGB_8888);b.eraseColor(Color.BLUE);ByteArrayOutputStream o=new ByteArrayOutputStream();b.compress(Bitmap.CompressFormat.PNG,100,o);b.recycle();return o.toByteArray();}
  static final class FixtureConnection extends HttpsURLConnection{
   final byte[] bytes;final AtomicInteger active,peak;
