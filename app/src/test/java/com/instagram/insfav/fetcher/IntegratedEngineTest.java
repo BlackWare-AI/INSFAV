@@ -1,0 +1,22 @@
+package com.instagram.insfav.fetcher;
+import android.content.*;import android.content.pm.ProviderInfo;import android.net.Uri;
+import org.junit.*;import org.junit.runner.RunWith;import org.robolectric.*;import org.robolectric.annotation.*;
+import java.io.*;import java.nio.file.Files;import java.util.*;import static org.junit.Assert.*;
+@RunWith(RobolectricTestRunner.class) @Config(sdk=28,manifest=Config.NONE) @GraphicsMode(GraphicsMode.Mode.NATIVE)
+public class IntegratedEngineTest{
+ @Test public void unavailableAndAmbiguousProfilesCannotPreventFollowingSuccess()throws Exception{
+  Context c=RuntimeEnvironment.getApplication();c.deleteDatabase("fetcher-queue.db");QueueControl.requested=false;
+  SessionState.prefs(c).edit().clear().putInt("minimum",1).putInt("maximum",1).putInt("startMinute",0).putInt("endMinute",1439).putString("tree","content://fetcher.test/tree/root").putString("directoryId","root/.thumbnails").commit();
+  ProviderInfo info=new ProviderInfo();info.authority="fetcher.test";info.exported=true;info.grantUriPermissions=true;info.readPermission="android.permission.MANAGE_DOCUMENTS";info.writePermission=info.readPermission;
+  FetcherStorageTest.Fixture provider=Robolectric.buildContentProvider(FetcherStorageTest.Fixture.class).create(info).get();provider.root=Files.createTempDirectory("integration-engine").toFile();new File(provider.root,".thumbnails").mkdir();Uri tree=Uri.parse("content://fetcher.test/tree/root");c.getContentResolver().takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+  List<String> requests=Collections.synchronizedList(new ArrayList<>());Set<String> written=new HashSet<>();byte[] png=CodecTest.png(640,480);
+  Fetcher.initialize(c,new Fetcher.Host(){public Collection<String> users(){return Arrays.asList("gone","ambiguous","good");}public String tree(){return tree.toString();}public String directory(){return "root/.thumbnails";}public long revision(){return 0;}public boolean hasImage(String u){return written.contains(u);}public void imageWritten(String u,Uri uri,String t){written.add(u);}});
+  FetchBroker broker=new FetchBroker(c,full->new ProfileProvider(){public byte[] fetch(String user)throws Failure{requests.add(user);if(user.equals("gone"))throw new Failure("PROFILE_NOT_FOUND_OR_UNAVAILABLE",404,0,false);if(user.equals("ambiguous"))throw new Failure("PROFILE_IMAGE_URL_MISSING",200,0,false);return png.clone();}public void cancel(){}});
+  org.robolectric.util.ReflectionHelpers.setStaticField(FetchBroker.class,"instance",broker);
+  try(QueueStore q=new QueueStore(c)){q.sync(Arrays.asList("gone","ambiguous","good"));}
+  new QueueEngine(c,state->{},()->false).run("missing",false);
+  assertEquals(Arrays.asList("gone","ambiguous","good","ambiguous","ambiguous"),requests);assertEquals(Collections.singleton("good"),written);
+  try(QueueStore q=new QueueStore(c)){assertEquals(Integer.valueOf(1),q.counts().get("SUCCESS"));assertEquals(Integer.valueOf(1),q.counts().get("SKIPPED_UNAVAILABLE"));assertEquals(Integer.valueOf(1),q.counts().get("FAILED"));assertTrue(q.pending().isEmpty());}
+  assertTrue(ThumbnailCodec.valid(Files.readAllBytes(new File(provider.root,".thumbnails/good.webp").toPath())));
+ }
+}

@@ -25,6 +25,7 @@ final class QueueStore extends SQLiteOpenHelper {
         }finally{db.endTransaction();}
     }
     void requeueLost(String user){getWritableDatabase().execSQL("UPDATE accounts SET status='PENDING',code='',attempts=0 WHERE username=? AND status IN ('SUCCESS','EXISTING')",new Object[]{user});}
+    List<String> completedImages(){ArrayList<String> out=new ArrayList<>();try(Cursor c=getReadableDatabase().rawQuery("SELECT username FROM accounts WHERE status IN ('SUCCESS','EXISTING')",null)){while(c.moveToNext())out.add(c.getString(0));}return out;}
     int attempts(String user) {try(Cursor c=getReadableDatabase().rawQuery("SELECT attempts FROM accounts WHERE username=?",new String[]{user})){return c.moveToFirst()?c.getInt(0):0;}}
     void attempted(String user) {getWritableDatabase().execSQL("UPDATE accounts SET attempts=attempts+1 WHERE username=?",new String[]{user});}
     void prepareMissing() {getWritableDatabase().execSQL("UPDATE accounts SET status='PENDING',code='',attempts=0,eligible=1 WHERE status NOT IN ('SUCCESS','EXISTING','SKIPPED_UNAVAILABLE')");}
@@ -32,25 +33,9 @@ final class QueueStore extends SQLiteOpenHelper {
         ArrayList<String> result=new ArrayList<>();
         try(Cursor c=getReadableDatabase().rawQuery("SELECT username FROM accounts WHERE status='PENDING' OR (status='RETRY_LATER' AND attempts<3) ORDER BY CASE WHEN status='PENDING' THEN 0 ELSE 1 END,position",null)){while(c.moveToNext())result.add(c.getString(0));}return result;
     }
-    void replace(BackupParser.Result result) {
-        SQLiteDatabase db = getWritableDatabase(); db.beginTransaction();
-        try {
-            db.delete("accounts", null, null); int position = 0;
-            for (String user : result.users) { ContentValues values = new ContentValues(); values.put("username", user); values.put("position", position++); values.put("status", "PENDING"); db.insertOrThrow("accounts", null, values); }
-            db.setTransactionSuccessful();
-        } finally { db.endTransaction(); }
-    }
     List<String> users(boolean failedOnly) {
         ArrayList<String> users = new ArrayList<>();
         try (Cursor cursor = getReadableDatabase().query("accounts", new String[]{"username"}, failedOnly ? "status='FAILED'" : null, null, null, null, "position")) {
-            while (cursor.moveToNext()) users.add(cursor.getString(0));
-        }
-        return users;
-    }
-    // Prefer untried profiles on a manual test; do not keep probing the same unavailable rows.
-    List<String> preflightCandidates() {
-        ArrayList<String> users = new ArrayList<>();
-        try (Cursor cursor = getReadableDatabase().rawQuery("SELECT username FROM accounts WHERE status!='SKIPPED' ORDER BY CASE WHEN status='PENDING' THEN 0 ELSE 1 END,position LIMIT 5", null)) {
             while (cursor.moveToNext()) users.add(cursor.getString(0));
         }
         return users;

@@ -116,6 +116,13 @@ public class LocalImagesTest {
         assertTrue(images.image("missing", true).length > 0);
         assertTrue(images.image("example", false).length > 0);
     }
+    @Test public void fetchedThumbnailImmediatelyJoinsExistingCatalogWithoutRescanOrJsonMutation()throws Exception{
+        selectAndScan();int queries=provider.childQueries;String before=store.original();
+        provider.add("root/missing.webp","missing.webp",128,128);
+        InsfavApplication app=Robolectric.buildApplication(InsfavApplication.class).create().get();org.robolectric.util.ReflectionHelpers.setField(app,"store",store);
+        app.imageWritten("missing",DocumentsContract.buildDocumentUriUsingTree(root,"root/missing.webp"),root.toString());
+        assertEquals(2,images.snapshot(true).getInt("matched"));assertTrue(images.image("missing",false).length>0);assertEquals(queries,provider.childQueries);assertEquals(before,store.original());
+    }
     public static final class FixtureProvider extends ContentProvider {
         File directory; final Map<String,File> files = new LinkedHashMap<>(); final Map<String,String> names = new HashMap<>();
         int childQueries, opens, writes; boolean available = true, parentHasThumbnailChild;

@@ -20,7 +20,7 @@ final class QueueEngine {
  void run(String action,boolean single){
   long started=android.os.SystemClock.elapsedRealtime();int done=0;long generation=settings.getLong("datasetGeneration",0);
   try(QueueStore queue=new QueueStore(context)){
-   if(action.equals("missing")){queue.prepareMissing();for(String user:queue.users(false))if(!Fetcher.host().hasImage(user)){queue.requeueLost(user);}}
+   if(action.equals("missing")){queue.prepareMissing();for(String user:queue.completedImages())if(!Fetcher.host().hasImage(user)){queue.requeueLost(user);}}
    while(!interrupted()){
     if(generation!=settings.getLong("datasetGeneration",0)){state("Paused: collections or folder changed");return;}
     if(!settings.getString("blocked","").isEmpty()){state("Paused: "+settings.getString("blocked",""));return;}

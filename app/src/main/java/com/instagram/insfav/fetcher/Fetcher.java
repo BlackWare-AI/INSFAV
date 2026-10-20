@@ -37,7 +37,7 @@ public final class Fetcher {
  public static void removeCookies(){QueueControl.pause(context,true);closeViewer();FetchBroker.get(context).cancelAll();new CookieVault(context).remove();SessionState.changed(context);publish();}
  public static void configure(int min,int max,String start,String end,boolean background)throws Exception{
   new RunPolicy(min,max,RunPolicy.minute(start),RunPolicy.minute(end));
-  SessionState.prefs(context).edit().putInt("minimum",min).putInt("maximum",max).putInt("startMinute",RunPolicy.minute(start)).putInt("endMinute",RunPolicy.minute(end)).putBoolean("background",background).commit();
+  SessionState.prefs(context).edit().putInt("minimum",min).putInt("maximum",max).putInt("startMinute",RunPolicy.minute(start)).putInt("endMinute",RunPolicy.minute(end)).putBoolean("background",background).putLong("nextRequestAt",Math.max(SessionState.prefs(context).getLong("nextRequestAt",0),System.currentTimeMillis()+min*1000L)).commit();
   WorkScheduler.cancel(context);WorkScheduler.recovery(context);WorkScheduler.plan(context,false);publish();
  }
  public static void action(String action)throws Exception{

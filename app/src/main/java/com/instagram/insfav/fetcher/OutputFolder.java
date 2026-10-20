@@ -10,10 +10,11 @@ import java.util.*;
 /** SAF only. No broad storage permission and no queue files in the output folder. */
 final class OutputFolder {
     private final ContentResolver resolver;
+    private final android.util.AtomicFile journal;
     private final Uri tree, folder;
     private final Map<String, Uri> files = new HashMap<>();
     OutputFolder(Context context, String treeValue) throws IOException {
-        resolver = context.getContentResolver(); tree = Uri.parse(treeValue);
+        resolver = context.getContentResolver(); journal=new android.util.AtomicFile(new File(context.getFilesDir(),"fetcher-write-journal.json")); tree = Uri.parse(treeValue);
         boolean permission = false;
         for (UriPermission p : resolver.getPersistedUriPermissions()) if (p.getUri().equals(tree) && p.isReadPermission() && p.isWritePermission()) permission = true;
         if (!permission) throw new SecurityException("OUTPUT_PERMISSION_LOST");
@@ -23,6 +24,7 @@ final class OutputFolder {
             if(c==null||!c.moveToFirst()||!DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(0)))throw new IOException("OUTPUT_FOLDER_INVALID");
         }
         files.putAll(children(folder));
+        synchronized(WRITE_LOCK){recoverJournal();files.clear();files.putAll(children(folder));}
     }
     private Map<String, Uri> children(Uri directory) throws IOException {
         Uri child = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getDocumentId(directory));
@@ -63,12 +65,30 @@ final class OutputFolder {
             if (c == null || !c.moveToFirst() || !name.equals(c.getString(0))) throw new IOException("OUTPUT_FILENAME_CHANGED");
         }
     }
+    private void saveJournal(String filename,String pending,String backup)throws IOException{
+        FileOutputStream out=null;try{org.json.JSONObject value=new org.json.JSONObject().put("tree",tree.toString()).put("folder",folder.toString()).put("name",filename).put("pending",pending).put("backup",backup);out=journal.startWrite();out.write(value.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));journal.finishWrite(out);out=null;}catch(org.json.JSONException error){throw new IOException("OUTPUT_WRITE_FAILED");}finally{if(out!=null)journal.failWrite(out);}
+    }
+    private void recoverJournal()throws IOException{
+        if(!journal.getBaseFile().exists())return;
+        try{
+            org.json.JSONObject value=new org.json.JSONObject(new String(journal.readFully(),java.nio.charset.StandardCharsets.UTF_8));
+            if(!tree.toString().equals(value.optString("tree"))||!folder.toString().equals(value.optString("folder")))return;
+            String name=value.getString("name"),backupName=value.getString("backup"),pendingName=value.getString("pending");
+            if(!name.matches("[a-z0-9._]{1,30}\\.webp")||!backupName.matches("\\.insfav-[a-f0-9-]+\\.bak")||!pendingName.matches("\\.insfav-[a-f0-9-]+\\.part"))throw new IOException("OUTPUT_UNAVAILABLE");
+            Uri backup=files.get(backupName),finalFile=files.get(name),pending=files.get(pendingName);
+            if(backup!=null){
+                if(finalFile!=null&&ThumbnailCodec.valid(read(resolver.openInputStream(finalFile))))DocumentsContract.deleteDocument(resolver,backup);
+                else{if(finalFile!=null)DocumentsContract.deleteDocument(resolver,finalFile);if(DocumentsContract.renameDocument(resolver,backup,name)==null)throw new IOException("OUTPUT_REPLACE_FAILED");}
+            }
+            if(pending!=null)DocumentsContract.deleteDocument(resolver,pending);journal.delete();
+        }catch(org.json.JSONException error){throw new IOException("OUTPUT_UNAVAILABLE",error);}
+    }
     private static final Object WRITE_LOCK=new Object();
     boolean write(String filename,byte[] bytes)throws IOException{commit(filename,bytes,false);return true;}
     Uri commit(String filename,byte[] bytes,boolean replace)throws IOException{
         synchronized(WRITE_LOCK){
             if(!filename.matches("[a-z0-9._]{1,30}\\.webp")||!ThumbnailCodec.valid(bytes))throw new IOException("OUTPUT_INVALID_WEBP");
-            files.clear();files.putAll(children(folder));
+            files.clear();files.putAll(children(folder));recoverJournal();files.clear();files.putAll(children(folder));
             if(!replace&&valid(filename))return files.get(filename);
             String nonce=java.util.UUID.randomUUID().toString();String pendingName=".insfav-"+nonce+".part",backupName=".insfav-"+nonce+".bak";
             Uri pending=null,old=files.get(filename),backup=null,committed=null;
@@ -76,12 +96,13 @@ final class OutputFolder {
                 pending=DocumentsContract.createDocument(resolver,folder,"application/octet-stream",pendingName);if(pending==null)throw new IOException("OUTPUT_CREATE_FAILED");exactName(pending,pendingName);
                 try(OutputStream output=resolver.openOutputStream(pending,"wt")){if(output==null)throw new IOException("OUTPUT_WRITE_FAILED");output.write(bytes);output.flush();}
                 if(!ThumbnailCodec.valid(read(resolver.openInputStream(pending))))throw new IOException("OUTPUT_READBACK_FAILED");
+                saveJournal(filename,pendingName,backupName);
                 if(old!=null){backup=DocumentsContract.renameDocument(resolver,old,backupName);if(backup==null)throw new IOException("ATOMIC_RENAME_UNSUPPORTED");exactName(backup,backupName);}
                 committed=DocumentsContract.renameDocument(resolver,pending,filename);if(committed==null)throw new IOException("ATOMIC_RENAME_UNSUPPORTED");pending=null;exactName(committed,filename);
                 if(!ThumbnailCodec.valid(read(resolver.openInputStream(committed))))throw new IOException("OUTPUT_FINAL_VERIFY_FAILED");
                 // Only a verified new final file may replace the old valid content.
                 if(backup!=null){try{DocumentsContract.deleteDocument(resolver,backup);}catch(Exception ignored){/* Retain backup rather than risk the final file. */}}
-                files.put(filename,committed);return committed;
+                journal.delete();files.put(filename,committed);return committed;
             }catch(Exception error){
                 if(committed!=null)try{DocumentsContract.deleteDocument(resolver,committed);}catch(Exception ignored){}
                 if(backup!=null)try{DocumentsContract.renameDocument(resolver,backup,filename);}catch(Exception ignored){/* Old bytes stay in the uniquely named backup, never deleted. */}
