@@ -19,4 +19,29 @@ public class IntegratedEngineTest{
   try(QueueStore q=new QueueStore(c)){assertEquals(Integer.valueOf(1),q.counts().get("SUCCESS"));assertEquals(Integer.valueOf(1),q.counts().get("SKIPPED_UNAVAILABLE"));assertEquals(Integer.valueOf(1),q.counts().get("FAILED"));assertTrue(q.pending().isEmpty());}
   assertTrue(ThumbnailCodec.valid(Files.readAllBytes(new File(provider.root,".thumbnails/good.webp").toPath())));
  }
+ @Test(timeout=30000) public void globalRateLimitPausesWithoutConsumingTheAccountRetryBudget()throws Exception{
+  Context c=RuntimeEnvironment.getApplication();c.deleteDatabase("fetcher-queue.db");QueueControl.requested=false;
+  SessionState.prefs(c).edit().clear().putInt("minimum",1).putInt("maximum",1).putInt("startMinute",0).putInt("endMinute",1439).putString("tree","content://fetcher.test/tree/root").putString("directoryId","root/.thumbnails").commit();
+  ProviderInfo info=new ProviderInfo();info.authority="fetcher.test";info.exported=true;info.grantUriPermissions=true;info.readPermission="android.permission.MANAGE_DOCUMENTS";info.writePermission=info.readPermission;
+  FetcherStorageTest.Fixture provider=Robolectric.buildContentProvider(FetcherStorageTest.Fixture.class).create(info).get();provider.root=Files.createTempDirectory("integration-engine").toFile();new File(provider.root,".thumbnails").mkdir();Uri tree=Uri.parse("content://fetcher.test/tree/root");c.getContentResolver().takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+
+  Fetcher.initialize(c,new Fetcher.Host(){public Collection<String> users(){return Arrays.asList("limited");}public String tree(){return tree.toString();}public String directory(){return "root/.thumbnails";}public long revision(){return 0;}public boolean hasImage(String u){return false;}public void imageWritten(String u,Uri uri,String t){}});
+  FetchBroker broker=new FetchBroker(c,full->new ProfileProvider(){public byte[] fetch(String user)throws Failure{throw new Failure("RATE_LIMITED",429,System.currentTimeMillis()+60000,true);}public void cancel(){}},new TestTime());org.robolectric.util.ReflectionHelpers.setStaticField(FetchBroker.class,"instance",broker);
+  try(QueueStore q=new QueueStore(c)){q.sync(Arrays.asList("limited"));}new QueueEngine(c,state->{},()->false).run("resume",false);
+  try(QueueStore q=new QueueStore(c)){assertEquals(0,q.attempts("limited"));assertEquals(Integer.valueOf(1),q.counts().get("RETRY_LATER"));assertEquals(Arrays.asList("limited"),q.pending());}assertEquals("RATE_LIMITED",SessionState.prefs(c).getString("blocked",""));
+ }
+
+ @Test(timeout=30000) public void cachedScheduledWorkIsBoundedWithoutNetworkOrUiFlood()throws Exception{
+  Context c=RuntimeEnvironment.getApplication();c.deleteDatabase("fetcher-queue.db");QueueControl.requested=false;
+  SessionState.prefs(c).edit().clear().putInt("minimum",1).putInt("maximum",1).putInt("startMinute",0).putInt("endMinute",1439).putString("tree","content://fetcher.test/tree/root").putString("directoryId","root/.thumbnails").commit();
+  ProviderInfo info=new ProviderInfo();info.authority="fetcher.test";info.exported=true;info.grantUriPermissions=true;info.readPermission="android.permission.MANAGE_DOCUMENTS";info.writePermission=info.readPermission;
+  FetcherStorageTest.Fixture provider=Robolectric.buildContentProvider(FetcherStorageTest.Fixture.class).create(info).get();provider.root=Files.createTempDirectory("integration-engine").toFile();new File(provider.root,".thumbnails").mkdir();Uri tree=Uri.parse("content://fetcher.test/tree/root");c.getContentResolver().takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+
+  List<String> names=new ArrayList<>();for(int i=0;i<1000;i++)names.add("cached"+i);
+  Fetcher.initialize(c,new Fetcher.Host(){public Collection<String> users(){return names;}public String tree(){return tree.toString();}public String directory(){return "root/.thumbnails";}public long revision(){return 0;}public boolean hasImage(String u){return true;}public void imageWritten(String u,Uri uri,String t){}});
+  try(QueueStore q=new QueueStore(c)){q.sync(names);}
+  java.util.concurrent.atomic.AtomicInteger notices=new java.util.concurrent.atomic.AtomicInteger();new QueueEngine(c,state->notices.incrementAndGet(),()->false).run("scheduled",true);
+  try(QueueStore q=new QueueStore(c)){assertEquals(Integer.valueOf(128),q.counts().get("EXISTING"));assertEquals(872,q.pending().size());assertEquals("cached128",q.next());}assertTrue(notices.get()<=3);
+ }
+
 }

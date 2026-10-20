@@ -7,9 +7,10 @@ import java.util.*;
 
 final class QueueStore extends SQLiteOpenHelper {
     QueueStore(Context context) { super(context, "fetcher-queue.db", null, 3); setWriteAheadLoggingEnabled(true); }
-    @Override public void onCreate(SQLiteDatabase db) { db.execSQL("CREATE TABLE accounts (username TEXT PRIMARY KEY, position INTEGER NOT NULL, status TEXT NOT NULL, code TEXT NOT NULL DEFAULT '', eligible INTEGER NOT NULL DEFAULT 1, attempts INTEGER NOT NULL DEFAULT 0)"); }
+    @Override public void onCreate(SQLiteDatabase db) { db.execSQL("CREATE TABLE accounts (username TEXT PRIMARY KEY, position INTEGER NOT NULL, status TEXT NOT NULL, code TEXT NOT NULL DEFAULT '', eligible INTEGER NOT NULL DEFAULT 1, attempts INTEGER NOT NULL DEFAULT 0)"); db.execSQL("CREATE INDEX account_work_order ON accounts(status,position)"); }
     @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
         if (oldVersion < 3) db.execSQL("ALTER TABLE accounts ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0");
+        db.execSQL("CREATE INDEX IF NOT EXISTS account_work_order ON accounts(status,position)");
     }
     void sync(Collection<String> users) {
         SQLiteDatabase db=getWritableDatabase();db.beginTransaction();
@@ -29,6 +30,9 @@ final class QueueStore extends SQLiteOpenHelper {
     int attempts(String user) {try(Cursor c=getReadableDatabase().rawQuery("SELECT attempts FROM accounts WHERE username=?",new String[]{user})){return c.moveToFirst()?c.getInt(0):0;}}
     void attempted(String user) {getWritableDatabase().execSQL("UPDATE accounts SET attempts=attempts+1 WHERE username=?",new String[]{user});}
     void prepareMissing() {getWritableDatabase().execSQL("UPDATE accounts SET status='PENDING',code='',attempts=0,eligible=1 WHERE status NOT IN ('SUCCESS','EXISTING','SKIPPED_UNAVAILABLE')");}
+    String next(){
+        for(String condition:new String[]{"status='PENDING'","status='RETRY_LATER' AND attempts<3"})try(Cursor c=getReadableDatabase().rawQuery("SELECT username FROM accounts WHERE "+condition+" ORDER BY position LIMIT 1",null)){if(c.moveToFirst())return c.getString(0);}return null;
+    }
     List<String> eligible() {
         ArrayList<String> result=new ArrayList<>();
         try(Cursor c=getReadableDatabase().rawQuery("SELECT username FROM accounts WHERE status='PENDING' OR (status='RETRY_LATER' AND attempts<3) ORDER BY CASE WHEN status='PENDING' THEN 0 ELSE 1 END,position",null)){while(c.moveToNext())result.add(c.getString(0));}return result;

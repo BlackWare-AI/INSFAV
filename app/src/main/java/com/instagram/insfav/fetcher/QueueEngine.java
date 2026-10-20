@@ -9,14 +9,15 @@ import java.util.function.BooleanSupplier;
 final class QueueEngine {
  interface Reporter{void update(String state);}
  final Context context;final SharedPreferences settings;final Reporter reporter;final BooleanSupplier stopped;
+ private long lastSignal;private String lastState="";
  volatile boolean cancelled;volatile String cancelledState="Interrupted; queue preserved";
  QueueEngine(Context c,Reporter r,BooleanSupplier stop){context=c;settings=SessionState.prefs(c);reporter=r;stopped=stop;}
  void cancel(){cancelled=true;FetchBroker.get(context).cancelBulk();}
  void cancel(String text){cancelledState=text;cancel();}
  boolean interrupted(){return cancelled||stopped.getAsBoolean()||QueueControl.requested||Thread.currentThread().isInterrupted();}
- void state(String value){QueueControl.phase=value;settings.edit().putString("state",value).apply();reporter.update(value);Fetcher.publish();}
+ void state(String value){long now=android.os.SystemClock.elapsedRealtime();if(value.equals(lastState)&&now-lastSignal<250)return;lastState=value;lastSignal=now;QueueControl.phase=value;settings.edit().putString("state",value).apply();reporter.update(value);Fetcher.publish();}
  void run(String action,boolean single){
-  long started=android.os.SystemClock.elapsedRealtime();int done=0;long generation=settings.getLong("datasetGeneration",0);settings.edit().putLong("startedAt",System.currentTimeMillis()).apply();
+  long started=android.os.SystemClock.elapsedRealtime();int done=0,cached=0;long generation=settings.getLong("datasetGeneration",0);settings.edit().putLong("startedAt",System.currentTimeMillis()).apply();
   try(QueueStore queue=new QueueStore(context)){
    if(action.equals("missing")){queue.prepareMissing();for(String user:queue.completedImages())if(!Fetcher.host().hasImage(user)){queue.requeueLost(user);}}
    OutputFolder output=new OutputFolder(context,settings.getString("tree",""));
@@ -24,10 +25,10 @@ final class QueueEngine {
     if(generation!=settings.getLong("datasetGeneration",0)){state("Paused: collections or folder changed");return;}
     if(!settings.getString("blocked","").isEmpty()){state("Paused: "+settings.getString("blocked",""));return;}
     if(!RunPolicy.read(settings).contains(ZonedDateTime.now())){state("Waiting for working hours");return;}
-    List<String> users=queue.eligible();if(users.isEmpty()){settings.edit().putBoolean("armed",false).commit();state("Completed");return;}
-    String user=users.get(0);QueueControl.current=user;
+    String user=queue.next();if(user==null){settings.edit().putBoolean("armed",false).commit();state("Completed");return;}
+    QueueControl.current=user;
     if(Fetcher.host().hasImage(user)||output.valid(Identity.outputFilename(user))){
-     if(output.valid(Identity.outputFilename(user)))Fetcher.host().imageWritten(user,output.uri(Identity.outputFilename(user)),settings.getString("tree",""));queue.mark(user,"EXISTING","LOCAL_IMAGE");state("Existing local image");if(single)return;continue;}
+     if(output.valid(Identity.outputFilename(user)))Fetcher.host().imageWritten(user,output.uri(Identity.outputFilename(user)),settings.getString("tree",""));queue.mark(user,"EXISTING","LOCAL_IMAGE");state("Existing local image");if(single&&++cached>=128)return;continue;}
     state("Waiting / downloading");
     CompletableFuture<byte[]> future=FetchBroker.get(context).submit(user,false);
     byte[] original=null;
@@ -44,10 +45,9 @@ final class QueueEngine {
      Throwable cause=problem.getCause();ProfileProvider.Failure error=cause instanceof ProfileProvider.Failure?(ProfileProvider.Failure)cause:new ProfileProvider.Failure("PROCESSING_ERROR");
      if(interrupted())break;
      if(error.code.equals("OUTSIDE_WORKING_HOURS")){state("Waiting for working hours");return;}
-     queue.attempted(user);
      if(FailurePolicy.unavailable(error))queue.mark(user,"SKIPPED_UNAVAILABLE",error.code);
      else if(FailurePolicy.pause(error)){queue.mark(user,"RETRY_LATER",error.code);state("Paused: "+error.code);return;}
-     else queue.mark(user,queue.attempts(user)>=3?"FAILED":"RETRY_LATER",error.code);
+     else {queue.attempted(user);queue.mark(user,queue.attempts(user)>=3?"FAILED":"RETRY_LATER",error.code);}
      new Diagnostics(context).log("PROFILE",error.code,error.http);
     }catch(CancellationException error){if(interrupted())break;queue.mark(user,"RETRY_LATER","REQUEST_CANCELLED");}
     catch(IOException error){queue.attempted(user);queue.mark(user,queue.attempts(user)>=3?"FAILED":"RETRY_LATER",Diagnostics.imageCode(error));}
