@@ -21,13 +21,15 @@ final class QueueEngine {
   long started=android.os.SystemClock.elapsedRealtime();int done=0;long generation=settings.getLong("datasetGeneration",0);
   try(QueueStore queue=new QueueStore(context)){
    if(action.equals("missing")){queue.prepareMissing();for(String user:queue.completedImages())if(!Fetcher.host().hasImage(user)){queue.requeueLost(user);}}
+   OutputFolder output=new OutputFolder(context,settings.getString("tree",""));
    while(!interrupted()){
     if(generation!=settings.getLong("datasetGeneration",0)){state("Paused: collections or folder changed");return;}
     if(!settings.getString("blocked","").isEmpty()){state("Paused: "+settings.getString("blocked",""));return;}
     if(!RunPolicy.read(settings).contains(ZonedDateTime.now())){state("Waiting for working hours");return;}
     List<String> users=queue.eligible();if(users.isEmpty()){settings.edit().putBoolean("armed",false).commit();state("Completed");return;}
     String user=users.get(0);QueueControl.current=user;
-    if(Fetcher.host().hasImage(user)){queue.mark(user,"EXISTING","LOCAL_IMAGE");state("Existing local image");if(single)return;continue;}
+    if(Fetcher.host().hasImage(user)||output.valid(Identity.outputFilename(user))){
+     if(output.valid(Identity.outputFilename(user)))Fetcher.host().imageWritten(user,output.uri(Identity.outputFilename(user)),settings.getString("tree",""));queue.mark(user,"EXISTING","LOCAL_IMAGE");state("Existing local image");if(single)return;continue;}
     state("Waiting / downloading");
     CompletableFuture<byte[]> future=FetchBroker.get(context).submit(user,false);
     byte[] original=null;
@@ -36,7 +38,7 @@ final class QueueEngine {
      if(interrupted()){future.cancel(true);break;}
      byte[] thumbnail=ThumbnailCodec.convert(original);
      if(generation!=settings.getLong("datasetGeneration",0)){state("Paused: data changed");return;}
-     state("Writing thumbnail");OutputFolder output=new OutputFolder(context,settings.getString("tree",""));
+     state("Writing thumbnail");
      android.net.Uri uri=output.commit(Identity.outputFilename(user),thumbnail,false);
      Fetcher.host().imageWritten(user,uri,settings.getString("tree",""));queue.mark(user,"SUCCESS","VALID_WEBP");
      new Diagnostics(context).log("PROFILE","SUCCESS",0);

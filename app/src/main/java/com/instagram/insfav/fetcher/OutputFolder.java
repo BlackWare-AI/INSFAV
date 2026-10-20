@@ -13,6 +13,7 @@ final class OutputFolder {
     private final android.util.AtomicFile journal;
     private final Uri tree, folder;
     private final Map<String, Uri> files = new HashMap<>();
+    private static final java.util.concurrent.atomic.AtomicLong CONTENT_REVISION=new java.util.concurrent.atomic.AtomicLong();private long seenRevision;
     OutputFolder(Context context, String treeValue) throws IOException {
         resolver = context.getContentResolver(); journal=new android.util.AtomicFile(new File(context.getFilesDir(),"fetcher-write-journal.json")); tree = Uri.parse(treeValue);
         boolean permission = false;
@@ -24,7 +25,7 @@ final class OutputFolder {
             if(c==null||!c.moveToFirst()||!DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(0)))throw new IOException("OUTPUT_FOLDER_INVALID");
         }
         files.putAll(children(folder));
-        synchronized(WRITE_LOCK){recoverJournal();files.clear();files.putAll(children(folder));}
+        synchronized(WRITE_LOCK){if(journal.getBaseFile().exists()){recoverJournal();files.clear();files.putAll(children(folder));}seenRevision=CONTENT_REVISION.get();}
     }
     private Map<String, Uri> children(Uri directory) throws IOException {
         Uri child = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getDocumentId(directory));
@@ -47,6 +48,7 @@ final class OutputFolder {
             return bytes.toByteArray();
         }
     }
+    Uri uri(String filename){return files.get(filename);}
     boolean valid(String filename) throws IOException {
         Uri file = files.get(filename); if (file == null) return false;
         try { return ThumbnailCodec.valid(read(resolver.openInputStream(file))); }
@@ -88,7 +90,7 @@ final class OutputFolder {
     Uri commit(String filename,byte[] bytes,boolean replace)throws IOException{
         synchronized(WRITE_LOCK){
             if(!filename.matches("[a-z0-9._]{1,30}\\.webp")||!ThumbnailCodec.valid(bytes))throw new IOException("OUTPUT_INVALID_WEBP");
-            files.clear();files.putAll(children(folder));recoverJournal();files.clear();files.putAll(children(folder));
+            if(seenRevision!=CONTENT_REVISION.get()||journal.getBaseFile().exists()){files.clear();files.putAll(children(folder));recoverJournal();files.clear();files.putAll(children(folder));seenRevision=CONTENT_REVISION.get();}
             if(!replace&&valid(filename))return files.get(filename);
             String nonce=java.util.UUID.randomUUID().toString();String pendingName=".insfav-"+nonce+".part",backupName=".insfav-"+nonce+".bak";
             Uri pending=null,old=files.get(filename),backup=null,committed=null;
@@ -102,7 +104,7 @@ final class OutputFolder {
                 if(!ThumbnailCodec.valid(read(resolver.openInputStream(committed))))throw new IOException("OUTPUT_FINAL_VERIFY_FAILED");
                 // Only a verified new final file may replace the old valid content.
                 if(backup!=null){try{DocumentsContract.deleteDocument(resolver,backup);}catch(Exception ignored){/* Retain backup rather than risk the final file. */}}
-                journal.delete();files.put(filename,committed);return committed;
+                journal.delete();files.put(filename,committed);seenRevision=CONTENT_REVISION.incrementAndGet();return committed;
             }catch(Exception error){
                 if(committed!=null)try{DocumentsContract.deleteDocument(resolver,committed);}catch(Exception ignored){}
                 if(backup!=null)try{DocumentsContract.renameDocument(resolver,backup,filename);}catch(Exception ignored){/* Old bytes stay in the uniquely named backup, never deleted. */}

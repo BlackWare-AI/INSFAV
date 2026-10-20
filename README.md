@@ -4,13 +4,13 @@ INSFAV is an independent Instagram account collection manager by **BlackWare**, 
 
 Version/build are defined in `version.properties` and read from the actual Android package by the About screen. Application ID: `com.instagram.insfav`. Minimum Android 8.0 / API 26; compile and target API 35.
 
-## Local-only profile images
+## Local profile images and optional Thumbnail Fetcher
 
-INSFAV does not download profile photos, scrape Instagram, run retrieval services or request network/storage-wide permissions. Account-name taps still open the Instagram application or an external browser. All in-app image requests resolve to selected local documents through the private intercepted WebView origin.
+INSFAV keeps its local SAF thumbnail catalog and adds an optional session-based Thumbnail Fetcher in Settings. Existing collections, JSON import/export, counters and offline image browsing remain available. See [FETCHER-INTEGRATION.md](docs/FETCHER-INTEGRATION.md) for the imported motor, setup, queue states, shared request broker, storage permissions and testing limits.
 
 1. Open **Application Information → Settings → Select Thumbnail Folder**.
 2. Select `.thumbnails` using the Android system folder picker. If your picker hides dot folders, select its parent; INSFAV recognizes a direct `.thumbnails` child automatically.
-3. Grant read access. INSFAV persists the SAF read grant and scans the folder without modifying source files.
+3. Grant read access. INSFAV persists the SAF read grant and scans the folder without modifying source files during scanning. The optional fetcher writes only validated thumbnails after write authorization.
 4. Use **Rescan Thumbnails** after changing the folder contents. Scrolling never rescans the directory.
 
 ```text

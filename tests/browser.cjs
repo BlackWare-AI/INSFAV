@@ -21,6 +21,7 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
    window.snapshot={profiles:{'test.user':{file:true,width:512,height:512}},total:10001,unique:10000,matched:1,missing:9999,unreadable:1,duplicates:2,folderBytes:1024,lastScan:100000,revision:1,folder:'.thumbnails',folderStatus:'ready',scanState:'completed',app:{version:'3.1.0',build:2},stats:{usage:1,load:1,clear:0}};
    window.Android={request(raw){const input=JSON.parse(raw);commands.push(input);
     if(input.command==='bootstrap')nativeEvent('bootstrap',{...snapshot,raw:JSON.stringify({preserved:'yes',favorite_page_pref:JSON.stringify(fixture)})});
+    else if(input.command==='fetcher-status')nativeEvent('fetcher-status',{total:10000,success:6,existing:0,failed:1,skipped:1,retry:2,pending:9990,processed:8,cookiesSaved:true,writable:false,minimum:6,maximum:25,start:'02:00',end:'07:00',background:false,state:'Paused',running:false});
     else if(input.command==='status')nativeEvent('status',structuredClone(snapshot));
     else if(input.command==='clear-index'){snapshot={...snapshot,profiles:{},matched:0,missing:10000,revision:0,scanState:'not_scanned'};nativeEvent('status',structuredClone(snapshot));}
    }};
@@ -42,7 +43,7 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
   await page.locator('.card-link').first().click();check(await page.evaluate(()=>commands.at(-1).command==='open'),'account action remains external profile opening');
   await page.locator('.avatar').first().click();check(await page.locator('#viewer').isVisible(),'viewer opens cached local thumbnail');
   await page.waitForFunction(()=>document.getElementById('full-image').src.includes('/full/'));
-  check(await page.evaluate(()=>commands.every(c=>c.command!=='full')),'larger view uses local resource without native download request');
+  check(await page.evaluate(()=>commands.filter(c=>c.command==='view-remote').length===1),'viewer submits one interactive request to the shared native broker');
   const cdp=await page.context().newCDPSession(page);
   await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:170,y:350,id:1},{x:220,y:350,id:2}]});
   await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:120,y:350,id:1},{x:270,y:350,id:2}]});
@@ -53,7 +54,16 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
   check(await page.evaluate(()=>tx)!==before,'zoomed image pans');
   await page.evaluate(()=>{resetTransform();lastTap=0;});await page.touchscreen.tap(190,350);await page.waitForTimeout(80);await page.touchscreen.tap(190,350);
   check(await page.evaluate(()=>scale>1),'double tap zoom works');
+  const remoteToken=await page.evaluate(()=>viewerToken),zoomBeforeRemote=await page.evaluate(()=>scale);
+  await page.evaluate(token=>nativeEvent('remote-full',{token,user:'test.user',width:640,height:480}),remoteToken);
+  await page.waitForFunction(()=>document.getElementById('full-image').src.includes('/remote-full/'));
+  check((await page.locator('#viewer-caption').innerText()).includes('640 × 480'),'viewer reports the actual remote image dimensions');
+  check(await page.evaluate(z=>scale===z,zoomBeforeRemote),'remote replacement preserves zoom');
+  await page.evaluate(()=>fullLoader.onload?.());check(await page.locator('#full-image').evaluate(el=>el.src.includes('/remote-full/')),'late local image never overwrites the ready remote image');
   await page.keyboard.press('Escape');await page.locator('#viewer').waitFor({state:'hidden'});check(true,'back closes viewer after exit animation');
+  check(await page.evaluate(()=>viewerToken===''&&remoteLoader===null&&fullLoader===null&&!document.getElementById('full-image').hasAttribute('src')),'viewer close releases all frontend image and token references');
+  check(await page.evaluate(()=>commands.at(-1).command==='view-closed'),'viewer close requests native high-resolution memory release');
+  await page.evaluate(token=>nativeEvent('remote-full',{token,user:'test.user',width:900,height:900}),remoteToken);check(await page.locator('#viewer').isHidden(),'stale remote completion cannot reopen the viewer');
   await page.locator('#search-input').fill('user9999');await page.waitForTimeout(180);check(await page.locator('.account').count()===1,'search reaches unmounted accounts');
   await page.locator('#clear-search').click();check(await page.locator('#search-input').inputValue()==='','search clear restores view');
   await page.evaluate(()=>scrollTo(0,400000));await page.waitForTimeout(100);check(await page.locator('.account').count()<30,'deep scrolling recycles rows');
@@ -96,6 +106,20 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
   check((await page.locator('#metrics').innerText()).includes('Missing Images'),'matched and missing metrics are separately named');
   await page.evaluate(()=>nativeEvent('status',{...snapshot,folderMessage:'Folder permission was lost.',folderStatus:'unavailable'}));
   check(await page.locator('#folder-warning').isVisible(),'lost permission warning appears');
+  const countersBeforeFetcher=await page.evaluate(()=>JSON.stringify(stats));
+  await page.locator('#fetcher-menu').click();check(await page.locator('#fetcher-screen').isVisible(),'Thumbnail Fetcher opens its own settings screen');
+  check(await page.getByRole('button',{name:'Test Cookies',exact:true}).count()===0,'no Test Cookies gate or button remains');
+  check(await page.locator('#cookie-state').innerText()==='Cookies saved · session checked during retrieval','cookie status does not claim verified authentication');
+  await page.locator('#cookie-text').fill('sessionid=FAKE_FOR_TEST; ds_user_id=1');await page.locator('#cookie-save').click();
+  check(await page.locator('#cookie-text').inputValue()==='','cookie editor clears immediately after Save');check(await page.evaluate(()=>commands.at(-1).command==='fetcher-cookies-save'),'cookie saving is sent only to native private storage');
+  await page.locator('#fetcher-min').fill('8');await page.locator('#fetcher-max').fill('20');await page.locator('#fetcher-background').check();await page.locator('#fetcher-save').click();
+  check(await page.evaluate(()=>commands.at(-1).command==='fetcher-config'&&commands.at(-1).minimum===8&&commands.at(-1).maximum===20&&commands.at(-1).background),'delays, working hours and background choice are saved together');
+  await page.locator('#fetcher-write').click();check(await page.evaluate(()=>commands.at(-1).command==='fetcher-write-access'),'write authorization upgrades the current folder instead of selecting a second output');
+  for(const [id,action] of [['fetcher-missing','missing'],['fetcher-pause','pause'],['fetcher-resume','resume'],['fetcher-stop','stop']]){await page.locator('#'+id).click();check(await page.evaluate(action=>commands.at(-1).command==='fetcher-action'&&commands.at(-1).action===action,action),'fetcher dispatches '+action);}
+  await page.locator('#fetcher-diagnostics').click();check(await page.evaluate(()=>commands.at(-1).command==='fetcher-logs'),'fetcher diagnostics has a separate redacted export');
+  check(await page.evaluate(before=>JSON.stringify(stats)===before,countersBeforeFetcher),'fetcher controls never alter collection usage/load/reset counters');
+  await page.keyboard.press('Escape');await page.locator('#fetcher-screen').waitFor({state:'hidden'});check(await page.locator('#settings').isVisible(),'back returns from Fetcher to the existing Settings screen');
+  check(await page.evaluate(()=>fetcherPoll===0&&!document.getElementById('settings').inert),'fetcher polling and focus lock are released on return');
   await page.keyboard.press('Escape');await page.locator('#settings').waitFor({state:'hidden'});
   await page.evaluate(()=>scrollTo(0,0));await page.waitForTimeout(100);check(await page.locator('.avatar img').count()===0,'cleared index removes photo references');
   if(process.env.PRIVATE_JSON){const raw=fs.readFileSync(process.env.PRIVATE_JSON,'utf8');await page.evaluate(raw=>nativeEvent('imported',{raw,profiles:{}}),raw);check(await page.evaluate(()=>doc.total===12612&&doc.unique.length===12197),'private JSON retains membership and unique counts');check(await page.evaluate(()=>doc.raw)===raw,'private JSON text remains unchanged');}

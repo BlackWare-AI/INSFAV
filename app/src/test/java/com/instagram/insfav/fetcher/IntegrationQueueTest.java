@@ -12,4 +12,13 @@ public class IntegrationQueueTest{
  @Test public void globalSessionAndRateLimitBlocksStayGlobal(){for(ProfileProvider.Failure e:new ProfileProvider.Failure[]{new ProfileProvider.Failure("RATE_LIMITED",429,100,true),new ProfileProvider.Failure("COOKIE_INVALID_EXPIRED",401,0,true),new ProfileProvider.Failure("CHALLENGE_REQUIRED",200,0,true),new ProfileProvider.Failure("PRIVATE_RESTRICTED",403,0,true)})assertTrue(FailurePolicy.pause(e));}
  @Test public void freshStartNeedsNoThreeProfileProof(){SharedPreferences p=SessionState.prefs(c);p.edit().putBoolean("background",true).putBoolean("armed",true).putBoolean("userPaused",false).commit();assertTrue(WorkScheduler.enabled(p));assertFalse(SessionState.verified(p));}
  @Test public void startMissingRecoversLostSuccessfulOutputButLeavesUnavailableAlone(){try(QueueStore q=new QueueStore(c)){q.sync(Arrays.asList("one","two"));q.mark("one","SUCCESS","VALID_WEBP");q.mark("two","SKIPPED_UNAVAILABLE","PROFILE_NOT_FOUND_OR_UNAVAILABLE");q.prepareMissing();q.requeueLost("one");assertEquals(Arrays.asList("one"),q.eligible());}}
+ @Test public void pauseAndStopPersistWithoutDiscardingCompletedOrPendingWork(){
+  SharedPreferences p=SessionState.prefs(c);p.edit().putBoolean("armed",true).putBoolean("background",true).putBoolean("userPaused",false).commit();
+  try(QueueStore q=new QueueStore(c)){q.sync(Arrays.asList("finished","next"));q.mark("finished","SUCCESS","VALID_WEBP");}
+  QueueControl.pause(c,false);assertTrue(p.getBoolean("armed",false));assertTrue(p.getBoolean("userPaused",false));assertFalse(WorkScheduler.enabled(p));
+  try(QueueStore q=new QueueStore(c)){assertEquals(Arrays.asList("next"),q.pending());assertEquals(Integer.valueOf(1),q.counts().get("SUCCESS"));}
+  p.edit().putBoolean("userPaused",false).commit();assertTrue(WorkScheduler.enabled(p));
+  QueueControl.pause(c,true);assertFalse(p.getBoolean("armed",true));try(QueueStore q=new QueueStore(c)){assertEquals(Arrays.asList("next"),q.pending());}
+ }
+
 }

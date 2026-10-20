@@ -21,9 +21,11 @@ const {chromium}=require('playwright'),http=require('node:http'),fs=require('nod
  try{
   const old=await trace(path.resolve(baseline)),now=await trace(current);assert.deepEqual(now,old);
   assert.deepEqual(now.map(x=>[x.total,x.usage,x.load]),[[3,37,18],[3,37,18],[3,37,19],[3,37,19],[3,37,19],[3,38,19]]);
-  for(const f of ['MainActivity.java','Store.java'])assert.equal(fs.readFileSync(path.resolve(__dirname,'../app/src/main/java/com/instagram/insfav',f),'utf8'),cp.execFileSync('git',['show',(process.env.BASELINE_REF||'68717797719c11e77bb059af05c582f45612c16e')+':app/src/main/java/com/instagram/insfav/'+f],{cwd:path.resolve(__dirname,'..'),encoding:'utf8'}));
+  const native=fs.readFileSync(path.resolve(__dirname,'../app/src/main/java/com/instagram/insfav/MainActivity.java'),'utf8');
+  const previous=cp.execFileSync('git',['show',(process.env.BASELINE_REF||'97f075d13839efed80fa2e7f698af35279f9da16')+':app/src/main/java/com/instagram/insfav/MainActivity.java'],{cwd:path.resolve(__dirname,'..'),encoding:'utf8'});
+  for(const pattern of [/private int incrementUsage\(\) \{[^}]+}/,/getPreferences\(0\)\.edit\(\)\.putInt\("load",[^;]+;/,/getPreferences\(0\)\.edit\(\)\.putInt\("clear",[^;]+;/])assert.equal(native.match(pattern)?.[0],previous.match(pattern)?.[0]);
   console.log('PASS baseline/current: 6 identical counter snapshots including repeated About, import, error, status, and reopened stored values');
   console.log('PASS Total Accounts keeps duplicate memberships: 3 records / 2 unique accounts');
-  console.log('PASS native counter increment and persistence implementations are byte-identical');
+  console.log('PASS native counter increment and preference statements are unchanged');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

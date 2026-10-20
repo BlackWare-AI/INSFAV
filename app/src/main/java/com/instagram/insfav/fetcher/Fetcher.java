@@ -75,7 +75,7 @@ public final class Fetcher {
     if(id==generation.get()&&writable()){
      String tree=host().tree();OutputFolder folder=new OutputFolder(context,tree);Uri uri=folder.commit(Identity.outputFilename(name),thumbnail,true);host().imageWritten(name,uri,tree);
     }
-   }catch(Exception|OutOfMemoryError issue){if(bytes!=null&&bytes!=fullBytes)Arrays.fill(bytes,(byte)0);new Diagnostics(context).log("IMAGE","VIEW_OR_REFRESH_FAILED",0);}
+   }catch(Exception|OutOfMemoryError issue){if(bytes!=null&&bytes!=fullBytes)Arrays.fill(bytes,(byte)0);if(id==generation.get()&&bytes!=fullBytes)for(Listener l:listeners)l.fullFailed(token,"IMAGE_VALIDATION_FAILED");new Diagnostics(context).log("IMAGE","VIEW_OR_REFRESH_FAILED",0);}
    finally{if(id==generation.get())viewing=null;publish();}
   });
  }
