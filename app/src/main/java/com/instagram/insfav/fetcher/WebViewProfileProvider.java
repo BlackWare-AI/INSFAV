@@ -42,6 +42,7 @@ final class WebViewProfileProvider implements ProfileProvider {
     private final String probe, hdProbe;
 
     private volatile boolean cancelled;
+    private final java.util.concurrent.atomic.AtomicBoolean closing=new java.util.concurrent.atomic.AtomicBoolean();
     WebViewProfileProvider(Context context, CookieJar cookies) throws Failure { this(context, cookies, (view, url) -> view.loadUrl(url), url -> null); }
     WebViewProfileProvider(Context context, CookieJar cookies, Pages pages, Resources resources) throws Failure {
         this(context,cookies,pages,resources,PublicProfileProvider::new);
@@ -138,6 +139,7 @@ final class WebViewProfileProvider implements ProfileProvider {
         main.post(() -> { for (Operation operation : new ArrayList<>(operations)) operation.fail(new Failure("REQUEST_CANCELLED")); });
     }
     @Override public void close() {
+        if(!closing.compareAndSet(false,true))return;
         cancel(); CountDownLatch cleaned = new CountDownLatch(1);
         main.post(() -> {
             try {

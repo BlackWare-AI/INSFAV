@@ -12,6 +12,7 @@ final class FetchBroker {
  final SharedPreferences prefs;final Factory factory;final Time time;final Context context;
  final PriorityBlockingQueue<Request> tasks=new PriorityBlockingQueue<>();final Set<Request> active=ConcurrentHashMap.newKeySet();
  final AtomicLong sequence=new AtomicLong();final ExecutorService workers=Executors.newCachedThreadPool(r->{Thread t=new Thread(r,"insfav-profile-worker");t.setDaemon(true);return t;});
+ private volatile String sessionGeneration="";
  volatile ProfileProvider provider;volatile int limit=1;volatile boolean batch;
  static final class Request implements Comparable<Request>{
   final String user;final boolean full;final long sequence;final CompletableFuture<byte[]> result=new CompletableFuture<>();volatile Thread thread;volatile long deadline;
@@ -32,6 +33,7 @@ final class FetchBroker {
   for(Request r:active)if(System.nanoTime()>r.deadline&&!r.result.isDone())cancel(r,true);
   if(QueueControl.memoryPressure){limit=ConcurrencyPolicy.reduced(limit);QueueControl.effectiveViews=limit;QueueControl.memoryPressure=false;ProfileProvider p=provider;if(p!=null)p.trim(limit);new Diagnostics(context).log("POOL","MEMORY_PRESSURE_LIMIT",limit);Fetcher.publish();}
   if(active.isEmpty()&&tasks.isEmpty()&&!batch){ProfileProvider p=provider;provider=null;if(p!=null)p.close();}
+  if(provider!=null&&active.isEmpty()&&(provider.blockingFailure()!=null||!sessionGeneration.equals(prefs.getString("cookieGeneration","")))){ProfileProvider p=provider;provider=null;p.close();}
   Request r=tasks.peek();if(r==null||active.size()>=limit){Thread.sleep(20);continue;}
   if(r.result.isCancelled()){tasks.remove(r);continue;}
   String blocked=prefs.getString("blocked","");if(!blocked.isEmpty()){tasks.remove(r);r.result.completeExceptionally(new ProfileProvider.Failure(blocked,0,prefs.getLong("retryAt",0),true));continue;}
@@ -40,7 +42,7 @@ final class FetchBroker {
   // Interactive work drains existing batch operations, then owns the same session at a safe boundary.
   if((r.full&&!active.isEmpty())||active.stream().anyMatch(a->a.full)){Thread.sleep(20);continue;}
   tasks.remove(r);prefs.edit().putLong("nextRequestAt",now+RunPolicy.read(prefs).delayMillis()).commit();
-  try{if(provider==null)provider=factory.open(false);provider.trim(limit);}catch(ProfileProvider.Failure e){if(FailurePolicy.pause(e))block(e);r.result.completeExceptionally(e);continue;}
+  try{if(provider==null){provider=factory.open(false);sessionGeneration=prefs.getString("cookieGeneration","");}provider.trim(limit);}catch(ProfileProvider.Failure e){if(FailurePolicy.pause(e))block(e);r.result.completeExceptionally(e);continue;}
   r.deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(110);active.add(r);QueueControl.activeAccounts=active.size();QueueControl.peakAccounts=Math.max(QueueControl.peakAccounts,active.size());
   workers.execute(()->execute(r));
  }catch(InterruptedException ignored){}catch(RuntimeException|OutOfMemoryError e){QueueControl.memoryPressure=true;}}

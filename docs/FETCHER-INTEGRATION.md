@@ -1,3 +1,5 @@
+> Historical INSFAV 3.2.0 integration. For the current pool, 256x256 output and background behavior, see [FETCHER-040.md](FETCHER-040.md).
+
 # Integrated Thumbnail Fetcher
 
 The independent helper repository is preserved. INSFAV reuses its `cookie-background` branch, commit `dcfd070`, version 0.3.0. `fetcher-provenance.json` records SHA-256 of every imported source before package adaptation. The default discovery path remains the bounded, unattached Android WebView and original identity-bound `profile-probe.js`, followed by the trusted HTTPS CDN downloader and validated 128x128 WebP codec. No private API endpoint is added.

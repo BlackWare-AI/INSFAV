@@ -105,3 +105,7 @@ Android SAF references: https://developer.android.com/training/data-storage/shar
 Total Accounts, Usage Count, and Load Count use the same compact rows as version/build metadata. Features & Functions opens its own AMOLED screen; Android Back or its toolbar back button returns to the existing About view. Counter sources, successful-import increments, startup increments, and Android preference keys are unchanged.
 
 For the presentation regression, extract the previous packaged assets from commit `68717797719c11e77bb059af05c582f45612c16e`, then run `BASELINE_ASSETS=/absolute/baseline/assets CHROME_BIN=/path/to/chrome node tests/about-counters.cjs`. `BASELINE_REF` optionally selects that same previous commit for native source identity checks. These are browser bridge tests, not physical device persistence tests.
+
+## Fetcher 0.4 pool integration
+
+INSFAV 3.3.0 adds requested/effective/active WebView counts, a reusable concurrent pool, 256x256 WebP output, explicit legacy refresh and skipped-profile retry. See [Fetcher 0.4 integration](docs/FETCHER-040.md) for pacing, memory estimates, background limits and verification scope. The previous serial integration notes are historical.
