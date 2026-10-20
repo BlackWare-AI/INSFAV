@@ -11,13 +11,12 @@ public final class FetchService extends Service {
     private volatile QueueEngine engine;
     private volatile Thread worker;
     private volatile boolean owns;
-    QueueEngine.Sessions sessions;
     @Override public void onCreate() { super.onCreate(); DownloadNotification.channel(this); }
     @Override public int onStartCommand(Intent intent, int flags, int id) {
         if (intent == null) { stopSelf(id); return START_NOT_STICKY; }
         String action = intent.getAction();
         if ("pause".equals(action) || "stop".equals(action)) { QueueControl.pause(this, "stop".equals(action)); if (!owns) stopSelf(id); return START_NOT_STICKY; }
-        if (!("missing".equals(action) || "failed".equals(action) || "resume".equals(action) || "test".equals(action) || "test_one".equals(action))) { stopSelf(id); return START_NOT_STICKY; }
+        if (!("missing".equals(action) || "resume".equals(action))) { stopSelf(id); return START_NOT_STICKY; }
         if (owns || !QueueControl.lock.compareAndSet(false, true)) { if (!owns) stopSelf(id); return START_NOT_STICKY; }
         owns = true; running = true; QueueControl.requested = false;
         try {
@@ -27,7 +26,7 @@ public final class FetchService extends Service {
         worker = new Thread(() -> {
             try {
                 QueueEngine.Reporter reporter = state -> { try { getSystemService(NotificationManager.class).notify(1, DownloadNotification.create(this, state)); } catch (RuntimeException ignored) { } };
-                engine = sessions == null ? new QueueEngine(this, reporter, () -> false) : new QueueEngine(this, reporter, () -> false, sessions);
+                engine = new QueueEngine(this, reporter, () -> false);
                 engine.run(action, false);
             } finally {
                 running = false; QueueControl.lock.set(false); owns = false;

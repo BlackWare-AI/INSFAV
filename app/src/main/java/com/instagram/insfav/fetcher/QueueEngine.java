@@ -8,11 +8,9 @@ import java.util.function.BooleanSupplier;
 /** The original service/scheduler uses a single shared priority broker instead of owning a second provider. */
 final class QueueEngine {
  interface Reporter{void update(String state);}
- interface Sessions{ProfileProvider open() throws ProfileProvider.Failure;}
  final Context context;final SharedPreferences settings;final Reporter reporter;final BooleanSupplier stopped;
  volatile boolean cancelled;volatile String cancelledState="Interrupted; queue preserved";
  QueueEngine(Context c,Reporter r,BooleanSupplier stop){context=c;settings=SessionState.prefs(c);reporter=r;stopped=stop;}
- QueueEngine(Context c,Reporter r,BooleanSupplier stop,Sessions ignored){this(c,r,stop);}
  void cancel(){cancelled=true;FetchBroker.get(context).cancelBulk();}
  void cancel(String text){cancelledState=text;cancel();}
  boolean interrupted(){return cancelled||stopped.getAsBoolean()||QueueControl.requested||Thread.currentThread().isInterrupted();}

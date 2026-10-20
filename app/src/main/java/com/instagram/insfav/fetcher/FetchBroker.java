@@ -40,7 +40,7 @@ final class FetchBroker {
    byte[] bytes=session.fetch(r.user);if(!r.result.complete(bytes))java.util.Arrays.fill(bytes,(byte)0);
   }finally{provider=null;prefs.edit().putLong("nextRequestAt",time.now()+RunPolicy.read(prefs).delayMillis()).commit();}
  }catch(ProfileProvider.Failure error){
-  if(FailurePolicy.pause(error)){prefs.edit().putString("blocked",error.code).putLong("retryAt",Math.max(prefs.getLong("retryAt",0),error.retryAt)).putString("state","Paused: "+error.code).commit();}
+  if(FailurePolicy.pause(error)){prefs.edit().putString("sessionEvidence",error.code.startsWith("COOKIE_")?"INVALID":SessionState.evidence(prefs)).putString("blocked",error.code).putLong("retryAt",Math.max(prefs.getLong("retryAt",0),error.retryAt)).putString("state","Paused: "+error.code).commit();}
   if(r!=null)r.result.completeExceptionally(error);
  }catch(Exception|OutOfMemoryError error){if(r!=null)r.result.completeExceptionally(new ProfileProvider.Failure("NETWORK_ERROR"));}
  finally{active=null;provider=null;Fetcher.publish();}
