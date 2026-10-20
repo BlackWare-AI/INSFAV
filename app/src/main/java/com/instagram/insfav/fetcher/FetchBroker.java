@@ -9,7 +9,7 @@ final class FetchBroker {
  interface Factory{ProfileProvider open(boolean full)throws ProfileProvider.Failure;}
  private static FetchBroker instance;
  static synchronized FetchBroker get(Context c){if(instance==null)instance=new FetchBroker(c,full->new WebViewProfileProvider(c,new CookieVault(c).load()));return instance;}
- final SharedPreferences prefs;final Factory factory;final Time time;final Context context;
+ final SharedPreferences prefs;final Factory factory;final Time time;final Context context;final java.util.function.IntUnaryOperator admission;
  final PriorityBlockingQueue<Request> tasks=new PriorityBlockingQueue<>();final Set<Request> active=ConcurrentHashMap.newKeySet();
  final AtomicLong sequence=new AtomicLong();final ExecutorService workers=Executors.newCachedThreadPool(r->{Thread t=new Thread(r,"insfav-profile-worker");t.setDaemon(true);return t;});
  private volatile String sessionGeneration="";
@@ -20,8 +20,9 @@ final class FetchBroker {
   public int compareTo(Request other){int n=Boolean.compare(other.full,full);return n!=0?n:Long.compare(sequence,other.sequence);}
  }
  FetchBroker(Context c,Factory f){this(c,f,new Time(){public long now(){return System.currentTimeMillis();}public void sleep(long m)throws InterruptedException{Thread.sleep(m);}});}
- FetchBroker(Context c,Factory f,Time t){context=c.getApplicationContext();prefs=SessionState.prefs(c);factory=f;time=t;Thread thread=new Thread(this::loop,"insfav-profile-dispatcher");thread.setDaemon(true);thread.start();}
- void beginBatch(){batch=true;limit=ConcurrencyPolicy.initial(context,prefs.getInt("concurrentWebViews",1));QueueControl.effectiveViews=limit;QueueControl.peakAccounts=0;QueueControl.memoryPressure=false;Diagnostics d=new Diagnostics(context);d.log("POOL","REQUESTED_LIMIT",prefs.getInt("concurrentWebViews",1));d.log("POOL","EFFECTIVE_LIMIT",limit);}
+ FetchBroker(Context c,Factory f,Time t){this(c,f,t,requested->ConcurrencyPolicy.initial(c,requested));}
+ FetchBroker(Context c,Factory f,Time t,java.util.function.IntUnaryOperator admission){this.admission=admission;context=c.getApplicationContext();prefs=SessionState.prefs(c);factory=f;time=t;Thread thread=new Thread(this::loop,"insfav-profile-dispatcher");thread.setDaemon(true);thread.start();}
+ void beginBatch(){batch=true;limit=admission.applyAsInt(prefs.getInt("concurrentWebViews",1));QueueControl.effectiveViews=limit;QueueControl.peakAccounts=0;QueueControl.memoryPressure=false;Diagnostics d=new Diagnostics(context);d.log("POOL","REQUESTED_LIMIT",prefs.getInt("concurrentWebViews",1));d.log("POOL","EFFECTIVE_LIMIT",limit);}
  void endBatch(){batch=false;}
  int capacity(){return limit;}
  CompletableFuture<byte[]> submit(String user,boolean full){Request r=new Request(user,full,sequence.incrementAndGet());tasks.add(r);return r.result;}

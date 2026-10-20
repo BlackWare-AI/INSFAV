@@ -15,4 +15,14 @@ public class PoolTest{
  }
  @Test public void skippedRetryIsExplicitAndSurvivesDatabaseReopen(){c.deleteDatabase("fetcher-queue.db");try(QueueStore q=new QueueStore(c)){q.sync(Arrays.asList("gone","empty","done"));q.mark("gone","SKIPPED_UNAVAILABLE","PROFILE_PAGE_UNAVAILABLE");q.mark("empty","SKIPPED_NO_IMAGE","PROFILE_IMAGE_URL_MISSING");q.mark("done","SUCCESS","VALID_WEBP");q.prepareMissing();assertTrue(q.pending().isEmpty());}try(QueueStore q=new QueueStore(c)){q.retrySkipped();assertEquals(Arrays.asList("gone","empty"),q.pending());assertEquals(Integer.valueOf(1),q.counts().get("SUCCESS"));}}
  @Test public void backgroundEnabledDoesNotPauseWhenActivityStops(){Fetcher.initialize(c,new Fetcher.Host(){public Collection<String> users(){return Collections.emptyList();}public String tree(){return "";}public String directory(){return "";}public long revision(){return 0;}public boolean hasImage(String u){return false;}public void imageWritten(String u,android.net.Uri uri,String tree){}});SessionState.prefs(c).edit().putBoolean("background",true).putBoolean("armed",true).putBoolean("userPaused",false).commit();QueueControl.lock.set(true);QueueControl.requested=false;try{Fetcher.foregroundStopped();assertFalse(QueueControl.requested);assertTrue(WorkScheduler.enabled(SessionState.prefs(c)));}finally{QueueControl.lock.set(false);}}
+ @Test(timeout=10000) public void closingOneRequestDoesNotCancelOtherAccounts()throws Exception{
+  CountDownLatch both=new CountDownLatch(2),release=new CountDownLatch(1);AtomicInteger cancelled=new AtomicInteger();
+  FetchBroker b=new FetchBroker(c,full->new ProfileProvider(){public byte[] fetch(String u)throws Failure{both.countDown();try{release.await();return new byte[]{7};}catch(InterruptedException e){throw new Failure("REQUEST_CANCELLED");}}public void cancel(){cancelled.incrementAndGet();}},new TestTime());b.limit=2;
+  CompletableFuture<byte[]> a=b.submit("first",false),d=b.submit("second",false);assertTrue(both.await(2,TimeUnit.SECONDS));a.cancel(false);release.countDown();assertArrayEquals(new byte[]{7},d.get(3,TimeUnit.SECONDS));assertEquals(0,cancelled.get());
+ }
+ @Test(timeout=10000) public void completingOperationDoesNotExtendReservedStartTime()throws Exception{
+  TestTime clock=new TestTime();FetchBroker b=new FetchBroker(c,full->new ProfileProvider(){public byte[] fetch(String u){return new byte[]{1};}public void cancel(){}},clock);
+  long before=clock.now();b.submit("one",false).get(2,TimeUnit.SECONDS);assertEquals(before+1000,SessionState.prefs(c).getLong("nextRequestAt",0));
+ }
+
 }

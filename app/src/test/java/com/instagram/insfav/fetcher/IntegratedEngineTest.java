@@ -44,4 +44,16 @@ public class IntegratedEngineTest{
   try(QueueStore q=new QueueStore(c)){assertEquals(Integer.valueOf(128),q.counts().get("EXISTING"));assertEquals(872,q.pending().size());assertEquals("cached128",q.next());}assertTrue(notices.get()<=3);
  }
 
+ @Test(timeout=30000) public void coordinatorRunsFiveDistinctAccountsInParallelAndCommitsEachOnce()throws Exception{
+  Context c=RuntimeEnvironment.getApplication();c.deleteDatabase("fetcher-queue.db");QueueControl.requested=false;
+  SessionState.prefs(c).edit().clear().putInt("minimum",1).putInt("maximum",1).putInt("startMinute",0).putInt("endMinute",1439).putInt("concurrentWebViews",5).putString("tree","content://fetcher.test/tree/root").putString("directoryId","root/.thumbnails").commit();
+  ProviderInfo info=new ProviderInfo();info.authority="fetcher.test";info.exported=true;info.grantUriPermissions=true;info.readPermission="android.permission.MANAGE_DOCUMENTS";info.writePermission=info.readPermission;
+  FetcherStorageTest.Fixture provider=Robolectric.buildContentProvider(FetcherStorageTest.Fixture.class).create(info).get();provider.root=Files.createTempDirectory("parallel-engine").toFile();new File(provider.root,".thumbnails").mkdir();Uri tree=Uri.parse("content://fetcher.test/tree/root");c.getContentResolver().takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+  List<String> users=Arrays.asList("one","two","three","four","five");Set<String>written=java.util.concurrent.ConcurrentHashMap.newKeySet();java.util.concurrent.CountDownLatch entered=new java.util.concurrent.CountDownLatch(5);byte[] png=CodecTest.png(640,480);
+  Fetcher.initialize(c,new Fetcher.Host(){public Collection<String> users(){return users;}public String tree(){return tree.toString();}public String directory(){return "root/.thumbnails";}public long revision(){return 0;}public boolean hasImage(String u){return written.contains(u);}public void imageWritten(String u,Uri uri,String tr){assertTrue(written.add(u));}});
+  FetchBroker b=new FetchBroker(c,full->new ProfileProvider(){public byte[] fetch(String user)throws Failure{entered.countDown();try{if(!entered.await(3,java.util.concurrent.TimeUnit.SECONDS))throw new Failure("TEST_SERIALIZED");return png.clone();}catch(InterruptedException e){throw new Failure("REQUEST_CANCELLED");}}public void cancel(){}},new TestTime(),n->n);org.robolectric.util.ReflectionHelpers.setStaticField(FetchBroker.class,"instance",b);
+  try(QueueStore q=new QueueStore(c)){q.sync(users);}new QueueEngine(c,state->{},()->false).run("missing",false);
+  assertEquals(5,written.size());assertEquals(5,QueueControl.peakAccounts);try(QueueStore q=new QueueStore(c)){assertEquals(Integer.valueOf(5),q.counts().get("SUCCESS"));assertTrue(q.pending().isEmpty());}
+ }
+
 }
