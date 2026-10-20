@@ -99,3 +99,9 @@ Robolectric tests run the actual storage, scan and image modules against an isol
 Do not commit personal backups, usernames, private logs or signing keys. Diagnostic logs are limited to two approximately 256 KiB files and omit document URIs, account names and original JSON.
 
 Android SAF references: https://developer.android.com/training/data-storage/shared/documents-files and https://developer.android.com/reference/android/provider/DocumentsContract .
+
+### Application Information
+
+Total Accounts, Usage Count, and Load Count use the same compact rows as version/build metadata. Features & Functions opens its own AMOLED screen; Android Back or its toolbar back button returns to the existing About view. Counter sources, successful-import increments, startup increments, and Android preference keys are unchanged.
+
+For the presentation regression, extract the previous packaged assets from commit `68717797719c11e77bb059af05c582f45612c16e`, then run `BASELINE_ASSETS=/absolute/baseline/assets CHROME_BIN=/path/to/chrome node tests/about-counters.cjs`. `BASELINE_REF` optionally selects that same previous commit for native source identity checks. These are browser bridge tests, not physical device persistence tests.
