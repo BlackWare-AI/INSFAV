@@ -20,6 +20,7 @@ final class WorkScheduler {
         try (QueueStore queue = new QueueStore(c)) { if (queue.pending().isEmpty()) { p.edit().putBoolean("armed", false).apply(); cancel(c); return; } }
         long now = System.currentTimeMillis();
         long earliest = Math.max(now, Math.max(p.getLong("nextRequestAt", 0), Math.max(p.getLong("retryAt", 0), p.getLong("systemNotBefore", 0))));
+        earliest = Math.max(earliest,WorkerPacing.earliest(p,ConcurrencyPolicy.initial(c,p.getInt("concurrentWebViews",1))));
         long next = RunPolicy.read(p).nextAllowed(earliest, ZoneId.systemDefault());
         OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(DownloadWorker.class).setInitialDelay(Math.max(0, next - now), TimeUnit.MILLISECONDS).setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build();
         WorkManager.getInstance(c).enqueueUniqueWork(NEXT, append ? ExistingWorkPolicy.APPEND_OR_REPLACE : ExistingWorkPolicy.KEEP, request);

@@ -15,7 +15,7 @@ final class FetchBroker {
  private volatile String sessionGeneration="";
  volatile ProfileProvider provider;volatile boolean poisoned;volatile int limit=1;volatile boolean batch;
  static final class Request implements Comparable<Request>{
-  final String user;final boolean full;final long sequence;final CompletableFuture<byte[]> result=new CompletableFuture<>();volatile Thread thread;volatile long deadline;
+  final String user;final boolean full;final long sequence;final CompletableFuture<byte[]> result=new CompletableFuture<>();volatile Thread thread;volatile long deadline;int slot=-1;
   Request(String user,boolean full,long sequence){this.user=user;this.full=full;this.sequence=sequence;}
   public int compareTo(Request other){int n=Boolean.compare(other.full,full);return n!=0?n:Long.compare(sequence,other.sequence);}
  }
@@ -39,10 +39,13 @@ final class FetchBroker {
   if(r.result.isCancelled()){tasks.remove(r);continue;}
   String blocked=prefs.getString("blocked","");if(!blocked.isEmpty()){tasks.remove(r);r.result.completeExceptionally(new ProfileProvider.Failure(blocked,0,prefs.getLong("retryAt",0),true));continue;}
   if(!r.full&&!RunPolicy.read(prefs).contains(java.time.ZonedDateTime.now())){tasks.remove(r);r.result.completeExceptionally(new ProfileProvider.Failure("OUTSIDE_WORKING_HOURS"));continue;}
-  long now=time.now(),next=Math.max(prefs.getLong("nextRequestAt",0),prefs.getLong("retryAt",0));if(now<next){time.sleep(Math.min(50,next-now));continue;}
+  long now=time.now(),gate=Math.max(prefs.getLong("nextRequestAt",0),prefs.getLong("retryAt",0));if(now<gate){time.sleep(Math.min(50,gate-now));continue;}
+  boolean[] busy=new boolean[30];for(Request a:active)if(a.slot>=0)busy[a.slot]=true;
+  int slot=-1;long earliest=Long.MAX_VALUE;for(int i=0;i<limit;i++)if(!busy[i]){long ready=WorkerPacing.ready(prefs,i);if(ready<=now){slot=i;break;}earliest=Math.min(earliest,ready);}
+  if(slot<0){time.sleep(Math.min(50,Math.max(1,earliest-now)));continue;}
   // Interactive work drains existing batch operations, then owns the same session at a safe boundary.
   if((r.full&&!active.isEmpty())||active.stream().anyMatch(a->a.full)){Thread.sleep(20);continue;}
-  tasks.remove(r);prefs.edit().putLong("nextRequestAt",now+RunPolicy.read(prefs).delayMillis()).commit();
+  tasks.remove(r);r.slot=slot;WorkerPacing.reserve(prefs,slot,now,RunPolicy.read(prefs));
   try{if(provider==null){provider=factory.open(false);poisoned=false;sessionGeneration=prefs.getString("cookieGeneration","");}provider.trim(limit);}catch(ProfileProvider.Failure e){if(FailurePolicy.pause(e))block(e);r.result.completeExceptionally(e);continue;}
   r.deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(110);active.add(r);QueueControl.activeAccounts=active.size();QueueControl.peakAccounts=Math.max(QueueControl.peakAccounts,active.size());
   workers.execute(()->execute(r));

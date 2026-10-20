@@ -8,8 +8,9 @@ public final class PoolInstrumentation extends Instrumentation{
  @Override public void onCreate(Bundle args){super.onCreate(args);start();}
  @Override public void onStart(){Bundle result=new Bundle();try{
   Context c=getTargetContext();byte[] png=png();JSONArray matrix=new JSONArray();
-  for(int requested:new int[]{1,2,5,10,30}){
-   SessionState.prefs(c).edit().clear().putInt("minimum",1).putInt("maximum",1).putInt("startMinute",0).putInt("endMinute",1439).putInt("concurrentWebViews",requested).commit();
+  for(int[] configuration:new int[][]{{1,1},{2,1},{5,1},{10,1},{30,1},{5,25}}){
+   int requested=configuration[0],delay=configuration[1];
+   SessionState.prefs(c).edit().clear().putInt("minimum",delay).putInt("maximum",delay).putInt("startMinute",0).putInt("endMinute",1439).putInt("concurrentWebViews",requested).commit();
    ConcurrentHashMap<String,Long> navStarts=new ConcurrentHashMap<>(),ends=new ConcurrentHashMap<>();AtomicInteger cdn=new AtomicInteger(),peakCdn=new AtomicInteger(),peakViews=new AtomicInteger();AtomicBoolean sampling=new AtomicBoolean(true);AtomicInteger holdMs=new AtomicInteger(3200);
    WebViewProfileProvider p=new WebViewProfileProvider(c,CookieJar.parse("sessionid=OFFLINE_FIXTURE; ds_user_id=123",System.currentTimeMillis()),
     (view,url)->{navStarts.put(url.substring("https://www.instagram.com/".length()).replace("/",""),SystemClock.elapsedRealtime());view.loadUrl(url);},
@@ -17,7 +18,7 @@ public final class PoolInstrumentation extends Instrumentation{
      if(url.startsWith("https://www.instagram.com/")){String u=url.substring("https://www.instagram.com/".length()).replace("/","");String h="<html><head><link rel='canonical' href='"+url+"'></head><body><main><header><img id='avatar' alt=\""+u+"'s profile picture\"></header></main><script>setTimeout(()=>document.getElementById('avatar').src='https://fixture.cdninstagram.com/"+u+".png',"+holdMs.get()+")</script></body></html>";return new WebResourceResponse("text/html","UTF-8",new ByteArrayInputStream(h.getBytes(java.nio.charset.StandardCharsets.UTF_8)));}
      return new WebResourceResponse("image/png",null,new ByteArrayInputStream(png));
     },()->new PublicProfileProvider(url->new FixtureConnection(url,png,cdn,peakCdn)));
-   FetchBroker b=new FetchBroker(c,full->p);b.beginBatch();int effective=b.capacity(),count=Math.max(10,effective+2);holdMs.set(8000);
+   FetchBroker b=new FetchBroker(c,full->p);b.beginBatch();int effective=b.capacity(),count=delay==25?5:Math.max(10,effective+2);holdMs.set(8000);
    Handler main=new Handler(Looper.getMainLooper());Runnable sample=new Runnable(){public void run(){peakViews.accumulateAndGet(p.activeCount,Math::max);if(sampling.get())main.postDelayed(this,25);}};main.post(sample);
    long start=SystemClock.elapsedRealtime();int success=0,errors=0;
    try{
@@ -27,7 +28,7 @@ public final class PoolInstrumentation extends Instrumentation{
     if(effective>=2&&(!overlap||peakViews.get()<2))throw new AssertionError("No overlapping real Chromium pages requested="+requested+" peak="+peakViews);
     if(QueueControl.peakAccounts>effective)throw new AssertionError("Exceeded capacity");
     android.os.Debug.MemoryInfo mi=new android.os.Debug.MemoryInfo();android.os.Debug.getMemoryInfo(mi);android.app.ActivityManager.MemoryInfo system=new android.app.ActivityManager.MemoryInfo();c.getSystemService(android.app.ActivityManager.class).getMemoryInfo(system);
-    JSONObject row=new JSONObject().put("sdk",Build.VERSION.SDK_INT).put("requested",requested).put("effective",effective).put("finalEffective",b.capacity()).put("fixtureDomDelayMs",holdMs.get()).put("accounts",count).put("maxActiveAccounts",QueueControl.peakAccounts).put("maxActiveWebViews",peakViews.get()).put("maxCdnReaders",peakCdn.get()).put("intervalOverlap",overlap).put("elapsedMs",elapsed).put("completedPerMinute",success*60000.0/Math.max(1,elapsed)).put("appPssKiB",mi.getTotalPss()).put("systemAvailableBytes",system.availMem).put("success",success).put("skipped",0).put("errors",errors).put("createdViews",p.createdCount).put("reusedViews",p.reusedCount).put("navigationStartsMs",new JSONObject(navStarts)).put("completedMs",new JSONObject(ends));matrix.put(row);sendStatus(0,status(row.toString()));
+    JSONObject row=new JSONObject().put("sdk",Build.VERSION.SDK_INT).put("requested",requested).put("minimumDelaySeconds",delay).put("maximumDelaySeconds",delay).put("effective",effective).put("finalEffective",b.capacity()).put("fixtureDomDelayMs",holdMs.get()).put("accounts",count).put("maxActiveAccounts",QueueControl.peakAccounts).put("maxActiveWebViews",peakViews.get()).put("maxCdnReaders",peakCdn.get()).put("intervalOverlap",overlap).put("elapsedMs",elapsed).put("completedPerMinute",success*60000.0/Math.max(1,elapsed)).put("appPssKiB",mi.getTotalPss()).put("systemAvailableBytes",system.availMem).put("success",success).put("skipped",0).put("errors",errors).put("createdViews",p.createdCount).put("reusedViews",p.reusedCount).put("navigationStartsMs",new JSONObject(navStarts)).put("completedMs",new JSONObject(ends));matrix.put(row);sendStatus(0,status(row.toString()));
    }finally{sampling.set(false);b.endBatch();b.cancelAll();long deadline=SystemClock.elapsedRealtime()+5000;while(!b.active.isEmpty()&&SystemClock.elapsedRealtime()<deadline)Thread.sleep(25);while(b.provider!=null&&SystemClock.elapsedRealtime()<deadline)Thread.sleep(25);}
   }
   try(FileOutputStream out=c.openFileOutput("pool-matrix.json",Context.MODE_PRIVATE)){out.write(matrix.toString(2).getBytes(java.nio.charset.StandardCharsets.UTF_8));}

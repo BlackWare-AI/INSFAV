@@ -17,5 +17,5 @@
     "FailurePolicy": "ec3eb98a8e20e8fa4cfda1fda941534479387d28465311b1656a38e078080c46"
   },
   "hdProbePreservedFromInsfav": "e6c7e688617cc056dbb6dfc216c089060c51c86e",
-  "notes": "Pool and codec imported. Coordinator and broker adapted for INSFAV data/SAF and shared HD priority. Requested ceiling, runtime memory guard and start-only pacing replace source heuristics. Original HD selector preserved."
+  "notes": "Pool and codec imported. Coordinator and broker adapted for INSFAV data/SAF and shared HD priority. Requested ceiling, runtime memory guard and persistent per-worker start pacing replace source heuristics. Original HD selector preserved."
 }

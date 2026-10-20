@@ -22,7 +22,14 @@ public class PoolTest{
  }
  @Test(timeout=10000) public void completingOperationDoesNotExtendReservedStartTime()throws Exception{
   TestTime clock=new TestTime();FetchBroker b=new FetchBroker(c,full->new ProfileProvider(){public byte[] fetch(String u){return new byte[]{1};}public void cancel(){}},clock);
-  long before=clock.now();b.submit("one",false).get(2,TimeUnit.SECONDS);assertEquals(before+1000,SessionState.prefs(c).getLong("nextRequestAt",0));
+  long before=clock.now();b.submit("one",false).get(2,TimeUnit.SECONDS);assertEquals(before+1000,WorkerPacing.ready(SessionState.prefs(c),0));assertEquals(0,SessionState.prefs(c).getLong("nextRequestAt",0));
  }
+
+ @Test(timeout=10000) public void realisticTwentyFiveSecondDelayDoesNotSerializeFiveReadyWorkers()throws Exception{
+  SessionState.prefs(c).edit().putInt("minimum",25).putInt("maximum",25).commit();TestTime clock=new TestTime();long before=clock.now();CountDownLatch five=new CountDownLatch(5),release=new CountDownLatch(1);List<Long> starts=Collections.synchronizedList(new ArrayList<>());
+  FetchBroker b=new FetchBroker(c,full->new ProfileProvider(){public byte[] fetch(String u)throws Failure{starts.add(clock.now());five.countDown();try{release.await(3,TimeUnit.SECONDS);return new byte[]{1};}catch(InterruptedException e){throw new Failure("REQUEST_CANCELLED");}}public void cancel(){}},clock);b.limit=5;
+  List<CompletableFuture<byte[]>>fs=new ArrayList<>();for(int n=0;n<5;n++)fs.add(b.submit("user"+n,false));assertTrue(five.await(2,TimeUnit.SECONDS));assertEquals(5,starts.size());for(long start:starts)assertEquals(before,start);for(int slot=0;slot<5;slot++)assertEquals(before+25000,WorkerPacing.ready(SessionState.prefs(c),slot));release.countDown();for(CompletableFuture<byte[]> future:fs)future.get(3,TimeUnit.SECONDS);
+ }
+ @Test public void workerReservationsPersistIndependentlyAndSchedulerUsesEarliest(){SharedPreferences p=SessionState.prefs(c);RunPolicy r=new RunPolicy(25,25,0,1439);WorkerPacing.reserve(p,0,100000,r);WorkerPacing.reserve(p,1,110000,r);assertEquals(125000,WorkerPacing.ready(p,0));assertEquals(135000,WorkerPacing.ready(p,1));assertEquals(125000,WorkerPacing.earliest(p,2));assertEquals(0,WorkerPacing.earliest(p,3));}
 
 }
