@@ -1,10 +1,6 @@
 name: Publish signed INSFAV 4.0.0 double-back update
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/publish-presigned-400.yml'
 permissions:
   contents: read
 concurrency:

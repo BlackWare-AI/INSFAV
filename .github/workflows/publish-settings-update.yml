@@ -1,9 +1,6 @@
 name: Publish verified settings safety update
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths: ['.github/workflows/publish-settings-update.yml']
 permissions:
   contents: read
 concurrency:
