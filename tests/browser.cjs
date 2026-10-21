@@ -127,6 +127,16 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
   await page.getByRole('button',{name:'Settings',exact:true}).click();check(await page.locator('#settings').isVisible(),'Settings remains accessible');check(await page.locator('#progress').evaluate(el=>el.value===el.max),'completed persisted scan shows a full progress bar');
   check(await page.locator('#profile-actions button').count()===4,'download controls replaced with four local image controls');
   check(!(await page.locator('#settings').innerText()).includes('Retry Failed'),'obsolete retry controls removed');
+  await page.evaluate(()=>nativeEvent('resolution-stats',{count:101,expected:'128×128 or 256×256'}));
+  check(await page.locator('#metrics .metric').evaluateAll(nodes=>nodes.findIndex(n=>n.textContent.includes('Invalid Resolution Images'))+1===nodes.findIndex(n=>n.textContent.includes('Last Scan Date'))),'resolution audit is immediately before Last Scan Date');
+  await page.getByRole('button',{name:'Invalid Resolution Images: 101',exact:true}).click();
+  check(await page.evaluate(()=>commands.at(-1).command==='resolution-details'&&commands.at(-1).offset===0),'resolution details request uses the saved catalog');
+  await page.evaluate(()=>nativeEvent('resolution-details',{count:101,offset:0,expected:'128×128 or 256×256',items:[{name:'wrong.webp',width:64,height:64}]}));
+  check((await page.locator('#dialog-body').innerText()).includes('wrong.webp · 64 × 64'),'resolution details expose filename and actual dimensions');
+  await page.getByRole('button',{name:'Next 100',exact:true}).click();
+  check(await page.evaluate(()=>commands.at(-1).command==='resolution-details'&&commands.at(-1).offset===100),'large resolution details are paginated');
+  await page.evaluate(()=>nativeEvent('resolution-details',{count:101,offset:100,expected:'128×128 or 256×256',items:[]}));
+  await page.getByRole('button',{name:'Close',exact:true}).click();
   await page.getByRole('button',{name:'Select Thumbnail Folder',exact:true}).click();check(await page.evaluate(()=>commands.at(-1).command==='select-folder'),'SAF selection command is dispatched');
   await page.getByRole('button',{name:'Rescan Thumbnails',exact:true}).click();check(await page.evaluate(()=>commands.at(-1).command==='rescan'),'rescan is manual');
   await page.evaluate(()=>nativeEvent('scan-progress',{state:'scanning',processed:25,total:100}));
@@ -152,6 +162,10 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
   check(await page.evaluate(()=>commands.at(-1).command==='fetcher-config'&&commands.at(-1).minimum===8&&commands.at(-1).maximum===20&&commands.at(-1).background&&commands.at(-1).concurrentWebViews===10),'delays, working hours and background choice are saved together');
   await page.locator('#fetcher-write').click();check(await page.evaluate(()=>commands.at(-1).command==='fetcher-write-access'),'write authorization upgrades the current folder instead of selecting a second output');
   for(const [id,action] of [['fetcher-missing','missing'],['fetcher-pause','pause'],['fetcher-resume','resume'],['fetcher-stop','stop'],['fetcher-retry-skipped','retry_skipped']]){await page.locator('#'+id).click();check(await page.evaluate(action=>commands.at(-1).command==='fetcher-action'&&commands.at(-1).action===action,action),'fetcher dispatches '+action);}
+  await page.locator('#fetcher-verify').click();
+  check(await page.locator('#dialog-title').innerText()==='Verify Fetcher Index?','full Fetcher verification is explicit and confirmed');
+  await page.getByRole('button',{name:'Confirm',exact:true}).click();
+  check(await page.evaluate(()=>commands.at(-1).command==='fetcher-action'&&commands.at(-1).action==='verify_index'),'explicit verification uses its separate Fetcher action');
   await page.locator('#fetcher-diagnostics').click();check(await page.evaluate(()=>commands.at(-1).command==='fetcher-logs'),'fetcher diagnostics has a separate redacted export');
   check(await page.evaluate(before=>JSON.stringify(stats)===before,countersBeforeFetcher),'fetcher controls never alter collection usage/load/reset counters');
   await page.keyboard.press('Escape');await page.locator('#fetcher-screen').waitFor({state:'hidden'});check(await page.locator('#settings').isVisible(),'back returns from Fetcher to the existing Settings screen');
