@@ -28,7 +28,7 @@ public final class Fetcher {
   if(QueueControl.lock.get())throw new IOException("Pause the fetcher before changing collections or folder.");
   SharedPreferences s=SessionState.prefs(context);String tree=host().tree(),dir=host().directory();
   List<String> users=new ArrayList<>(host().users());if(!users.equals(lastSynced)){try(QueueStore q=new QueueStore(context)){q.sync(users);}lastSynced=users;}
-  if(!tree.equals(observerTree)){if(catalogObserver!=null)context.getContentResolver().unregisterContentObserver(catalogObserver);observerTree=tree;if(!tree.isEmpty()){catalogObserver=new android.database.ContentObserver(new android.os.Handler(android.os.Looper.getMainLooper())){@Override public void onChange(boolean self,Uri uri){if(!running())CompletableFuture.runAsync(()->FetcherCatalog.observe(context,uri));}};context.getContentResolver().registerContentObserver(Uri.parse(tree),true,catalogObserver);}}
+  if(!tree.equals(observerTree)){if(catalogObserver!=null)context.getContentResolver().unregisterContentObserver(catalogObserver);observerTree=tree;if(!tree.isEmpty()){catalogObserver=new android.database.ContentObserver(new android.os.Handler(android.os.Looper.getMainLooper())){@Override public void onChange(boolean self,Uri uri){CompletableFuture.runAsync(()->FetcherCatalog.observe(context,uri));}};context.getContentResolver().registerContentObserver(Uri.parse(tree),true,catalogObserver);}}
   try(QueueStore q=new QueueStore(context)){FetcherCatalog.seed(q);}
   if(!tree.equals(s.getString("tree",""))||!dir.equals(s.getString("directoryId","")))s.edit().putString("tree",tree).putString("directoryId",dir).putLong("datasetGeneration",s.getLong("datasetGeneration",0)+1).putBoolean("armed",false).putBoolean("userPaused",true).commit();
  }

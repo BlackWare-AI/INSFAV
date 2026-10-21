@@ -48,7 +48,7 @@ final class QueueStore extends SQLiteOpenHelper {
                 ContentValues v=new ContentValues();v.put("username",user);v.put("position",position++);v.put("status","PENDING");db.insertWithOnConflict("accounts",null,v,SQLiteDatabase.CONFLICT_IGNORE);
                 v=new ContentValues();v.put("position",position-1);db.update("accounts",v,"username=?",new String[]{user});
             }
-            meta("users",signature);db.setTransactionSuccessful();
+            meta("users",signature);settleImages();db.setTransactionSuccessful();
         }finally{db.endTransaction();}
     }
     void requeueLost(String user){getWritableDatabase().execSQL("UPDATE accounts SET status='PENDING',code='',attempts=0,phase='PENDING' WHERE username=? AND status IN ('SUCCESS','EXISTING')",new Object[]{user});}

@@ -124,7 +124,7 @@ final class OutputFolder {
             }
             List<String> removed=new ArrayList<>();try(Cursor c=db.rawQuery("SELECT username FROM fetch_images",null)){while(c.moveToNext())if(!seen.contains(c.getString(0)))removed.add(c.getString(0));}
             for(String user:removed){catalog.image(new QueueStore.Image(user,"","",0,0,0,0,false));catalog.requeueLost(user);}
-            catalog.meta("folder",scope);catalog.meta("ready","1");catalog.meta("lastIndex",Long.toString(System.currentTimeMillis()));catalog.settleImages();db.setTransactionSuccessful();
+            catalog.meta("folder",scope);catalog.meta("ready","1");catalog.meta("lastIndex",Long.toString(System.currentTimeMillis()));catalog.meta("verificationRecommended","0");catalog.settleImages();db.setTransactionSuccessful();
         }finally{db.endTransaction();}
     }
     void recover(String filename) throws IOException {
@@ -167,7 +167,8 @@ final class OutputFolder {
             if(catalog==null&&(seenRevision!=CONTENT_REVISION.get()||journal.getBaseFile().exists())){files.clear();files.putAll(children(folder));recoverJournal();files.clear();files.putAll(children(folder));seenRevision=CONTENT_REVISION.get();}
             if(valid(filename))return lookup(filename);
             String nonce=java.util.UUID.randomUUID().toString();String pendingName=".insfav-"+nonce+".part",backupName=".insfav-"+nonce+".bak";
-            Uri pending=null,old=lookup(filename),backup=null,committed=null;
+            Uri pending=null,old=lookup(filename),backup=null,committed=null;boolean finalVerified=false;
+            String writingUser=Identity.normalize(filename.substring(0,filename.length()-5));FetcherCatalog.writing.add(writingUser);
             try{
                 pending=DocumentsContract.createDocument(resolver,folder,"application/octet-stream",pendingName);if(pending==null)throw new IOException("OUTPUT_CREATE_FAILED");exactName(pending,pendingName);
                 try(OutputStream output=resolver.openOutputStream(pending,"wt")){if(output==null)throw new IOException("OUTPUT_WRITE_FAILED");output.write(bytes);output.flush();}
@@ -176,16 +177,17 @@ final class OutputFolder {
                 if(old!=null){backup=DocumentsContract.renameDocument(resolver,old,backupName);if(backup==null)throw new IOException("ATOMIC_RENAME_UNSUPPORTED");exactName(backup,backupName);}
                 committed=DocumentsContract.renameDocument(resolver,pending,filename);if(committed==null)throw new IOException("ATOMIC_RENAME_UNSUPPORTED");pending=null;exactName(committed,filename);
                 if(!ThumbnailCodec.valid(read(resolver.openInputStream(committed))))throw new IOException("OUTPUT_FINAL_VERIFY_FAILED");
+                finalVerified=true;
                 // Only a verified new final file may replace the old valid content.
                 if(backup!=null){try{DocumentsContract.deleteDocument(resolver,backup);}catch(Exception ignored){/* Retain backup rather than risk the final file. */}}
                 journal.delete();files.put(filename,committed);lastWriteCreated=true;
                 if(catalog!=null)catalog.image(new QueueStore.Image(Identity.normalize(filename.substring(0,filename.length()-5)),committed.toString(),filename,bytes.length,ThumbnailCodec.TARGET_SIZE,ThumbnailCodec.TARGET_SIZE,System.currentTimeMillis(),true));
                 seenRevision=CONTENT_REVISION.incrementAndGet();return committed;
             }catch(Exception error){
-                if(committed!=null)try{DocumentsContract.deleteDocument(resolver,committed);}catch(Exception ignored){}
-                if(backup!=null)try{DocumentsContract.renameDocument(resolver,backup,filename);}catch(Exception ignored){/* Old bytes stay in the uniquely named backup, never deleted. */}
+                if(committed!=null&&!finalVerified)try{DocumentsContract.deleteDocument(resolver,committed);}catch(Exception ignored){}
+                if(backup!=null&&!finalVerified)try{DocumentsContract.renameDocument(resolver,backup,filename);}catch(Exception ignored){/* Old bytes stay in the uniquely named backup, never deleted. */}
                 throw error instanceof IOException?(IOException)error:new IOException("OUTPUT_REPLACE_FAILED",error);
-            }finally{if(pending!=null)try{DocumentsContract.deleteDocument(resolver,pending);}catch(Exception ignored){}}
+            }finally{if(finalVerified&&committed!=null)FetcherCatalog.ownUris.put(committed.toString(),System.currentTimeMillis()+3000);FetcherCatalog.writing.remove(writingUser);if(pending!=null)try{DocumentsContract.deleteDocument(resolver,pending);}catch(Exception ignored){}}
         }
     }
 }

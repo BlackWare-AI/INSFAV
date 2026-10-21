@@ -10,6 +10,8 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /** Fetcher-only durable metadata. Never edits the normal INSFAV catalog or source images. */
 final class FetcherCatalog {
+    static final Set<String> writing=java.util.concurrent.ConcurrentHashMap.newKeySet();
+    static final java.util.concurrent.ConcurrentHashMap<String,Long> ownUris=new java.util.concurrent.ConcurrentHashMap<>();
     static final AtomicLong listings=new AtomicLong(),opens=new AtomicLong(),decodes=new AtomicLong(),hits=new AtomicLong(),writes=new AtomicLong();
     static String scope(){return Fetcher.host().tree()+"\n"+Fetcher.host().directory();}
     static boolean ready(QueueStore q,String scope){return scope.equals(q.meta("folder"))&&"1".equals(q.meta("ready"));}
@@ -28,7 +30,7 @@ final class FetcherCatalog {
             }
             List<String> old=new ArrayList<>();try(Cursor c=db.rawQuery("SELECT username FROM fetch_images WHERE uri!=''",null)){while(c.moveToNext())if(!current.contains(c.getString(0)))old.add(c.getString(0));}
             for(String user:old){q.image(new QueueStore.Image(user,"","",0,0,0,0,false));q.requeueLost(user);}
-            q.meta("folder",scope);q.meta("ready","1");q.meta("sourceRevision",revision);q.meta("lastIndex",Long.toString(System.currentTimeMillis()));q.settleImages();db.setTransactionSuccessful();
+            q.meta("folder",scope);q.meta("ready","1");q.meta("sourceRevision",revision);q.meta("lastIndex",Long.toString(System.currentTimeMillis()));q.meta("verificationRecommended","0");q.settleImages();db.setTransactionSuccessful();
         } finally {db.endTransaction();}
         return true;
     }
@@ -38,11 +40,15 @@ final class FetcherCatalog {
         String where="readable=1 AND NOT ((width=? OR width=?) AND width=height)";String[] args={Integer.toString(ThumbnailCodec.LEGACY_SIZE),Integer.toString(ThumbnailCodec.TARGET_SIZE)};
         try(Cursor c=q.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM fetch_images WHERE "+where,args)){if(c.moveToFirst())total=c.getInt(0);}
         if(offset>=0)try(Cursor c=q.getReadableDatabase().rawQuery("SELECT name,width,height FROM fetch_images WHERE "+where+" ORDER BY username LIMIT 100 OFFSET "+Math.max(0,offset),args)){while(c.moveToNext())details.put(new JSONObject().put("name",c.getString(0)).put("width",c.getInt(1)).put("height",c.getInt(2)));}
-        return out.put("count",total).put("items",details).put("offset",offset).put("lastIndex",q.meta("lastIndex")).put("listings",listings.get()).put("opens",opens.get()).put("decodes",decodes.get()).put("hits",hits.get());
+        return out.put("count",total).put("items",details).put("offset",offset).put("lastIndex",q.meta("lastIndex")).put("verificationRecommended","1".equals(q.meta("verificationRecommended"))).put("listings",listings.get()).put("opens",opens.get()).put("decodes",decodes.get()).put("hits",hits.get());
     }
     static void observe(Context c,Uri uri){
         if(uri==null)return;
-        try(QueueStore q=new QueueStore(c)){q.invalidateUri(uri.toString());}
+        Long own=ownUris.get(uri.toString());if(own!=null){if(own>System.currentTimeMillis())return;ownUris.remove(uri.toString(),own);}
+        try(QueueStore q=new QueueStore(c)){
+            boolean known=false;try(Cursor cursor=q.getReadableDatabase().rawQuery("SELECT username FROM fetch_images WHERE uri=?",new String[]{uri.toString()})){while(cursor.moveToNext()){known=true;if(writing.contains(cursor.getString(0)))return;}}
+            if(known)q.invalidateUri(uri.toString());else if(writing.isEmpty())q.meta("verificationRecommended","1");
+        }
         catch(RuntimeException ignored){new Diagnostics(c).log("INDEX","CHANGE_REQUIRES_VERIFICATION",0);}
     }
     private FetcherCatalog(){}

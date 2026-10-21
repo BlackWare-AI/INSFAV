@@ -45,5 +45,9 @@ public class FetcherCatalogTest {
  @Test public void failedAndSkippedDoNotLoopUntilExplicitRetryAndClaimsAreExclusive()throws Exception {
   try(QueueStore q=new QueueStore(c)){q.sync(Arrays.asList("one","two"));assertTrue(q.claim("one"));assertFalse(q.claim("one"));q.mark("one","FAILED","NETWORK_ERROR");q.mark("two","SKIPPED_UNAVAILABLE","PROFILE_NOT_FOUND_OR_UNAVAILABLE");assertTrue(q.eligible().isEmpty());q.retrySkipped();assertEquals(2,q.eligible().size());}
  }
+ @Test public void migrationPreservesCompletedSkippedFailedAndAttemptCounts()throws Exception {
+  c.deleteDatabase("fetcher-queue.db");android.database.sqlite.SQLiteDatabase old=c.openOrCreateDatabase("fetcher-queue.db",0,null);old.execSQL("CREATE TABLE accounts (username TEXT PRIMARY KEY,position INTEGER NOT NULL,status TEXT NOT NULL,code TEXT NOT NULL DEFAULT '',eligible INTEGER NOT NULL DEFAULT 1,attempts INTEGER NOT NULL DEFAULT 0)");old.execSQL("INSERT INTO accounts VALUES ('one',0,'SUCCESS','VALID_WEBP',1,0),('two',1,'FAILED','NETWORK_ERROR',1,2),('three',2,'SKIPPED_UNAVAILABLE','NOT_FOUND',1,0)");old.setVersion(3);old.close();
+  try(QueueStore q=new QueueStore(c)){assertEquals(Integer.valueOf(1),q.counts().get("SUCCESS"));assertEquals(Integer.valueOf(1),q.counts().get("FAILED"));assertEquals(2,q.attempts("two"));assertEquals("COMPLETED",phase(q,"one"));assertEquals("SKIPPED",phase(q,"three"));assertTrue(q.eligible().isEmpty());}
+ }
  String phase(QueueStore q,String u){try(android.database.Cursor c=q.getReadableDatabase().rawQuery("SELECT phase FROM accounts WHERE username=?",new String[]{u})){c.moveToFirst();return c.getString(0);}}
 }

@@ -26,9 +26,12 @@ public class IntegratedEngineTest{
   FetcherStorageTest.Fixture provider=Robolectric.buildContentProvider(FetcherStorageTest.Fixture.class).create(info).get();provider.root=Files.createTempDirectory("integration-engine").toFile();new File(provider.root,".thumbnails").mkdir();Uri tree=Uri.parse("content://fetcher.test/tree/root");c.getContentResolver().takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
 
   Fetcher.initialize(c,new Fetcher.Host(){public Collection<String> users(){return Arrays.asList("limited");}public String tree(){return tree.toString();}public String directory(){return "root/.thumbnails";}public long revision(){return 0;}public boolean hasImage(String u){return false;}public void imageWritten(String u,Uri uri,String t){}});
-  FetchBroker broker=new FetchBroker(c,full->new ProfileProvider(){public byte[] fetch(String user)throws Failure{throw new Failure("RATE_LIMITED",429,System.currentTimeMillis()+60000,true);}public void cancel(){}},new TestTime());org.robolectric.util.ReflectionHelpers.setStaticField(FetchBroker.class,"instance",broker);
+  java.util.concurrent.atomic.AtomicInteger calls=new java.util.concurrent.atomic.AtomicInteger();byte[] resumed=CodecTest.png(640,480);
+  FetchBroker broker=new FetchBroker(c,full->new ProfileProvider(){public byte[] fetch(String user)throws Failure{if(calls.incrementAndGet()==1)throw new Failure("RATE_LIMITED",429,System.currentTimeMillis()+60000,true);return resumed.clone();}public void cancel(){}},new TestTime());org.robolectric.util.ReflectionHelpers.setStaticField(FetchBroker.class,"instance",broker);
   try(QueueStore q=new QueueStore(c)){q.sync(Arrays.asList("limited"));}new QueueEngine(c,state->{},()->false).run("resume",false);
   try(QueueStore q=new QueueStore(c)){assertEquals(0,q.attempts("limited"));assertEquals(Integer.valueOf(1),q.counts().get("RETRY_LATER"));assertEquals(Arrays.asList("limited"),q.pending());}assertEquals("RATE_LIMITED",SessionState.prefs(c).getString("blocked",""));
+  int enumerations=provider.childQueries;new QueueEngine(c,state->{},()->false).run("resume",false);assertEquals(1,calls.get());assertEquals(enumerations,provider.childQueries);
+  SessionState.prefs(c).edit().putLong("retryAt",0).commit();new QueueEngine(c,state->{},()->false).run("resume",false);assertEquals(2,calls.get());try(QueueStore q=new QueueStore(c)){assertEquals(Integer.valueOf(1),q.counts().get("SUCCESS"));assertEquals(0,q.attempts("limited"));}
  }
 
  @Test(timeout=30000) public void cachedScheduledWorkIsBoundedWithoutNetworkOrUiFlood()throws Exception{

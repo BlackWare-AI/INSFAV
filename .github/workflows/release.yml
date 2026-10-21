@@ -1,12 +1,6 @@
 name: Official INSFAV 4.0.0 release
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/release.yml'
-      - 'tools/release/**'
-      - 'docs/RELEASE-4.0.0.md'
 permissions:
   contents: read
 concurrency:
