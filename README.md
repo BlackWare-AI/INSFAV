@@ -50,6 +50,8 @@ Build using **JDK 17**, Android SDK Platform 35 and the Gradle wrapper:
 
 The `release` build requires the original private signing key to produce an installable, update-compatible APK. Configure `INSFAV_KEYSTORE`, `INSFAV_STORE_PASSWORD`, `INSFAV_KEY_ALIAS` and `INSFAV_KEY_PASSWORD` locally or as secured CI secrets. **Never publish the keystore or passwords.** Unsigned APKs are not an installable public release, and replacing an installed APK signed with another certificate is not a safe in-place upgrade.
 
+For the guarded GitHub Actions publication workflow, required secret names, certificate pinning and verification steps, see [Official release signing](docs/RELEASE-SIGNING.md). Missing configuration blocks publication; the workflow never generates a replacement key or claims compatibility with an unverified previous APK.
+
 Source files: `web/` (UI), `app/src/main/java/` (Android, SAF and Fetcher), `app/src/test/` and `tests/` (verification). Web bundles in `app/src/main/assets/` are generated via `npm ci --ignore-scripts && npm run web`.
 
 For technical verification and limitations, see [Thumbnail verification](docs/THUMBNAIL-VERIFICATION-TR.md) and [Fetcher integration](docs/FETCHER-040.md).
