@@ -87,7 +87,7 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
   const preservedCounters=await page.evaluate(()=>JSON.stringify(stats));
   await page.locator('#import-btn').click();
   check(await page.locator('#dialog').isHidden()&&await page.evaluate(()=>commands.at(-1).command==='import'),'Add List closes the overlay and dispatches the existing picker command');
-  await page.evaluate(()=>nativeEvent('imported',{profiles:snapshot.profiles,raw:JSON.stringify({favorite_page_pref:JSON.stringify(fixture)})}));
+  await page.evaluate(fixture=>nativeEvent('imported',{profiles:snapshot.profiles,raw:JSON.stringify({favorite_page_pref:JSON.stringify(fixture)})}),fixture);
   await page.locator('#info-btn').click();
   check(await page.evaluate(value=>stats.load===JSON.parse(value).load+1&&stats.usage===JSON.parse(value).usage&&doc.total===10001,preservedCounters),'import completion preserves the existing single load increment and JSON memberships');
   await page.locator('#import-btn').click();await page.locator('#info-btn').click();check(await page.evaluate(()=>doc.total===10001&&stats.load===2),'reopening About after picker cancellation preserves collections and counters');
@@ -99,7 +99,7 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
   check(await page.evaluate(()=>commands.at(-1).command==='clear-data')&&await page.locator('#dialog').isHidden(),'confirm dispatches the unchanged deletion and dismisses its overlay');
   await page.evaluate(()=>nativeEvent('cleared',''));
   check(await page.evaluate(()=>doc===null&&stats.clear===1&&stats.load===2),'delete completion preserves the existing reset count and leaves load count unchanged');
-  await page.evaluate(()=>{snapshot.stats={usage:1,load:1,clear:0};nativeEvent('bootstrap',{...snapshot,raw:JSON.stringify({favorite_page_pref:JSON.stringify(fixture)})});});
+  await page.evaluate(fixture=>{snapshot.stats={usage:1,load:1,clear:0};nativeEvent('bootstrap',{...snapshot,raw:JSON.stringify({favorite_page_pref:JSON.stringify(fixture)})});},fixture);
   await page.locator('#info-btn').click();
   for(const width of [280,320,393,600]){await page.setViewportSize({width,height:width===280?480:820});check(await page.evaluate(()=>{const bar=document.querySelector('.nav-container').getBoundingClientRect(),search=document.querySelector('.search-box').getBoundingClientRect(),input=document.getElementById('search-input');return document.documentElement.scrollWidth<=innerWidth&&search.right<=bar.right-8&&search.width>100&&input.getBoundingClientRect().height===50;}),'search fills the remaining bar without overflow at '+width+'px');check(await page.locator('.modal').evaluate(el=>el.clientHeight<=innerHeight*.9&&getComputedStyle(el).overflowY==='auto'),'About remains scrollable within the viewport at '+width+'px');}
   await page.setViewportSize({width:393,height:820});
