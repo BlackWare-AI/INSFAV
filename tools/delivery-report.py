@@ -1,6 +1,6 @@
 """Package anonymous test evidence and a Turkish development report after the real emulator matrix."""
 from pathlib import Path
-import json, os, shutil, hashlib, xml.etree.ElementTree as ET
+import json, os, shutil, hashlib, struct, xml.etree.ElementTree as ET
 from collections import Counter
 import subprocess
 root=Path.cwd()
@@ -53,6 +53,7 @@ verification={
     "debugApkBytes":debug.stat().st_size,"releaseUnsignedBytes":release.stat().st_size,
     "debugApkSha256":hashlib.sha256(debug.read_bytes()).hexdigest(),
     "hdProbeSha256":hashlib.sha256((root/"app/src/main/assets/profile-probe-hd.js").read_bytes()).hexdigest(),
+    "sourcePackageCommit":subprocess.check_output(["git","rev-parse","HEAD"]).decode().strip(),
     "sourceTree":subprocess.check_output(["git","rev-parse","HEAD^{tree}"]).decode().strip()
 }
 (destination/"Verification.json").write_text(json.dumps(verification,indent=2)+"\n")
@@ -87,6 +88,34 @@ report+=f"\n### Paket\n\nDebug APK: {debug.stat().st_size} bayt. Optimize imzas�
 report+="\n\n## Değiştirilen dosyalar\n\n"
 changed=subprocess.check_output(["git","diff","--name-only","54b43f8151ded94ef0b6655c8575d519effe7fb6","HEAD"]).decode().splitlines()
 report+="\n".join("- `"+name+"`" for name in changed)+"\n"
+report+="\n## Üç tekrarın medyanları\n\n| Hesap | Önce/sonra FPS | Önce/sonra ilk açılış ms | Önce/sonra tepe satır | Önce/sonra HTTP istekleri |\n|---|---|---|---|---|\n"
+import statistics
+for size in [5000,10000,20000]:
+    groups={variant:[row for row in performance["samples"] if row["size"]==size and row["variant"]==variant] for variant in ["baseline","current"]}
+    def pair(key):return " / ".join(f"{statistics.median(row[key] for row in groups[v]):.2f}" for v in ["baseline","current"])
+    report+=f"| {size} | {pair('fps')} | {pair('initialMs')} | {pair('maxNodes')} | {pair('requests')} |\n"
+report+="\nFPS'de genel bir artış kanıtlanmadı. İlk açılış bazı örneklerde daha yavaştı; DOM ve HTTP istekleri her satırda azalmış gibi sunulmaz. Kesin doğrulanan değişiklikler; kaynak baytlarının korunması, liste yeniden kodlamasının kaldırılması ve türetilmiş disk cache'in sıfırlanmasıdır.\n"
+report+="\n## Gerçek Android WebView havuzu — offline fixture\n\n| Requested | Effective | Peak active WebViews | Peak accounts | Peak CDN | Accounts/min | App PSS KiB |\n|---|---|---|---|---|---|---|\n"
+for row in rows:report+=f"| {row['requested']} | {row['effective']} | {row['maxActiveWebViews']} | {row['maxActiveAccounts']} | {row['maxCdnReaders']} | {row['completedPerMinute']:.2f} | {row['appPssKiB']} |\n"
+report+="\nSon 5 işçi satırı 25 saniyelik bekleme ayarında ilk dalgayı ölçer; uzun dönem hız değildir. PSS yalnız ana uygulama sürecinin işlem sonu ölçümüdür; ayrı Chromium renderer toplamını veya liste RAM karşılaştırmasını göstermez. Farklı profillerin gezinme ve CDN okuma aralıkları ham JSON'da çakışır.\n"
+report+="\n## Paketleme ve imza sınırlaması\n\nUygulama testleri ve Android 14 emülatör senaryoları 39526391363 numaralı çalışmada geçti. O çalışmanın son paketleme adımı sığ Git geçmişinde eski karşılaştırma commit'ini bulamadı. Tam geçmişle yalnız paketleme yeniden çalıştırıldı; derlenmiş uygulama kodunun test edilen commit ile aynı olduğu git diff guard ile kontrol edildi.\n\nCI debug sertifikası önce teslim edilen 3.3.0 CI debug sertifikasından farklıdır; dolayısıyla o APK üzerine doğrudan güncelleme yapılamaz. Mevcut uygulamayı silme veya veri temizleme önerilmez. Veri ve sayaçları koruyan yerinde güncelleme aynı eski imzalama anahtarını gerektirir. Eski CI anahtarı elde değildir. Yeni APK temiz kurulum için çalışır; imza karşılaştırması kamuya açık sertifika SHA-256 değerleriyle doğrulanmıştır.\n"
+def signing_certificate_sha256(apk):
+    eocd=apk.rfind(b"PK\x05\x06");cd=struct.unpack_from("<I",apk,eocd+16)[0]
+    assert apk[cd-16:cd]==b"APK Sig Block 42", "Missing APK signing block"
+    size=struct.unpack_from("<Q",apk,cd-24)[0];pos=cd-size
+    def read(data,offset=0):
+        length=struct.unpack_from("<I",data,offset)[0]
+        return data[offset+4:offset+4+length],offset+4+length
+    while pos<cd-24:
+        length=struct.unpack_from("<Q",apk,pos)[0];key=struct.unpack_from("<I",apk,pos+8)[0];value=apk[pos+12:pos+8+length];pos+=8+length
+        if key==0x7109871a:
+            signers,_=read(value);signer,_=read(signers);signed,_=read(signer);_,offset=read(signed);certificates,_=read(signed,offset);certificate,_=read(certificates)
+            return hashlib.sha256(certificate).hexdigest()
+    raise AssertionError("Missing V2 APK signer")
+previousCertificate="b5c44d4e8a0480d4b939740170c820e799f9d1ea37b9d83d78bde79735fa56f8"
+currentCertificate=signing_certificate_sha256(debug.read_bytes())
+verification["signingCompatibility"]={"previousCiDebugVersion":"3.3.0","sameSigner":currentCertificate==previousCertificate,"previousCertificateSha256":previousCertificate,"newCertificateSha256":currentCertificate}
+(destination/"Verification.json").write_text(json.dumps(verification,indent=2)+"\n")
 (destination/"Development-Report-TR.md").write_text(report)
 for path in destination.iterdir():
     if path.is_file():print("DELIVERY_FILE",path.name,path.stat().st_size,hashlib.sha256(path.read_bytes()).hexdigest())
