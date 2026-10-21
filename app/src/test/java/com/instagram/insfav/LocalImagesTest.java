@@ -57,9 +57,9 @@ public class LocalImagesTest {
         long revision = store.index.getLong("revision");
         String original = store.original();
         images.scan((event, value) -> {});
-        // Existing readable winners are not decoded again. The broken image is
-        // retried so a repaired file can become available on a later scan.
-        assertEquals(before + 1, provider.opens);
+        // The readable winner is reused. The duplicate candidate and broken
+        // image are still revalidated to preserve duplicate selection safety.
+        assertEquals(before + 3, provider.opens);
         assertEquals(revision, store.index.getLong("revision"));
         assertEquals(original, store.original());
         assertEquals(1, images.snapshot(true).getInt("matched"));
