@@ -42,6 +42,11 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
   check(await page.evaluate(()=>savedHeader===document.querySelector('.folder-header')),'collapse retains header DOM for arrow transition');
   await page.locator('.folder-header').first().click();
   await page.locator('.card-link').first().click();check(await page.evaluate(()=>commands.at(-1).command==='open'),'account action remains external profile opening');
+  await page.locator('.avatar img').first().waitFor();
+  check(await page.locator('.avatar img').first().evaluate(img=>img.loading==='eager'),'virtualized avatars do not add browser lazy-loading delay');
+  await page.evaluate(()=>{window.savedAvatar=document.querySelector('.avatar img');nativeEvent('status',{...snapshot,revision:222});});
+  check(await page.evaluate(()=>savedAvatar===document.querySelector('.avatar img')),'unrelated index revision keeps the existing avatar element');
+  check(await page.evaluate(()=>thumbnailMetrics().active<=6&&thumbnailMetrics().retained<=64),'browser image work and retained entries are bounded');
   await page.locator('.avatar').first().click();check(await page.locator('#viewer').isVisible(),'viewer opens cached local thumbnail');
   for(let i=0;i<100&&!await page.locator('#full-image').evaluate(el=>el.src.includes('/full/'));i++)await page.waitForTimeout(50);
   check(await page.evaluate(()=>commands.filter(c=>c.command==='view-remote').length===1),'viewer submits one interactive request to the shared native broker');
@@ -69,6 +74,7 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
   await page.locator('#search-input').fill('user9999');await page.waitForTimeout(180);check(await page.locator('.account').count()===1,'search reaches unmounted accounts');
   await page.locator('#clear-search').click();check(await page.locator('#search-input').inputValue()==='','search clear restores view');
   await page.evaluate(()=>scrollTo(0,400000));await page.waitForTimeout(100);check(await page.locator('.account').count()<30,'deep scrolling recycles rows');
+  check(await page.evaluate(()=>thumbnailMetrics().rows<32&&thumbnailMetrics().pool<=32),'recycled row pool remains bounded during a large jump');
   const colors=await page.evaluate(()=>['info-btn','import-btn','clear-btn'].map(id=>getComputedStyle(document.getElementById(id)).color));check(new Set(colors).size===3,'bottom controls retain three distinct muted colors');
   await page.locator('#info-btn').click();
   check((await page.locator('#dialog-body').innerText()).includes('BlackWare'),'About credits developer BlackWare');

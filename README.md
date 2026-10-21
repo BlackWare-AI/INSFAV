@@ -23,7 +23,7 @@ INSFAV keeps its local SAF thumbnail catalog and adds an optional session-based 
 
 Names are trimmed, one leading `@` is removed, and matching is case insensitive. Periods within usernames are preserved. Supported extensions are `.webp`, `.jpg`, `.jpeg`, and `.png`. Only direct children of the chosen folder are scanned. Filename mapping is sufficient; a `manifest.json` is not required and is currently ignored. Account JSON records do not need image-path fields.
 
-Each candidate is checked with bounded image decoding. Malformed, unsupported, oversized and unreadable files do not crash the application. Missing photos use a gray person glyph in the original 40 dp rounded rectangular box. Lists decode 128 px center-cropped thumbnails. Fullscreen uses the same selected local source, retains its aspect ratio and supports pinch zoom, double tap, pan and Back. Source images up to 2048 px are shown at their available decoded resolution; larger images use a memory-bounded preview up to 2048 px, explicitly labeled. Fullscreen previews are encoded losslessly in memory and are not saved to permanent storage. No save-photo button or artificial Full HD source is provided.
+Each candidate is checked with bounded image decoding. Malformed, unsupported, oversized and unreadable files do not crash the application. Missing photos use a gray person glyph in the original 40 dp rounded rectangular box. Lists serve the original indexed bytes directly at 40×40 CSS pixels with object-fit cover; there is no native list bitmap conversion or derived thumbnail disk archive. New fetcher output is 256×256 WebP quality 78; existing 128×128 sources stay valid. Fullscreen uses the same selected local source, retains its aspect ratio and supports pinch zoom, double tap, pan and Back. Source images up to 2048 px are shown at their available decoded resolution; larger images use a memory-bounded preview up to 2048 px, explicitly labeled. Fullscreen previews are encoded losslessly in memory and are not saved to permanent storage. No save-photo button or artificial Full HD source is provided.
 
 If duplicate candidates normalize to the same username, readable images win; then higher pixel area, WebP/JPEG/PNG preference at equal resolution, exact filename and URI provide deterministic tie breaking. Provider enumeration order does not change the choice.
 
@@ -55,7 +55,7 @@ Collection management currently means importing/exporting backups, browsing, exp
 
 - `MainActivity`: protected local WebView, native window insets, SAF folder selection and optional same-folder write authorization, JSON system pickers, app metadata, external profile intents and bounded task lifetimes.
 - `Store`: atomic original JSON, preferences, index metadata and rotated redacted diagnostics.
-- `LocalImages`: transactional SAF scan, persisted URI/index, permission checks and a disposable 24 MiB thumbnail cache (trimmed to 18 MiB on overflow).
+- `LocalImages`: transactional SAF scan, persisted URI/index, permission checks and coalesced original-byte reads, exact MIME types, transient read statistics and a safe migration of the obsolete derived cache.
 - `ImageCodec`: validated, bounded local decoding and prompt stream/bitmap cleanup.
 - `ThumbnailPolicy`: Android-independent identity, duplicate ordering and statistics policy.
 - `web/`: readable UI source. `app/src/main/assets/`: reproducible minified runtime bundles, fonts and supplied logo.
@@ -109,3 +109,13 @@ For the presentation regression, extract the previous packaged assets from commi
 ## Fetcher 0.4 pool integration
 
 INSFAV 3.3.0 adds requested/effective/active WebView counts, a reusable concurrent pool, 256x256 WebP output, explicit legacy refresh and skipped-profile retry. See [Fetcher 0.4 integration](docs/FETCHER-040.md) for pacing, memory estimates, background limits and verification scope. The previous serial integration notes are historical.
+
+## Thumbnail pipeline and progress notifications (3.4.0)
+
+The only application-managed persistent thumbnail source is the selected `.thumbnails` folder. A bounded pool of browser Image elements and WebView's normal resource cache can reuse original images; no native bitmap cache is added. Source-version changes invalidate only the affected avatar. Directional overscan, visible-first loading and row reuse keep DOM and request work bounded.
+
+Image Cache Size measures leftover legacy app copies, not all Chromium storage. Thumbnail Index Size and aggregate WebView Storage are shown separately. Export Diagnostics includes aggregate directory byte totals and image I/O counters without filenames or secrets.
+
+Fetcher notifications report Downloaded, Existing, Failed, Skipped and Pending separately, queue-backed percentage/progress, active WebViews, rate and available ETA. The final notification is retained. Existing foreground-service/WorkManager policies and the shared HD/session engine are preserved. OS force-stop, service quotas and manufacturer restrictions remain applicable.
+
+`tests/thumbnail-performance.cjs` compares 5k/10k/20k synthetic lists against `BASELINE_ASSETS`; it reports host Chromium timing, not device FPS. `ThumbnailPipelineBenchmarkTest` measures the actual native byte path with an isolated synthetic SAF provider. The CI artifact includes raw measurements, the debug APK, Android Studio source ZIP and a Turkish development report. Physical device and live Instagram checks are identified separately.

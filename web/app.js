@@ -52,7 +52,7 @@ const avatarImages=new Map(),avatarMetrics={hits:0,misses:0,cancelled:0,loaded:0
 let avatarActive=0,scrollTopLast=0,scrollTimeLast=0,scrollVelocity=0;
 function avatarVersion(user){return profiles[user]?.version??cacheVersion;}
 function releaseAvatar(button){
- const entry=button._imageEntry;if(entry){entry.buttons.delete(button);button._imageEntry=null;}
+ const entry=button._imageEntry;if(entry){entry.buttons.delete(button);button._imageEntry=null;button.replaceChildren();}
 }
 function attachAvatar(button,entry){
  if(button._imageEntry!==entry)return;
