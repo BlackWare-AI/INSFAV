@@ -47,7 +47,7 @@ jobs:
           export CHROME_BIN="$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")"
           node tests/browser.cjs | tee browser-results.txt
           mkdir -p /tmp/insfav-thumbnail-baseline
-          for name in index.html app.js core.js style.css fonts.css logo.webp; do git show 54b43f8151ded94ef0b6655c8575d519effe7fb6:app/src/main/assets/$name > /tmp/insfav-thumbnail-baseline/$name; done
+          for name in index.html app.js core.js style.css fonts.css logo.webp inter-{0..6}.woff2; do git show 54b43f8151ded94ef0b6655c8575d519effe7fb6:app/src/main/assets/$name > /tmp/insfav-thumbnail-baseline/$name; done
           BASELINE_ASSETS=/tmp/insfav-thumbnail-baseline node tests/thumbnail-performance.cjs > measurements/browser-before-after.json
           cp app/build/test-results/testDebugUnitTest/TEST-com.instagram.insfav.ThumbnailPipelineBenchmarkTest.xml measurements/native-after.xml
           node tests/probe-browser.cjs | tee probe-results.txt
