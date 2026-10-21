@@ -79,6 +79,24 @@ final class Store {
         }
         return Collections.unmodifiableSet(cachedUsers);
     }
+    /** Fresh validation only: never use a stale cached user set for destructive cleanup. */
+    synchronized Set<String> cleanupUsers() {
+        try {
+            String raw = original(); if (raw.isEmpty()) return null;
+            JSONTokener rootToken=new JSONTokener(raw);rootToken.nextValue();if(rootToken.nextClean()!=0)return null;
+            Object root=new JSONTokener(raw).nextValue();if(root instanceof JSONObject){Object nested=((JSONObject)root).get("favorite_page_pref");if(nested instanceof String){JSONTokener token=new JSONTokener((String)nested);token.nextValue();if(token.nextClean()!=0)return null;}}
+            JSONArray data = collections(raw); Set<String> users = new HashSet<>();
+            for (int i=0;i<data.length();i++) {
+                JSONArray items=data.getJSONObject(i).getJSONArray("items");
+                for(int n=0;n<items.length();n++) {
+                    String user=normalize(items.getJSONObject(n).getString("pageId"));
+                    if(!user.matches("[a-z0-9._]{1,30}"))return null;
+                    users.add(user);
+                }
+            }
+            return users.isEmpty()?null:users;
+        } catch(Exception error) {log("thumbnail_cleanup", "INVALID_FAVORITES_PRESERVED");return null;}
+    }
     synchronized int total() throws JSONException {if (cachedUsers == null) users(); return total;}
     synchronized void clearDocument() {new AtomicFile(new File(root, "document.json")).delete(); cachedUsers = null; log("clear_collections", "success");}
     synchronized JSONObject readObject(String name) {
