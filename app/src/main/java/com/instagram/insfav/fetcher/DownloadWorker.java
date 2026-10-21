@@ -29,7 +29,7 @@ public final class DownloadWorker extends Worker {
         return isStopped() ? Result.retry() : Result.success();
     }
     @Override public ForegroundInfo getForegroundInfo() {
-        return Build.VERSION.SDK_INT >= 29 ? new ForegroundInfo(2, DownloadNotification.create(getApplicationContext(), QueueControl.phase), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC) : new ForegroundInfo(2, DownloadNotification.create(getApplicationContext(), QueueControl.phase));
+        return Build.VERSION.SDK_INT >= 29 ? new ForegroundInfo(2, DownloadNotification.preparing(getApplicationContext()), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC) : new ForegroundInfo(2, DownloadNotification.preparing(getApplicationContext()));
     }
     @Override public void onStopped() { QueueEngine current = engine; if (current != null) current.cancel(); }
 }

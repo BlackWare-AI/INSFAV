@@ -163,7 +163,7 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
   await page.locator('#fetcher-write').click();check(await page.evaluate(()=>commands.at(-1).command==='fetcher-write-access'),'write authorization upgrades the current folder instead of selecting a second output');
   for(const [id,action] of [['fetcher-missing','missing'],['fetcher-pause','pause'],['fetcher-resume','resume'],['fetcher-stop','stop'],['fetcher-retry-skipped','retry_skipped']]){await page.locator('#'+id).click();check(await page.evaluate(action=>commands.at(-1).command==='fetcher-action'&&commands.at(-1).action===action,action),'fetcher dispatches '+action);}
   await page.locator('#fetcher-verify').click();
-  check(await page.locator('#dialog-title').innerText()==='Verify Fetcher Index?','full Fetcher verification is explicit and confirmed');
+  check(await page.locator('#dialog-title').textContent()==='Verify Fetcher Index?','full Fetcher verification is explicit and confirmed');
   await page.getByRole('button',{name:'Confirm',exact:true}).click();
   check(await page.evaluate(()=>commands.at(-1).command==='fetcher-action'&&commands.at(-1).action==='verify_index'),'explicit verification uses its separate Fetcher action');
   await page.locator('#fetcher-diagnostics').click();check(await page.evaluate(()=>commands.at(-1).command==='fetcher-logs'),'fetcher diagnostics has a separate redacted export');

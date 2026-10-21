@@ -106,11 +106,11 @@ jobs:
       - name: Package measured delivery report
         env:
           SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: python3 tools/delivery-report.py
+        run: python3 tools/delivery500-report.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: INSFAV-3.4.0-delivery
+          name: INSFAV-5.0.0-delivery
           path: final-delivery/
       - uses: actions/upload-artifact@v4
         if: always()
