@@ -5,6 +5,7 @@ apk=$(find builds -name app-debug.apk -print -quit)
 test_apk=$(find builds -name '*debug-androidTest.apk' -print -quit)
 adb install -r "$apk"
 adb install -r "$test_apk"
+adb shell pm grant com.instagram.insfav android.permission.POST_NOTIFICATIONS
 adb logcat -c
 adb shell am instrument -w com.instagram.insfav.test/com.instagram.insfav.fetcher.PoolInstrumentation | tee emulator-pool/instrumentation.txt
 grep -q POOL_MATRIX_OK emulator-pool/instrumentation.txt

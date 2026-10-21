@@ -125,8 +125,26 @@ public class LocalImagesTest {
         app.imageWritten("missing",DocumentsContract.buildDocumentUriUsingTree(root,"root/missing.webp"),root.toString());
         assertEquals(2,images.snapshot(true).getInt("matched"));assertTrue(images.image("missing",false).length>0);assertEquals(queries,provider.childQueries);assertEquals(before,store.original());
     }
+    @Test public void concurrentRequestsShareOneSourceReadWithoutADiskCopy() throws Exception {
+        selectAndScan();int before=provider.opens;provider.delayMs=250;
+        java.util.concurrent.ExecutorService pool=java.util.concurrent.Executors.newFixedThreadPool(6);
+        java.util.concurrent.CyclicBarrier barrier=new java.util.concurrent.CyclicBarrier(6);
+        try {
+            java.util.List<java.util.concurrent.Future<byte[]>> values=new ArrayList<>();
+            for(int i=0;i<6;i++)values.add(pool.submit(()->{barrier.await();return images.image("example",false);}));
+            byte[] expected=Files.readAllBytes(provider.files.get("root/example.PNG").toPath());
+            for(java.util.concurrent.Future<byte[]> value:values)assertArrayEquals(expected,value.get(10,java.util.concurrent.TimeUnit.SECONDS));
+            assertEquals(before+1,provider.opens);assertEquals(5,images.snapshot(false).getJSONObject("imageIO").getInt("coalescedReads"));assertEquals(0,images.snapshot(false).getInt("cacheBytes"));
+        } finally {pool.shutdownNow();}
+    }
+    @Test public void migrationDeletesOnlyKnownDerivedNamesAndKeepsIndexAndSources() throws Exception {
+        selectAndScan();String original=store.original();long indexSize=new File(store.root,"thumbnail-index.json").length();
+        File dir=new File(context.getCacheDir(),"local-thumbnails");dir.mkdirs();
+        File derived=new File(dir,Store.key("legacy")+".webp"),unknown=new File(dir,"unrelated.txt");Files.write(derived.toPath(),new byte[]{1,2,3});Files.write(unknown.toPath(),new byte[]{4});
+        LocalImages upgraded=new LocalImages(context,store);assertFalse(derived.exists());assertTrue(unknown.exists());assertEquals(indexSize,new File(store.root,"thumbnail-index.json").length());assertEquals(original,store.original());assertEquals(0,provider.writes);
+    }
     public static final class FixtureProvider extends ContentProvider {
-        File directory; final Map<String,File> files = new LinkedHashMap<>(); final Map<String,String> names = new HashMap<>();
+        volatile long delayMs; File directory; final Map<String,File> files = new LinkedHashMap<>(); final Map<String,String> names = new HashMap<>();
         int childQueries, opens, writes; boolean available = true, parentHasThumbnailChild;
         void add(String id,String name,int w,int h) throws Exception {File file = new File(directory, name); Bitmap image = Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888); try(FileOutputStream output = new FileOutputStream(file)){if(!image.compress(name.toLowerCase(Locale.ROOT).endsWith(".webp") ? Bitmap.CompressFormat.WEBP : name.toLowerCase(Locale.ROOT).matches(".*\\.jpe?g$") ? Bitmap.CompressFormat.JPEG : Bitmap.CompressFormat.PNG,100,output))throw new IOException("Fixture encoding failed");}finally{image.recycle();} files.put(id,file); names.put(id,name);}
         void addBroken(String id,String name) throws Exception {File file = new File(directory,name); Files.write(file.toPath(), new byte[]{1,2,3}); files.put(id,file); names.put(id,name);}
@@ -154,6 +172,7 @@ public class LocalImagesTest {
             cursor.addRow(values);
         }
         @Override public ParcelFileDescriptor openFile(Uri uri,String mode) throws FileNotFoundException {
+            if(delayMs>0)try{Thread.sleep(delayMs);}catch(InterruptedException e){Thread.currentThread().interrupt();}
             if(!"r".equals(mode)){writes++;throw new FileNotFoundException("Read only");}opens++;
             File file=files.get(DocumentsContract.getDocumentId(uri));if(file==null||!available)throw new FileNotFoundException();
             return ParcelFileDescriptor.open(file,ParcelFileDescriptor.MODE_READ_ONLY);

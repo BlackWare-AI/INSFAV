@@ -17,6 +17,9 @@ final class LocalImages {
     interface Listener {void event(String event, JSONObject value);}
     private final ContentResolver resolver;
     private final Store store;
+    private final File dataRoot;
+    private long storageMeasuredAt;
+    private JSONObject storage = new JSONObject();
     private final File cache;
     private final Object cacheLock = new Object();
     private volatile boolean accessible, scanning;
@@ -29,7 +32,7 @@ final class LocalImages {
     private final Semaphore readSlots = new Semaphore(4, true);
     private final AtomicLong sourceReads = new AtomicLong(), joinedReads = new AtomicLong(), readNanos = new AtomicLong(), sourceBytes = new AtomicLong();
     LocalImages(Context context, Store store) {
-        this.resolver = context.getContentResolver(); this.store = store;
+        this.resolver = context.getContentResolver(); this.store = store; dataRoot=context.getDataDir();
         cache = new File(context.getCacheDir(), "local-thumbnails"); cacheBytes = size(cache); try {clearCache();} catch (IOException error) {store.log("image_cache_migration", "INCOMPLETE");}
     }
     static long size(File folder) {long bytes = 0; File[] files = folder.listFiles(); if (files != null) for (File file : files) bytes += file.length(); return bytes;}
@@ -143,7 +146,17 @@ final class LocalImages {
         JSONObject value = new JSONObject().put("state", state).put("processed", processed).put("total", total).put("elapsedMs", android.os.SystemClock.elapsedRealtime() - started);
         progress = value; listener.event("scan-progress", value);
     }
+    private static long treeBytes(File file) {
+        if(file.isFile())return file.length();long total=0;File[] entries=file.listFiles();
+        if(entries!=null)for(File entry:entries)total+=treeBytes(entry);return total;
+    }
+    JSONObject storageAudit() throws JSONException {
+        JSONObject result=new JSONObject();
+        for(String name:new String[]{"files","cache","databases","shared_prefs","app_webview","code_cache"})result.put(name,treeBytes(new File(dataRoot,name)));
+        return result.put("thumbnailIndex",new File(store.root,"thumbnail-index.json").length()).put("derivedImages",size(cache)).put("nativeBitmapCache",0);
+    }
     JSONObject snapshot(boolean includeProfiles) throws Exception {
+        long now=android.os.SystemClock.elapsedRealtime();if(storageMeasuredAt==0||now-storageMeasuredAt>30000){storage=storageAudit();storageMeasuredAt=now;}
         synchronized (store) {
             JSONObject source = store.index.optJSONObject("profiles"); if (source == null) source = new JSONObject();
             boolean usable = accessible && store.settings.optString("treeUri").equals(store.index.optString("treeUri", "invalid"));
@@ -156,6 +169,7 @@ final class LocalImages {
                 }
             }
             JSONObject out = new JSONObject().put("total", store.total()).put("unique", users.size()).put("matched", matched).put("missing", users.size() - matched).put("unreadable", store.index.optInt("unreadable")).put("duplicates", store.index.optInt("duplicates")).put("folderBytes", store.index.optLong("bytes")).put("unknownSizes", store.index.optInt("unknownSizes")).put("lastScan", store.index.optLong("scannedAt")).put("folder", store.settings.optString("folderLabel", "Not selected")).put("folderStatus", accessible ? "ready" : store.settings.optString("treeUri").isEmpty() ? "not_selected" : "unavailable").put("folderMessage", accessMessage).put("scanState", scanning ? "scanning" : store.settings.optString("scanState", "idle")).put("scan", progress).put("revision", store.index.optLong("revision")).put("cacheBytes", cacheBytes);
+            out.put("storage",storage);
             out.put("imageIO", new JSONObject().put("sourceReads",sourceReads.get()).put("coalescedReads",joinedReads.get()).put("readNanos",readNanos.get()).put("sourceBytes",sourceBytes.get()).put("inflight",reads.size()).put("nativeBitmapCacheBytes",0).put("derivedDiskCacheBytes",cacheBytes));
             if (includeProfiles) out.put("profiles", profiles); return out;
         }

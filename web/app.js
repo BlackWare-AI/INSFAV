@@ -69,14 +69,14 @@ function pumpAvatars(){
    else{for(const button of entry.buttons)if(button._imageEntry===entry)placeholder(button);notifyImageFailure();}
    pumpAvatars();
   };
-  entry.img.onload=()=>finish(true);entry.img.onerror=()=>finish(false);entry.img.src=entry.url;
+  entry.img.fetchPriority=entry.priority===0?'high':'low';entry.img.onload=()=>finish(true);entry.img.onerror=()=>finish(false);entry.img.src=entry.url;
  }
 }
 function avatarFor(button,user){
  releaseAvatar(button);button.dataset.user=user;
  if(!profiles[user]?.file){placeholder(button);return;}
  const key=user+'|'+avatarVersion(user);let entry=avatarImages.get(key);
- if(entry){avatarMetrics.hits++;entry.used=performance.now();}
+ if(entry){avatarMetrics.hits++;entry.used=performance.now();if(entry.status==='failed')entry.status='pending';}
  else{avatarMetrics.misses++;const img=new Image();img.alt='';img.decoding='async';img.loading='eager';entry={img,url:'/thumb/'+encodeURIComponent(user)+'?v='+encodeURIComponent(avatarVersion(user)),status:'pending',buttons:new Set(),priority:0,used:performance.now()};avatarImages.set(key,entry);}
  button._imageEntry=entry;entry.buttons.add(button);
  if(entry.status==='ready')attachAvatar(button,entry);else placeholder(button);
@@ -155,12 +155,12 @@ function bytes(value){return (Number(value||0)/1048576).toFixed(2)+' MiB';}
 function updateSettings(){
  if($('settings').hidden)return;
  const scan=state.scan||{},busy=state.scanState==='scanning',date=state.lastScan?new Date(state.lastScan).toLocaleString():'Never';
- const values=[['Total Accounts',doc?.total||0],['Unique Accounts',doc?.unique.length||0],['Matched Images',state.matched||0],['Missing Images',state.missing??doc?.unique.length??0],['Unreadable Images',state.unreadable||0],['Duplicate Image Candidates',state.duplicates||0],['Indexed Folder Size',bytes(state.folderBytes)+(state.unknownSizes?' + unknown sizes':'')],['Image Cache Size',bytes(state.cacheBytes)],['Last Scan Date',date],['Selected Folder',state.folder||'Not selected']];
+ const values=[['Total Accounts',doc?.total||0],['Unique Accounts',doc?.unique.length||0],['Matched Images',state.matched||0],['Missing Images',state.missing??doc?.unique.length??0],['Unreadable Images',state.unreadable||0],['Duplicate Image Candidates',state.duplicates||0],['Indexed Folder Size',bytes(state.folderBytes)+(state.unknownSizes?' + unknown sizes':'')],['Image Cache Size',bytes(state.cacheBytes)],['Thumbnail Index Size',bytes(state.storage?.thumbnailIndex)],['WebView Storage',bytes(state.storage?.app_webview)],['Last Scan Date',date],['Selected Folder',state.folder||'Not selected']];
  $('metrics').replaceChildren();
  for(const [label,value]of values){const metric=document.createElement('div');metric.className='metric';const detail=document.createElement('b');detail.textContent=value;const name=document.createElement('span');name.textContent=label;metric.append(detail,name);$('metrics').append(metric);}
  $('scan-state').textContent=(state.scanState||'idle').replaceAll('_',' ').replace(/^./,value=>value.toUpperCase());
  $('progress').max=busy?Math.max(1,scan.total||1):1;$('progress').value=busy?(scan.processed||0):state.scanState==='completed'?1:0;
- $('progress-detail').textContent=scan.message||(busy?`${scan.processed||0} / ${scan.total||0} folder entries checked`:'Photos stay in the selected folder. Rescan after changing its contents.');
+ $('progress-detail').textContent=scan.message||(busy?`${scan.processed||0} / ${scan.total||0} folder entries checked`:'Photos stay in the selected folder. Image Cache Size counts legacy app image copies; WebView Storage includes browser-managed assets and data. Rescan after external changes.');
  $('folder-warning').hidden=!state.folderMessage;$('folder-warning').textContent=state.folderMessage||'';
  $('version-info').textContent=`INSFAV ${appInfo.version||''} · Build ${appInfo.build??'—'} · BlackWare`;
  for(const button of $('profile-actions').querySelectorAll('button'))button.disabled=busy&&button.dataset.action!=='clear-cache';

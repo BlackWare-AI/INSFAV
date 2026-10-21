@@ -131,7 +131,7 @@ public final class MainActivity extends Activity {
                             intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/json", "text/plain", "application/octet-stream"}); startActivityForResult(intent, IMPORT);
                         }); break;
                         case "export": if (store.original().isEmpty()) throw new IOException("No collections to export"); export(store.original(), "INSFAV-backup.json", "application/json"); break;
-                        case "logs": export(store.logs(), "INSFAV-diagnostics.txt", "text/plain"); break;
+                        case "logs": export(store.logs()+"\nStorage bytes: "+images.storageAudit().toString()+"\nImage I/O: "+images.snapshot(false).optJSONObject("imageIO"), "INSFAV-diagnostics.txt", "text/plain"); break;
                         case "frontend-error": store.log("web_error", input.optString("code", "script")); break;
                         case "clear-data": if(Fetcher.running())throw new IOException("Pause the fetcher before clearing collections.");store.clearDocument(); getPreferences(0).edit().putInt("clear", getPreferences(0).getInt("clear", 0) + 1).apply(); send("cleared", ""); break;
                         case "open": openInstagram(input.getString("user")); break;

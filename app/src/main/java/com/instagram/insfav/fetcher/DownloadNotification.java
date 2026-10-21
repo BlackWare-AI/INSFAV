@@ -54,6 +54,6 @@ final class DownloadNotification {
         try{c.getSystemService(NotificationManager.class).notify(id,create(c,phase));}catch(RuntimeException ignored){}
     }
     static void finish(Context c) {
-        publish(c,3,SessionState.prefs(c).getString("state","Interrupted; queue preserved"));
+        try{c.getSystemService(NotificationManager.class).notify(3,create(c,SessionState.prefs(c).getString("state","Interrupted; queue preserved")));}catch(RuntimeException ignored){}
     }
 }

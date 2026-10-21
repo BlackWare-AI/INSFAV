@@ -33,6 +33,7 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
   check(await page.evaluate(()=>commands.every(c=>!['start','full','resume'].includes(c.command))),'startup has no retrieval commands');
   await page.locator('.folder-header').first().click();await page.waitForSelector('.account');
   check(await page.locator('.account').count()<25,'10,000 accounts keep bounded DOM');
+  await page.locator('.avatar img').first().waitFor();
   const avatar=await page.locator('.avatar').first().evaluate(el=>({width:el.offsetWidth,height:el.offsetHeight,radius:getComputedStyle(el).borderRadius,fit:getComputedStyle(el.querySelector('img')).objectFit}));
   check(avatar.width===40&&avatar.height===40&&avatar.radius==='14px'&&avatar.fit==='cover','original avatar rectangle and center crop preserved');
   check(await page.locator('.avatar').nth(1).locator('.person-placeholder').count()===1,'missing image shows gray person instead of a letter');

@@ -13,3 +13,6 @@ test-results/
 
 *.p12
 artifacts/
+
+__pycache__/
+*.pyc

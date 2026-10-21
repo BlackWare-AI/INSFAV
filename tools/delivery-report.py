@@ -26,6 +26,7 @@ lint=dict(Counter(item.get("severity") for item in ET.parse(build/"app/build/rep
 assert not lint.get("Error",0)
 shutil.copytree(build/"delivery",destination,dirs_exist_ok=True)
 shutil.copytree(proof,destination/"verification/android-14",dirs_exist_ok=True)
+shutil.copytree(build/"measurements",destination/"verification/thumbnail-measurements",dirs_exist_ok=True)
 shutil.copytree(build/"app/build/test-results",destination/"verification/native",dirs_exist_ok=True)
 for path in ["browser-results.txt","probe-results.txt","counter-results.txt"]:
     shutil.copyfile(build/path,destination/"verification"/path)
@@ -40,7 +41,7 @@ speed=five["completedPerMinute"]/one["completedPerMinute"]
 debug=destination/"INSFAV-debug.apk"
 release=build/"app/build/outputs/apk/release/app-release-unsigned.apk"
 verification={
-    "application":"INSFAV","version":"3.3.0","build":5,"sourceInsfavCommit":source,
+    "application":"INSFAV","version":"3.4.0","build":6,"sourceInsfavCommit":source,
     "sourceFetcherCommit":"b3f03f2a30c36f89add5e954b9b121a7b9d899ae",
     "preservedInsfavCommit":"ac3d1b0565acd4dfbf82763dbc4fec42c124fbc1",
     "nativeTests":tests,"hostUiChecks":78,"lint":lint,
@@ -53,10 +54,10 @@ verification={
     "sourceTree":subprocess.check_output(["git","rev-parse","HEAD^{tree}"]).decode().strip()
 }
 (destination/"Verification.json").write_text(json.dumps(verification,indent=2)+"\n")
-text=f"""# INSFAV 3.3.0 — Geliştirme ve doğrulama raporu
+text=f"""# INSFAV 3.4.0 — Geliştirme ve doğrulama raporu
 
 ## Kaynaklar ve koruma
-- Uygulama: INSFAV 3.3.0 / build 5, com.instagram.insfav.
+- Uygulama: INSFAV 3.4.0 / build 6, com.instagram.insfav.
 - Ana INSFAV kod commit'i: {source}.
 - Kaynak Fetcher dalı: BlackWare-AI/INSFAV-Thumb-Fetcher, development/0.4.0.
 - Alınan Fetcher commit'i: b3f03f2a30c36f89add5e954b9b121a7b9d899ae.
@@ -130,3 +131,31 @@ for path in destination.iterdir():
     if path.is_file():
         print("DELIVERY_FILE",path.name,path.stat().st_size,hashlib.sha256(path.read_bytes()).hexdigest())
 print("DELIVERY_VERIFICATION",json.dumps(verification))
+
+# The new task's report supersedes the historical integration narrative above.
+benchmark={}
+for variant in ["before","after"]:
+    suite=ET.parse(build/f"measurements/native-{variant}.xml").getroot()
+    import re
+    output=suite.findtext("system-out","")
+    match=re.search(r"THUMBNAIL_BENCHMARK (\{.*\})",output)
+    assert match, f"Missing native benchmark {variant}"
+    benchmark[variant]=json.loads(match.group(1))
+performance=json.loads((build/"measurements/browser-before-after.json").read_text())
+verification["thumbnailNativeBenchmark"]=benchmark
+verification["thumbnailHostBrowserBenchmark"]=performance
+verification["screenOffFixturePassed"]=background["screenOffAfter"]>background["screenOffBefore"]
+verification["notificationAndFilesAgree"]=background["notificationDownloaded"]==background["validFiles"]==8
+(destination/"Verification.json").write_text(json.dumps(verification,indent=2)+"\n")
+report=(root/"docs/THUMBNAIL-OPTIMIZATION-TR.md").read_text()
+report+="\n\n## Ölçülen sonuçlar\n\nAndroid/Robolectric: **%d test**, hata/başarısız/atlanan **0**. Chromium UI: **78 kontrol**. Lint: **0 hata**, **%d uyarı**.\n"%(tests["tests"],lint.get("Warning",0))
+report+="\n### Native kaynak yolu — aynı sentetik test, API 34 Robolectric\n\n| Ölçüm | Önce | Sonra |\n|---|---:|---:|\n"
+for key in ["requests","sourceOpens","directoryQueriesDuringReads","elapsedMs","responseBytes","originalBytesUnchanged","derivedCacheBytes","indexBytes"]:
+    report+=f"| {key} | {benchmark['before'][key]} | {benchmark['after'][key]} |\n"
+report+="\nBu süreler Robolectric/JVM ölçümüdür; fiziksel SAF gecikmesi veya telefon performansı değildir. Önceki diskteki sıcak kopya okumalarının yerine kaynak okumaları gelir; browser reuse bundan ayrı ölçülür.\n\n### Host Chromium — aynı kaydırma izi ve sentetik 256×256 WebP\n\n| Hesap | Sürüm | İlk açılış ms | FPS | Ortalama/P95/P99 frame ms | >32ms oranı | Tepe satır | HTTP görsel istekleri |\n|---|---|---:|---:|---|---:|---:|---:|\n"
+for row in performance["samples"]:
+    report+=f"| {row['size']} | {row['variant']} | {row['initialMs']} | {row['fps']:.2f} | {row['frameMeanMs']:.2f} / {row['frameP95Ms']:.2f} / {row['frameP99Ms']:.2f} | {row['jankOver32Ms']:.3f} | {row['maxNodes']} | {row['requests']} |\n"
+report+="\nHost Chromium FPS, Android ekran FPS'si değildir. JS heap ölçümü ayrı JSON'da vardır; PSS değildir. Native cache hit yerine eşzamanlı okuma birleştirme, JS browser Image reuse hit/miss ayrı tutulur. Browser'ın dahili decode cache hit oranı ve izole decode süresi: **Not Measured**.\n"
+report+=f"\n### Arka plan ve bildirim\n\nAndroid 14 gerçek Chromium/offline fixture: Home {background['homeBefore']} → {background['homeAfter']}; ekran kapalı {background['screenOffBefore']} → {background['screenOffAfter']}; görev kaldırma sonrası {background['completed']}/8. Doğrulanmış kaynak dosyalar {background['validFiles']}; Downloaded {background['notificationDownloaded']}; sonuç bildirimi progress {background['notificationProgress']}.\n"
+report+=f"\n### Paket\n\nDebug APK: {debug.stat().st_size} bayt. Optimize imzasız release: {release.stat().st_size} bayt. Kod commit: `{source}`. Kaynak Fetcher: `b3f03f2a30c36f89add5e954b9b121a7b9d899ae`.\n"
+(destination/"Development-Report-TR.md").write_text(report)
