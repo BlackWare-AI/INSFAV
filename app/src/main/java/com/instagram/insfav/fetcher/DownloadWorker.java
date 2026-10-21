@@ -16,13 +16,13 @@ public final class DownloadWorker extends Worker {
         QueueControl.requested = false;
         try {
             setForegroundAsync(getForegroundInfo()).get();
-            engine = new QueueEngine(c, state -> { if (!isStopped()) setForegroundAsync(getForegroundInfo()); }, this::isStopped);
+            engine = new QueueEngine(c, state -> { if (!isStopped()) DownloadNotification.publish(c,2,state); }, this::isStopped);
             engine.run("scheduled", true);
         } catch (Exception error) {
             SessionState.prefs(c).edit().putString("blocked", "SYSTEM_RESTRICTED").putString("state", "Paused: Android background restriction; open the app to resume").commit();
             new Diagnostics(c).log("SERVICE", "SYSTEM_RESTRICTED", 0);
         } finally {
-            QueueControl.current = ""; QueueControl.lock.set(false);
+            QueueControl.current = ""; QueueControl.lock.set(false); DownloadNotification.finish(c);
             WorkScheduler.plan(c, true);
         }
         return isStopped() ? Result.retry() : Result.success();

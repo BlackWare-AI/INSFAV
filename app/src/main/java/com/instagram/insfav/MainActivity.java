@@ -40,7 +40,7 @@ public final class MainActivity extends Activity {
         FrameLayout root=new FrameLayout(this);root.setBackgroundColor(Color.BLACK);
         root.setOnApplyWindowInsetsListener((v,insets)->{if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()|WindowInsets.Type.ime());v.setPadding(bars.left,bars.top,bars.right,bars.bottom);}else{v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());}return insets.consumeSystemWindowInsets();});
         web=new WebView(this);web.setBackgroundColor(Color.BLACK);web.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        WebSettings s=web.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(false);s.setCacheMode(WebSettings.LOAD_NO_CACHE);s.setAllowFileAccess(false);s.setAllowContentAccess(false);s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setSupportZoom(false);s.setMediaPlaybackRequiresUserGesture(true);
+        WebSettings s=web.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(false);s.setCacheMode(WebSettings.LOAD_DEFAULT);s.setAllowFileAccess(false);s.setAllowContentAccess(false);s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setSupportZoom(false);s.setMediaPlaybackRequiresUserGesture(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web,false);
         WebView.setWebContentsDebuggingEnabled(false);web.addJavascriptInterface(new Bridge(),"Android");
         web.setWebViewClient(new WebViewClient() {
@@ -57,7 +57,10 @@ public final class MainActivity extends Activity {
                     if (path.startsWith("/thumb/") || path.startsWith("/full/")) {
                         String user = Store.normalize(uri.getLastPathSegment());
                         if (!user.matches("[a-z0-9._]{1,30}")) return response("image/webp", new byte[0]);
-                        return response(path.startsWith("/full/") ? "image/png" : "image/webp", images.image(user, path.startsWith("/full/")));
+                        if(path.startsWith("/full/"))return response("image/png",images.image(user,true));
+                        java.util.Map<String,String> headers=new java.util.HashMap<>();
+                        headers.put("Cache-Control","private, max-age=300");
+                        return new WebResourceResponse(images.mime(user),null,200,"OK",headers,new ByteArrayInputStream(images.image(user,false)));
                     }
                     String name = "/".equals(path) ? "index.html" : path.substring(1);
                     if (!name.matches("[a-zA-Z0-9._-]+")) return response("text/plain", new byte[0]);
@@ -120,7 +123,7 @@ public final class MainActivity extends Activity {
                         case "view-closed": Fetcher.closeViewer();runOnUiThread(()->{if(web!=null)web.clearCache(true);});break;
                         case "select-folder": selectFolder(); break;
                         case "rescan": if(Fetcher.running())throw new IOException("Pause the fetcher before rescanning.");startScan(); break;
-                        case "clear-cache": images.clearCache(); images.clearLegacyCache(); send("status", images.snapshot(true)); send("message", "Image cache cleared. Source photos and collections are unchanged."); break;
+                        case "clear-cache": runOnUiThread(()->{if(web!=null)web.clearCache(true);}); images.clearCache(); images.clearLegacyCache(); send("status", images.snapshot(true)); send("message", "Image cache cleared. Source photos and collections are unchanged."); break;
                         case "clear-index": if(Fetcher.running())throw new IOException("Pause the fetcher before clearing its image index.");images.clearIndex(); send("status", images.snapshot(true)); send("message", "Thumbnail index cleared. Source photos and collections are unchanged."); break;
                         case "image-failed": send("status", images.snapshot(true)); break;
                         case "import": runOnUiThread(() -> {

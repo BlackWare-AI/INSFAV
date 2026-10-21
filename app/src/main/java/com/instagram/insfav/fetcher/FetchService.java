@@ -25,12 +25,12 @@ public final class FetchService extends Service {
         } catch (RuntimeException error) { running = false; owns = false; QueueControl.lock.set(false); SessionState.prefs(this).edit().putString("blocked", "SYSTEM_RESTRICTED").putString("state", "Paused: foreground service unavailable").commit(); stopSelf(); return START_NOT_STICKY; }
         worker = new Thread(() -> {
             try {
-                QueueEngine.Reporter reporter = state -> { try { getSystemService(NotificationManager.class).notify(1, DownloadNotification.create(this, state)); } catch (RuntimeException ignored) { } };
+                QueueEngine.Reporter reporter = state -> DownloadNotification.publish(this,1,state);
                 engine = new QueueEngine(this, reporter, () -> false);
                 engine.run(action, false);
             } finally {
                 running = false; QueueControl.lock.set(false); owns = false;
-                stopForeground(STOP_FOREGROUND_REMOVE); stopSelf();
+                stopForeground(STOP_FOREGROUND_REMOVE); DownloadNotification.finish(this); stopSelf();
                 WorkScheduler.recovery(this); WorkScheduler.plan(this, false);
             }
         }, "thumbnail-foreground"); worker.start(); return START_STICKY;

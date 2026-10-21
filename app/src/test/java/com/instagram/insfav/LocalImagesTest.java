@@ -70,11 +70,13 @@ public class LocalImagesTest {
         for (String id : originals.keySet()) assertArrayEquals(originals.get(id), Files.readAllBytes(provider.files.get(id).toPath()));
         assertEquals(0, provider.writes);
     }
-    @Test public void visibleReadsDoNotRescanDirectoryAndUseBoundedCache() throws Exception {
+    @Test public void visibleReadsUseOriginalBytesWithoutRescanOrDerivedCache() throws Exception {
         selectAndScan(); int before = provider.childQueries, opened = provider.opens;
         byte[] first = images.image("example", false); int afterFirst = provider.opens;
         assertTrue(first.length > 0); assertTrue(afterFirst > opened); assertArrayEquals(first, images.image("example", false));
-        assertEquals(afterFirst, provider.opens); assertEquals(before, provider.childQueries);
+        assertEquals(afterFirst+1, provider.opens); assertEquals(before, provider.childQueries);
+        assertArrayEquals(Files.readAllBytes(provider.files.get("root/example.PNG").toPath()),first);
+        assertEquals(0,images.snapshot(false).getLong("cacheBytes"));
         assertTrue(images.image("example", true).length > 0); assertEquals(before, provider.childQueries);
     }
     @Test public void folderReplacementDropsOldMappingsAndReleasesOldGrant() throws Exception {

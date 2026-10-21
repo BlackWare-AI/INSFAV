@@ -30,6 +30,13 @@ jobs:
           mkdir -p /tmp/insfav-policy
           javac -d /tmp/insfav-policy app/src/main/java/com/instagram/insfav/ThumbnailPolicy.java tests/java/com/instagram/insfav/ThumbnailPolicyTest.java
           java -cp /tmp/insfav-policy com.instagram.insfav.ThumbnailPolicyTest
+      - name: Baseline native image pipeline measurement
+        run: |
+          git worktree add --detach /tmp/insfav-native-baseline 54b43f8151ded94ef0b6655c8575d519effe7fb6
+          cp app/src/test/java/com/instagram/insfav/ThumbnailPipelineBenchmarkTest.java /tmp/insfav-native-baseline/app/src/test/java/com/instagram/insfav/
+          gradle -p /tmp/insfav-native-baseline :app:testDebugUnitTest --tests com.instagram.insfav.ThumbnailPipelineBenchmarkTest
+          mkdir -p measurements
+          cp /tmp/insfav-native-baseline/app/build/test-results/testDebugUnitTest/TEST-com.instagram.insfav.ThumbnailPipelineBenchmarkTest.xml measurements/native-before.xml
       - run: gradle :app:assembleDebug :app:assembleRelease :app:lintDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest
       - name: Web UI and counter regressions
         shell: bash
@@ -39,6 +46,10 @@ jobs:
           npx playwright install --with-deps chromium
           export CHROME_BIN="$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")"
           node tests/browser.cjs | tee browser-results.txt
+          mkdir -p /tmp/insfav-thumbnail-baseline
+          for name in index.html app.js core.js style.css fonts.css logo.webp; do git show 54b43f8151ded94ef0b6655c8575d519effe7fb6:app/src/main/assets/$name > /tmp/insfav-thumbnail-baseline/$name; done
+          BASELINE_ASSETS=/tmp/insfav-thumbnail-baseline node tests/thumbnail-performance.cjs > measurements/browser-before-after.json
+          cp app/build/test-results/testDebugUnitTest/TEST-com.instagram.insfav.ThumbnailPipelineBenchmarkTest.xml measurements/native-after.xml
           node tests/probe-browser.cjs | tee probe-results.txt
           mkdir -p /tmp/insfav-baseline
           for name in index.html app.js core.js style.css fonts.css; do git show e6c7e688617cc056dbb6dfc216c089060c51c86e:app/src/main/assets/$name > /tmp/insfav-baseline/$name; done
@@ -55,6 +66,7 @@ jobs:
           name: INSFAV-builds
           path: |
             delivery/
+            measurements/
             browser-results.txt
             probe-results.txt
             counter-results.txt
@@ -95,7 +107,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: INSFAV-3.3.0-delivery
+          name: INSFAV-3.4.0-delivery
           path: final-delivery/
       - uses: actions/upload-artifact@v4
         if: always()

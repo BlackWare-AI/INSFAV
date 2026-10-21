@@ -6,7 +6,8 @@ import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.CancellationSignal;
 import android.provider.DocumentsContract;
-import android.util.AtomicFile;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
 import org.json.*;
 import java.io.*;
 import java.util.*;
@@ -24,9 +25,12 @@ final class LocalImages {
     private volatile CancellationSignal cancellation;
     private volatile long cacheBytes;
     private long lastProgressAt;
+    private final ConcurrentHashMap<String, CompletableFuture<byte[]>> reads = new ConcurrentHashMap<>();
+    private final Semaphore readSlots = new Semaphore(4, true);
+    private final AtomicLong sourceReads = new AtomicLong(), joinedReads = new AtomicLong(), readNanos = new AtomicLong(), sourceBytes = new AtomicLong();
     LocalImages(Context context, Store store) {
         this.resolver = context.getContentResolver(); this.store = store;
-        cache = new File(context.getCacheDir(), "local-thumbnails"); cache.mkdirs(); cacheBytes = size(cache);
+        cache = new File(context.getCacheDir(), "local-thumbnails"); cacheBytes = size(cache); try {clearCache();} catch (IOException error) {store.log("image_cache_migration", "INCOMPLETE");}
     }
     static long size(File folder) {long bytes = 0; File[] files = folder.listFiles(); if (files != null) for (File file : files) bytes += file.length(); return bytes;}
     boolean scanning() {return scanning;}
@@ -148,51 +152,72 @@ final class LocalImages {
             for (String user : users) {
                 JSONObject image = source.optJSONObject(user);
                 if (usable && image != null && image.optBoolean("readable")) {
-                    matched++; if (includeProfiles) profiles.put(user, new JSONObject().put("file", true).put("width", image.optInt("width")).put("height", image.optInt("height")));
+                    matched++; if (includeProfiles) profiles.put(user, new JSONObject().put("file", true).put("width", image.optInt("width")).put("height", image.optInt("height")).put("version", fingerprint(image)));
                 }
             }
             JSONObject out = new JSONObject().put("total", store.total()).put("unique", users.size()).put("matched", matched).put("missing", users.size() - matched).put("unreadable", store.index.optInt("unreadable")).put("duplicates", store.index.optInt("duplicates")).put("folderBytes", store.index.optLong("bytes")).put("unknownSizes", store.index.optInt("unknownSizes")).put("lastScan", store.index.optLong("scannedAt")).put("folder", store.settings.optString("folderLabel", "Not selected")).put("folderStatus", accessible ? "ready" : store.settings.optString("treeUri").isEmpty() ? "not_selected" : "unavailable").put("folderMessage", accessMessage).put("scanState", scanning ? "scanning" : store.settings.optString("scanState", "idle")).put("scan", progress).put("revision", store.index.optLong("revision")).put("cacheBytes", cacheBytes);
+            out.put("imageIO", new JSONObject().put("sourceReads",sourceReads.get()).put("coalescedReads",joinedReads.get()).put("readNanos",readNanos.get()).put("sourceBytes",sourceBytes.get()).put("inflight",reads.size()).put("nativeBitmapCacheBytes",0).put("derivedDiskCacheBytes",cacheBytes));
             if (includeProfiles) out.put("profiles", profiles); return out;
         }
     }
-    byte[] image(String user, boolean full) {
-        synchronized (cacheLock) {
-            try {
-                JSONObject image; String revision;
-                synchronized (store) {
-                    if (!accessible || !store.settings.optString("treeUri").equals(store.index.optString("treeUri", "invalid"))) return new byte[0];
-                    JSONObject profiles = store.index.optJSONObject("profiles"); image = profiles == null ? null : profiles.optJSONObject(user);
-                    if (image == null || !image.optBoolean("readable")) return new byte[0];
-                    image = new JSONObject(image.toString()); revision = store.index.optString("revision");
-                }
-                File cached = new File(cache, Store.key(user + "|" + revision + "|" + image.getString("uri")) + ".webp");
-                if (!full && cached.isFile()) return java.nio.file.Files.readAllBytes(cached.toPath());
-                byte[] bytes = ImageCodec.render(resolver, Uri.parse(image.getString("uri")), full);
-                if (!full) {
-                    AtomicFile file = new AtomicFile(cached); FileOutputStream output = null;
-                    try {output = file.startWrite(); output.write(bytes); file.finishWrite(output); cacheBytes += bytes.length; trimCache();}
-                    catch (IOException error) {if (output != null) file.failWrite(output); store.log("image_cache", "WRITE_FAILED");}
-                }
-                return bytes;
-            } catch (Exception | OutOfMemoryError error) {
-                store.log("image_read", error.getClass().getSimpleName());
-                try {synchronized (store) {
-                    if (error instanceof SecurityException) {accessible = false; accessMessage = "Folder permission was lost. Select the folder again.";}
-                    else {JSONObject profiles = store.index.optJSONObject("profiles"), image = profiles == null ? null : profiles.optJSONObject(user); if (image != null && image.optBoolean("readable")) {image.put("readable", false); store.index.put("unreadable", store.index.optInt("unreadable") + 1); store.replaceIndex(store.index);}}
-                }} catch (Exception ignored) { }
-                return new byte[0];
-            }
+    private static String fingerprint(JSONObject image) {
+        return image.optString("modified")+":"+image.optString("size")+":"+image.optString("uri").hashCode();
+    }
+    String mime(String user) {
+        synchronized(store) {
+            JSONObject profiles=store.index.optJSONObject("profiles"), image=profiles==null?null:profiles.optJSONObject(user);
+            String name=image==null?"":image.optString("name").toLowerCase(Locale.ROOT);
+            return name.endsWith(".png")?"image/png":name.endsWith(".jpg")||name.endsWith(".jpeg")?"image/jpeg":"image/webp";
         }
     }
-    private void trimCache() {
-        if (cacheBytes <= 24L * 1024 * 1024) return;
-        File[] files = cache.listFiles(); if (files == null) return;
-        Arrays.sort(files, Comparator.comparingLong(File::lastModified));
-        for (File file : files) {if (cacheBytes <= 18L * 1024 * 1024) break; long bytes = file.length(); if (file.delete()) cacheBytes -= bytes;}
+    byte[] image(String user, boolean full) {
+        JSONObject image;
+        synchronized(store) {
+            if(!accessible || !store.settings.optString("treeUri").equals(store.index.optString("treeUri","invalid"))) return new byte[0];
+            JSONObject profiles=store.index.optJSONObject("profiles"), value=profiles==null?null:profiles.optJSONObject(user);
+            if(value==null || !value.optBoolean("readable")) return new byte[0];
+            // Index values are replaced atomically, never retain a mutable metadata record.
+            try {image=new JSONObject(value.toString());} catch(JSONException error){return new byte[0];}
+        }
+        if(full) {
+            // Preserve the existing bounded /full/ preview and HD viewer chain.
+            synchronized(cacheLock) {try{return ImageCodec.render(resolver,Uri.parse(image.optString("uri")),true);}
+            catch(Exception|OutOfMemoryError error){return failed(user,image,error);}}
+        }
+        String key=user+"|"+fingerprint(image);
+        CompletableFuture<byte[]> mine=new CompletableFuture<>(), existing=reads.putIfAbsent(key,mine);
+        if(existing!=null) {joinedReads.incrementAndGet();try{return existing.get(30,TimeUnit.SECONDS);}catch(Exception error){if(error instanceof InterruptedException)Thread.currentThread().interrupt();return new byte[0];}}
+        byte[] bytes;boolean acquired=false;long started=System.nanoTime();
+        try {
+            acquired=readSlots.tryAcquire(10,TimeUnit.SECONDS);if(!acquired)throw new IOException("Local read capacity");
+            sourceReads.incrementAndGet();
+            // Original bytes only: no bitmap, resampling, encoding, or app disk copy.
+            try(InputStream input=ImageCodec.open(resolver,Uri.parse(image.optString("uri")));ByteArrayOutputStream output=new ByteArrayOutputStream()) {
+                byte[] buffer=new byte[16384];int n;while((n=input.read(buffer))!=-1)output.write(buffer,0,n);
+                bytes=output.toByteArray();sourceBytes.addAndGet(bytes.length);
+            }
+        } catch(Exception|OutOfMemoryError error) {if(error instanceof InterruptedException)Thread.currentThread().interrupt();bytes=failed(user,image,error);}
+        finally {if(acquired)readSlots.release();readNanos.addAndGet(System.nanoTime()-started);}
+        mine.complete(bytes);reads.remove(key,mine);return bytes;
+    }
+    private byte[] failed(String user,JSONObject expected,Throwable error) {
+        store.log("image_read",error.getClass().getSimpleName());
+        // Temporary provider failures do not permanently condemn an indexed image.
+        try {synchronized(store) {
+            if(error instanceof SecurityException){accessible=false;accessMessage="Folder permission was lost. Select the folder again.";}
+            else if(error instanceof FileNotFoundException){
+                JSONObject profiles=store.index.optJSONObject("profiles"), current=profiles==null?null:profiles.optJSONObject(user);
+                if(current!=null && current.optBoolean("readable") && fingerprint(current).equals(fingerprint(expected))) {
+                    current.put("readable",false);store.index.put("unreadable",store.index.optInt("unreadable")+1);store.replaceIndex(store.index);
+                }
+            }
+        }}catch(Exception ignored){}return new byte[0];
     }
     void clearCache() throws IOException {
-        synchronized (cacheLock) {File[] files = cache.listFiles(); if (files != null) for (File file : files) if (!file.delete()) throw new IOException("Image cache could not be fully cleared."); cacheBytes = 0;
-
+        synchronized(cacheLock) {
+            File[] files=cache.listFiles();boolean failed=false;
+            if(files!=null)for(File file:files)if(file.isFile() && file.getName().matches("[a-f0-9]{64}\\.webp(?:\\.bak|\\.new)?"))if(!file.delete())failed=true;
+            cacheBytes=size(cache);if(failed)throw new IOException("Legacy image cache could not be fully cleared.");
         }
     }
     void clearLegacyCache() {

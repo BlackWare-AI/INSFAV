@@ -16,6 +16,7 @@ final class QueueEngine {
  void state(String value){long now=android.os.SystemClock.elapsedRealtime();if(value.equals(lastState)&&now-lastSignal<250)return;lastState=value;lastSignal=now;QueueControl.phase=value;settings.edit().putString("state",value).apply();reporter.update(value);Fetcher.publish();}
  void run(String action,boolean bounded){
   long started=System.currentTimeMillis(),generation=settings.getLong("datasetGeneration",0);int finished=0,cached=0;FetchBroker broker=FetchBroker.get(context);Map<String,CompletableFuture<byte[]>> flights=new LinkedHashMap<>();boolean refresh=action.equals("refresh_legacy")||action.equals("scheduled")&&settings.getBoolean("refreshLegacy",false)||action.equals("resume")&&settings.getBoolean("refreshLegacy",false);boolean hoursEnded=false;
+  QueueControl.completedPerMinute=0;QueueControl.etaSeconds=-1;
   settings.edit().putLong("startedAt",started).putBoolean("refreshLegacy",refresh).apply();broker.beginBatch();
   try(QueueStore queue=new QueueStore(context)){
    if(action.equals("missing")){queue.prepareMissing();for(String user:queue.completedImages())if(!Fetcher.host().hasImage(user))queue.requeueLost(user);}
@@ -55,7 +56,7 @@ final class QueueEngine {
      finally{if(original!=null)Arrays.fill(original,(byte)0);it.remove();}
      finished++;long elapsed=Math.max(1,System.currentTimeMillis()-started);QueueControl.completedPerMinute=finished*60000.0/elapsed;QueueControl.etaSeconds=finished>=3?(long)(Math.max(0,queue.pending().size())*60.0/QueueControl.completedPerMinute):-1;state("Downloading");
     }
-    if(!completed)Thread.sleep(25);
+    if(!completed){if(android.os.SystemClock.elapsedRealtime()-lastSignal>=1000)state(QueueControl.activeAccounts==0?"Waiting for worker delay":"Downloading");Thread.sleep(25);}
    }
    state(QueueControl.requested?QueueControl.requestedState:cancelledState);
   }catch(SecurityException e){settings.edit().putString("blocked","STORAGE_PERMISSION_LOST").commit();state("Paused: folder write permission required");}
