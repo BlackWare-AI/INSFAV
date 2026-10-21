@@ -1,20 +1,20 @@
 function (expected, expectedId, preferHigh) {
     "use strict";
-    const result = {page: location.href, username: expected};
-    const wall = code => JSON.stringify(Object.assign(result, {wall: code}));
+    const result = {page: location.href, username: expected, pageReady: document.readyState === "complete", candidateFound: false, searchCompleted: false};
+    const wall = (code, reason = "UNKNOWN_RESPONSE") => JSON.stringify(Object.assign(result, {wall: code, reason}));
     const path = location.pathname.toLowerCase();
-    if (/\/(challenge|checkpoint|captcha)(\/|$)/.test(path)) return wall("CHALLENGE_REQUIRED");
-    if (path.startsWith("/accounts/login")) return wall("COOKIE_INVALID_EXPIRED");
+    if (/\/(challenge|checkpoint|captcha)(\/|$)/.test(path)) return wall("CHALLENGE_REQUIRED", "COOKIE_OR_LOGIN_GATE");
+    if (path.startsWith("/accounts/login")) return wall("COOKIE_INVALID_EXPIRED", "COOKIE_OR_LOGIN_GATE");
     const visible = e => !!e && (e.getClientRects().length > 0);
     for (const f of document.querySelectorAll("form")) {
         if (!visible(f)) continue;
         const action = (f.getAttribute("action") || "").toLowerCase();
-        if (action.includes("/challenge") || action.includes("/checkpoint")) return wall("CHALLENGE_REQUIRED");
-        if (f.id === "loginForm" || action.includes("/accounts/login")) return wall("COOKIE_INVALID_EXPIRED");
+        if (action.includes("/challenge") || action.includes("/checkpoint")) return wall("CHALLENGE_REQUIRED", "COOKIE_OR_LOGIN_GATE");
+        if (f.id === "loginForm" || action.includes("/accounts/login")) return wall("COOKIE_INVALID_EXPIRED", "COOKIE_OR_LOGIN_GATE");
     }
     const pageText = document.body && typeof document.body.innerText === "string" ? document.body.innerText.slice(0, 24000).toLowerCase() : "";
-    if (/please wait a few minutes before you try again|we restrict certain activity/.test(pageText)) return wall("RATE_LIMITED");
-    if (/sorry, this page isn.t available|bu sayfa kullanılamıyor/.test(pageText)) return wall("PROFILE_PAGE_UNAVAILABLE");
+    if (/please wait a few minutes before you try again|we restrict certain activity/.test(pageText)) return wall("RATE_LIMITED", "TEXT_MATCH");
+    if (/sorry, this page isn.t available|bu sayfa kullanılamıyor/.test(pageText)) return wall("PROFILE_PAGE_UNAVAILABLE", "TEXT_MATCH");
     const structured = new Set();
     let viewer = false, anonymous = false, routedError = false, visits = 0;
     const normalize = x => typeof x === "string" ? x.trim().replace(/^@/, "").toLowerCase() : "";
@@ -45,10 +45,10 @@ function (expected, expectedId, preferHigh) {
         if (!text.startsWith("{") && !text.startsWith("[")) continue;
         try { walk(JSON.parse(text), 0); } catch (_) {}
     }
-    if (result.wall) return JSON.stringify(result);
+    if (result.wall) return wall(result.wall, "COOKIE_OR_LOGIN_GATE");
     result.authenticated = viewer;
     if (!expected) return JSON.stringify(result);
-    if (routedError) return wall("PROFILE_PAGE_UNAVAILABLE");
+    if (routedError) return wall("PROFILE_PAGE_UNAVAILABLE", "ROUTED_ERROR");
     if (anonymous) return wall("PROFILE_DEFAULT_AVATAR");
     const canonical = document.querySelector('link[rel="canonical"]');
     let canonicalUser = "";
@@ -56,7 +56,7 @@ function (expected, expectedId, preferHigh) {
         const u = new URL(canonical ? canonical.href : location.href);
         if (u.protocol === "https:" && /^(www\.)?instagram\.com$/.test(u.hostname)) canonicalUser = normalize(u.pathname.replace(/^\/|\/$/g, ""));
     } catch (_) {}
-    if (canonicalUser !== expected) return JSON.stringify(result);
+    if (canonicalUser !== expected) return JSON.stringify(Object.assign(result, {reason: "CANONICAL_MISMATCH"}));
     const safe = raw => {
         try {
             const u = new URL(raw);
@@ -73,6 +73,9 @@ function (expected, expectedId, preferHigh) {
         const bound = alt.startsWith(expected) && !/[a-z0-9_.]/.test(alt.charAt(expected.length)) && /profile picture|profile photo|profil/.test(alt);
         if (bound && img.closest("header,main") && safe(img.currentSrc || img.src)) candidates.set(img.currentSrc || img.src, img);
     }
+    result.searchCompleted = true;
+    result.candidateFound = candidates.size > 0 || structured.size > 0;
+    result.reason = result.pageReady ? "NO_CANDIDATE" : "PAGE_NOT_READY";
     let url = "", kind = "", img;
     if (preferHigh && structured.size === 1) {
         url = Array.from(structured)[0]; kind = "profile_json";

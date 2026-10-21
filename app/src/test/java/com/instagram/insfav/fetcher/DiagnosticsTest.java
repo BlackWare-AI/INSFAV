@@ -19,4 +19,16 @@ public class DiagnosticsTest {
         assertTrue(text.contains("RATE_LIMITED 429")); assertFalse(text.contains("SECRET")); assertFalse(text.contains("https://example.test"));
         assertEquals("IO_ERROR", Diagnostics.storageCode(new IOException("PRIVATE_ACCOUNT")));
     }
+    @Test public void structuredOutcomesAndBatchSessionEventsSurviveExportWithoutProbePayload() throws Exception {
+        Context c = RuntimeEnvironment.getApplication();
+        SessionState.prefs(c).edit().putLong("diagnosticBatch", 7).putInt("concurrentWebViews", 10).commit();
+        Diagnostics d = new Diagnostics(c);
+        d.session("SHARED_COOKIES_APPLIED"); d.session("SESSION_UNKNOWN");
+        d.outcome("WEBVIEW_TIMEOUT", Diagnostics.reason("DEADLINE"), 0, false, true, "UNKNOWN", 45000, 45000);
+        d.outcome("PROFILE_PAGE_UNAVAILABLE", Diagnostics.reason("https://private.test/SECRET"), 200, true, false, "SECRET", 42, 45000);
+        ByteArrayOutputStream out = new ByteArrayOutputStream(); d.export(out); String text = out.toString(StandardCharsets.UTF_8);
+        for (String field : new String[]{"code=WEBVIEW_TIMEOUT", "reason=DEADLINE", "http=0", "pageFinished=false", "candidateFound=true", "session=UNKNOWN", "elapsedMs=45000", "timeoutMs=45000", "workers=10", "effectiveWorkers=", "activeAccounts=", "queuedAccounts=", "queue=", "batch=7", "SESSION SHARED_COOKIES_APPLIED 7", "SESSION SESSION_UNKNOWN 7", "reason=UNKNOWN_RESPONSE"}) assertTrue(field, text.contains(field));
+        assertFalse(text.contains("SECRET")); assertFalse(text.contains("private.test"));
+        assertFalse(text.contains("SESSION SESSION_VERIFIED"));
+    }
 }

@@ -4,6 +4,7 @@ import android.content.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 final class QueueControl {
+ static volatile int queuedAccounts;
     static final AtomicBoolean lock = new AtomicBoolean();
     static volatile boolean requested, memoryPressure;
     static volatile int activeViews, effectiveViews = 1, activeAccounts, peakAccounts;

@@ -59,7 +59,7 @@ final class WebViewProfileProvider implements ProfileProvider {
         } catch (IOException error) { throw new Failure("WEBVIEW_PROBE_UNAVAILABLE", 0, 0, true); }
         try (InputStream in = context.getAssets().open("profile-probe-hd.js")) { ByteArrayOutputStream out = new ByteArrayOutputStream(); byte[] b = new byte[4096]; int n; while((n=in.read(b))!=-1){if(out.size()+n>32768)throw new IOException();out.write(b,0,n);} hdProbe = out.toString("UTF-8"); } catch(IOException e) { throw new Failure("WEBVIEW_PROBE_UNAVAILABLE"); }
     }
-    @Override public void authenticate() throws Failure { resolve("", false); }
+    @Override public void authenticate() throws Failure { log.session("AUTHENTICATION_STARTED"); try { resolve("", false); log.session("SESSION_VERIFIED"); } catch (Failure e) { log.session(e.code.equals("COOKIE_INVALID_EXPIRED") ? "SESSION_UNVERIFIED" : "SESSION_UNKNOWN"); throw e; } }
     @Override public byte[] fetch(String user) throws Failure { return fetch(user, false); }
     @Override public byte[] fetch(String user, boolean highResolution) throws Failure {
         if (!Identity.valid(user) || !Identity.normalize(user).equals(user)) throw new Failure("PROFILE_IDENTITY_UNVERIFIED");
@@ -116,7 +116,7 @@ final class WebViewProfileProvider implements ProfileProvider {
     }
     private void applySessionCookies(CookieManager manager, int index) {
         if (cancelled) { sessionFailure = new Failure("REQUEST_CANCELLED"); sessionReady.countDown(); return; }
-        if (index == cookies.entries.size()) { log.log("WEBVIEW", "SHARED_COOKIES_APPLIED", 0); sessionReady.countDown(); return; }
+        if (index == cookies.entries.size()) { log.session("SHARED_COOKIES_APPLIED"); sessionReady.countDown(); return; }
         CookieJar.Entry entry = cookies.entries.get(index);
         if (entry.expires != 0 && entry.expires <= System.currentTimeMillis() / 1000
             || !(entry.domain.equals("www.instagram.com") || entry.domain.equals("instagram.com") && entry.subdomains)) { applySessionCookies(manager, index + 1); return; }
@@ -172,6 +172,10 @@ final class WebViewProfileProvider implements ProfileProvider {
         volatile boolean finishing; boolean completed, started, broken, counted, timingStarted;
         final java.util.concurrent.atomic.AtomicInteger resourceCount = new java.util.concurrent.atomic.AtomicInteger();
         long deadline;
+        final long began = SystemClock.uptimeMillis();
+        boolean pageFinished, candidateFound; int http;
+        String sessionEvidence = "UNKNOWN";
+        Diagnostics.Reason reason = Diagnostics.Reason.UNKNOWN_RESPONSE;
         Operation(String user, String expectedId, boolean highResolution) { this.user = user; this.expectedId = expectedId; this.highResolution = highResolution; }
         void later(Runnable action, long delay) { main.postAtTime(action, token, SystemClock.uptimeMillis() + delay); }
         @SuppressLint("SetJavaScriptEnabled")
@@ -238,7 +242,7 @@ final class WebViewProfileProvider implements ProfileProvider {
             }
             @Override public void onPageFinished(WebView v, String url) {
                 // No success here: poll checks identity, DOM and image completion separately.
-                if (!finishing) log.log("WEBVIEW", "PAGE_FINISHED", 0);
+                if (!finishing) { pageFinished = true; log.log("WEBVIEW", "PAGE_FINISHED", 0); }
             }
             @Override public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest request) {
                 if (finishing || cancelled || barrier != null) return new WebResourceResponse("text/plain", "UTF-8", new ByteArrayInputStream(new byte[0]));
@@ -251,6 +255,7 @@ final class WebViewProfileProvider implements ProfileProvider {
             @Override public void onReceivedHttpError(WebView v, WebResourceRequest request, WebResourceResponse response) {
                 String host = request.getUrl().getHost();
                 if (finishing || !("www.instagram.com".equals(host) || "instagram.com".equals(host))) return;
+                if (request.isForMainFrame()) http = response.getStatusCode();
                 String retry = null;
                 if (response.getResponseHeaders() != null) for (Map.Entry<String,String> entry : response.getResponseHeaders().entrySet())
                     if (entry.getKey().equalsIgnoreCase("Retry-After")) retry = entry.getValue();
@@ -282,6 +287,7 @@ final class WebViewProfileProvider implements ProfileProvider {
             if (finishing) return;
             if (cancelled) { fail(new Failure("REQUEST_CANCELLED")); return; }
             if (SystemClock.uptimeMillis() >= deadline) {
+                reason = Diagnostics.Reason.DEADLINE;
                 fail(new Failure(user.isEmpty() ? "COOKIE_AUTH_UNVERIFIED" : "PROFILE_IMAGE_URL_MISSING", 200, 0, user.isEmpty())); return;
             }
             try {
@@ -293,6 +299,9 @@ final class WebViewProfileProvider implements ProfileProvider {
                     if (finishing) return;
                     try {
                         JSONObject data = WebProfilePolicy.snapshot(encoded);
+                        reason = Diagnostics.reason(data.optString("reason"));
+                        candidateFound = data.optBoolean("candidateFound") || data.has("url");
+                        if (data.optBoolean("authenticated")) sessionEvidence = "VERIFIED";
                         String wall = data.optString("wall");
                         if (!wall.isEmpty()) {
                             // Only this fixed vocabulary may cross into logs.
@@ -307,10 +316,11 @@ final class WebViewProfileProvider implements ProfileProvider {
                 });
             } catch (RuntimeException error) { fail(new Failure("WEBVIEW_SCRIPT_ERROR", 0, 0, true)); }
         }
-        void fail(Failure error) { finish(null, error); }
+        void fail(Failure error) { if (error.code.equals("WEBVIEW_TIMEOUT")) reason = Diagnostics.Reason.DEADLINE; if (error.code.equals("COOKIE_INVALID_EXPIRED")) { reason = Diagnostics.Reason.COOKIE_OR_LOGIN_GATE; sessionEvidence = "UNVERIFIED"; } finish(null, error); }
         void finish(JSONObject data, Failure error) {
             if (finishing) return;
             finishing = true; result = data; failure = error; main.removeCallbacksAndMessages(token);
+            log.outcome(error == null ? (user.isEmpty() ? "SESSION_VERIFIED" : "PROFILE_IMAGE_RESOLVED") : error.code, reason, http, pageFinished, candidateFound, sessionEvidence, SystemClock.uptimeMillis() - began, user.isEmpty() ? 10000 : 45000);
             if (error != null) log.log("WEBVIEW", error.code, error.http);
             if (error != null && FailurePolicy.pause(error)) barrier = error;
             try {

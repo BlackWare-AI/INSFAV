@@ -22,10 +22,10 @@ final class FetchBroker {
  FetchBroker(Context c,Factory f){this(c,f,new Time(){public long now(){return System.currentTimeMillis();}public void sleep(long m)throws InterruptedException{Thread.sleep(m);}});}
  FetchBroker(Context c,Factory f,Time t){this(c,f,t,requested->ConcurrencyPolicy.initial(c,requested));}
  FetchBroker(Context c,Factory f,Time t,java.util.function.IntUnaryOperator admission){this.admission=admission;context=c.getApplicationContext();prefs=SessionState.prefs(c);factory=f;time=t;Thread thread=new Thread(this::loop,"insfav-profile-dispatcher");thread.setDaemon(true);thread.start();}
- void beginBatch(){batch=true;limit=admission.applyAsInt(prefs.getInt("concurrentWebViews",1));QueueControl.effectiveViews=limit;QueueControl.peakAccounts=0;QueueControl.memoryPressure=false;Diagnostics d=new Diagnostics(context);d.log("POOL","REQUESTED_LIMIT",prefs.getInt("concurrentWebViews",1));d.log("POOL","EFFECTIVE_LIMIT",limit);}
+ void beginBatch(){prefs.edit().putLong("diagnosticBatch",prefs.getLong("diagnosticBatch",0)+1).commit();new Diagnostics(context).log("BATCH","STARTED",prefs.getLong("diagnosticBatch",0));batch=true;limit=admission.applyAsInt(prefs.getInt("concurrentWebViews",1));QueueControl.effectiveViews=limit;QueueControl.peakAccounts=0;QueueControl.memoryPressure=false;Diagnostics d=new Diagnostics(context);d.log("POOL","REQUESTED_LIMIT",prefs.getInt("concurrentWebViews",1));d.log("POOL","EFFECTIVE_LIMIT",limit);}
  void endBatch(){batch=false;}
  int capacity(){return limit;}
- CompletableFuture<byte[]> submit(String user,boolean full){Request r=new Request(user,full,sequence.incrementAndGet());tasks.add(r);return r.result;}
+ CompletableFuture<byte[]> submit(String user,boolean full){Request r=new Request(user,full,sequence.incrementAndGet());tasks.add(r);QueueControl.queuedAccounts=tasks.size();return r.result;}
  void cancelBulk(){cancel(false);}void cancelViewer(){cancel(true);}void cancelAll(){cancel(false);cancel(true);}
  private void cancel(boolean full){for(Request r:tasks)if(r.full==full){tasks.remove(r);r.result.cancel(false);}for(Request r:active)if(r.full==full)cancel(r,false);}
  private void cancel(Request r,boolean timeout){if(timeout)r.result.completeExceptionally(new ProfileProvider.Failure("PROFILE_OPERATION_TIMEOUT"));else r.result.cancel(false);ProfileProvider p=provider;if(p!=null)p.cancel(r.user);Thread thread=r.thread;if(thread!=null)thread.interrupt();}
@@ -35,7 +35,7 @@ final class FetchBroker {
   if(QueueControl.memoryPressure){limit=ConcurrencyPolicy.reduced(limit);QueueControl.effectiveViews=limit;QueueControl.memoryPressure=false;ProfileProvider p=provider;if(p!=null)p.trim(limit);new Diagnostics(context).log("POOL","MEMORY_PRESSURE_LIMIT",limit);Fetcher.publish();}
   if(active.isEmpty()&&tasks.isEmpty()&&!batch){ProfileProvider p=provider;provider=null;if(p!=null)p.close();}
   if(provider!=null&&active.isEmpty()&&(poisoned||provider.blockingFailure()!=null||!sessionGeneration.equals(prefs.getString("cookieGeneration","")))){ProfileProvider p=provider;provider=null;p.close();}
-  Request r=tasks.peek();if(r==null||active.size()>=limit){Thread.sleep(20);continue;}
+  QueueControl.queuedAccounts=tasks.size();Request r=tasks.peek();if(r==null||active.size()>=limit){Thread.sleep(20);continue;}
   if(r.result.isCancelled()){tasks.remove(r);continue;}
   String blocked=prefs.getString("blocked","");if(!blocked.isEmpty()){tasks.remove(r);r.result.completeExceptionally(new ProfileProvider.Failure(blocked,0,prefs.getLong("retryAt",0),true));continue;}
   if(!r.full&&!RunPolicy.read(prefs).contains(java.time.Instant.ofEpochMilli(time.now()).atZone(java.time.ZoneId.systemDefault()))){tasks.remove(r);r.result.completeExceptionally(new ProfileProvider.Failure("OUTSIDE_WORKING_HOURS"));continue;}
