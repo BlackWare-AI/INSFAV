@@ -83,6 +83,8 @@ final class Store {
     synchronized Set<String> cleanupUsers() {
         try {
             String raw = original(); if (raw.isEmpty()) return null;
+            JSONTokener rootToken=new JSONTokener(raw);rootToken.nextValue();if(rootToken.nextClean()!=0)return null;
+            Object root=new JSONTokener(raw).nextValue();if(root instanceof JSONObject){Object nested=((JSONObject)root).get("favorite_page_pref");if(nested instanceof String){JSONTokener token=new JSONTokener((String)nested);token.nextValue();if(token.nextClean()!=0)return null;}}
             JSONArray data = collections(raw); Set<String> users = new HashSet<>();
             for (int i=0;i<data.length();i++) {
                 JSONArray items=data.getJSONObject(i).getJSONArray("items");
