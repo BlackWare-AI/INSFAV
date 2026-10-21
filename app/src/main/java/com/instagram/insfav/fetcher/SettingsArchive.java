@@ -14,10 +14,11 @@ public final class SettingsArchive {
     private static final String FORMAT="INSFAV_SETTINGS";
     private static final int ITERATIONS=210000;
     private static final String[] INTS={"minimum","maximum","startMinute","endMinute","concurrentWebViews"};
-    public static String export(Context c,char[] password,JSONObject extra)throws Exception {
+    public static String export(Context c,char[] password,JSONObject extra)throws Exception {return export(c,password,extra,new CookieVault(c));}
+    static String export(Context c,char[] password,JSONObject extra,CookieVault vault)throws Exception {
         SharedPreferences p=SessionState.prefs(c);RunPolicy policy=RunPolicy.read(p);
         JSONObject prefs=new JSONObject().put("minimum",policy.minimum).put("maximum",policy.maximum).put("startMinute",policy.start).put("endMinute",policy.end).put("concurrentWebViews",p.getInt("concurrentWebViews",1)).put("background",p.getBoolean("background",false));
-        JSONObject data=new JSONObject().put("preferences",prefs).put("extra",extra).put("cookies",new CookieVault(c).configured()?new CookieVault(c).stored():JSONObject.NULL);
+        JSONObject data=new JSONObject().put("preferences",prefs).put("extra",extra).put("cookies",vault.configured()?vault.stored():JSONObject.NULL);
         return encrypt(c.getPackageName(),data,password);
     }
     static String encrypt(String app,JSONObject data,char[] password)throws Exception {
@@ -58,9 +59,10 @@ public final class SettingsArchive {
         new RunPolicy(p.getInt("minimum"),p.getInt("maximum"),p.getInt("startMinute"),p.getInt("endMinute"));ConcurrencyPolicy.validate(p.getInt("concurrentWebViews"));
         data.getJSONObject("extra");if(!data.isNull("cookies"))CookieJar.decode(data.getString("cookies"));
     }
-    public static void apply(Context c,JSONObject data)throws Exception {
+    public static void apply(Context c,JSONObject data)throws Exception {apply(c,data,new CookieVault(c));}
+    static void apply(Context c,JSONObject data,CookieVault vault)throws Exception {
         validate(data);if(QueueControl.lock.get())throw new IOException("Pause retrieval before importing settings.");
-        SharedPreferences prefs=SessionState.prefs(c);Map<String,?> before=new HashMap<>(prefs.getAll());CookieVault vault=new CookieVault(c);String old=vault.configured()?vault.stored():null;
+        SharedPreferences prefs=SessionState.prefs(c);Map<String,?> before=new HashMap<>(prefs.getAll());String old=vault.configured()?vault.stored():null;
         try {
             if(data.isNull("cookies"))vault.remove();else vault.save(CookieJar.decode(data.getString("cookies")));
             JSONObject p=data.getJSONObject("preferences");SharedPreferences.Editor e=prefs.edit();for(String n:INTS)e.putInt(n,p.getInt(n));e.putBoolean("background",p.getBoolean("background"));

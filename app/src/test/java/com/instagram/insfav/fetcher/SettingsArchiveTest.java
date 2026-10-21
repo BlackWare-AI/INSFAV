@@ -29,4 +29,11 @@ public class SettingsArchiveTest {
   try{SettingsArchive.apply(c,invalid);fail();}catch(Exception expected){}assertEquals(7,SessionState.prefs(c).getInt("minimum",0));
   invalid.put("favorite_page_pref","[]");try{SettingsArchive.apply(c,invalid);fail();}catch(Exception expected){}assertEquals(7,SessionState.prefs(c).getInt("minimum",0));
  }
+ @Test public void cookiesRestoreWithAnIndependentDestinationEncryptionKey()throws Exception {
+  javax.crypto.SecretKey keyOne=javax.crypto.KeyGenerator.getInstance("AES").generateKey(),keyTwo=javax.crypto.KeyGenerator.getInstance("AES").generateKey();
+  CookieVault original=new CookieVault(c,()->keyOne);original.save(CookieJar.parse("sessionid=SYNTHETIC_BACKUP_SESSION; ds_user_id=123",System.currentTimeMillis()));
+  char[] password="portable test password".toCharArray();String backup=SettingsArchive.export(c,password,new JSONObject(),original);assertFalse(backup.contains("SYNTHETIC_BACKUP_SESSION"));original.remove();
+  CookieVault destination=new CookieVault(c,()->keyTwo);SettingsArchive.apply(c,SettingsArchive.inspect(c,backup,password),destination);
+  assertEquals("SYNTHETIC_BACKUP_SESSION",destination.load().value("sessionid",System.currentTimeMillis()));destination.remove();
+ }
 }
