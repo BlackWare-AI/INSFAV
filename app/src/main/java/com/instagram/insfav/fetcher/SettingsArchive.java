@@ -61,7 +61,10 @@ public final class SettingsArchive {
     }
     public static void apply(Context c,JSONObject data)throws Exception {apply(c,data,new CookieVault(c));}
     static void apply(Context c,JSONObject data,CookieVault vault)throws Exception {
-        validate(data);if(QueueControl.lock.get())throw new IOException("Pause retrieval before importing settings.");
+        validate(data);if(!QueueControl.lock.compareAndSet(false,true))throw new IOException("Pause retrieval before importing settings.");
+        try{applyLocked(c,data,vault);}finally{QueueControl.lock.set(false);}
+    }
+    private static void applyLocked(Context c,JSONObject data,CookieVault vault)throws Exception {
         SharedPreferences prefs=SessionState.prefs(c);Map<String,?> before=new HashMap<>(prefs.getAll());String old=vault.configured()?vault.stored():null;
         try {
             if(data.isNull("cookies"))vault.remove();else vault.save(CookieJar.decode(data.getString("cookies")));

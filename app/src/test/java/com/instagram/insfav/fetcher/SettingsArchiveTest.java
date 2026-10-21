@@ -9,7 +9,7 @@ import static org.junit.Assert.*;
 @RunWith(RobolectricTestRunner.class) @Config(sdk=28,manifest=Config.NONE)
 public class SettingsArchiveTest {
  Context c;
- @Before public void setup(){c=RuntimeEnvironment.getApplication();SessionState.prefs(c).edit().clear().commit();new CookieVault(c).remove();}
+ @Before public void setup(){c=RuntimeEnvironment.getApplication();QueueControl.lock.set(false);SessionState.prefs(c).edit().clear().commit();new CookieVault(c).remove();}
  @Test public void exportChangeImportRestoresAllUserPreferencesWithoutFavorites()throws Exception {
   SharedPreferences p=SessionState.prefs(c);p.edit().putInt("minimum",6).putInt("maximum",25).putInt("startMinute",1320).putInt("endMinute",360).putInt("concurrentWebViews",5).putBoolean("background",true).putLong("retryAt",123456789L).commit();
   char[] password="portable test password".toCharArray();String backup=SettingsArchive.export(c,password,new JSONObject());assertFalse(backup.contains("favorite_page_pref"));
@@ -35,5 +35,9 @@ public class SettingsArchiveTest {
   char[] password="portable test password".toCharArray();String backup=SettingsArchive.export(c,password,new JSONObject(),original);assertFalse(backup.contains("SYNTHETIC_BACKUP_SESSION"));original.remove();
   CookieVault destination=new CookieVault(c,()->keyTwo);SettingsArchive.apply(c,SettingsArchive.inspect(c,backup,password),destination);
   assertEquals("SYNTHETIC_BACKUP_SESSION",destination.load().value("sessionid",System.currentTimeMillis()));destination.remove();
+ }
+ @Test public void activeQueueRejectsImportWithoutChangingConfiguration()throws Exception {
+  char[] pass="portable test password".toCharArray();String raw=SettingsArchive.export(c,pass,new JSONObject());SessionState.prefs(c).edit().putInt("minimum",9).commit();
+  QueueControl.lock.set(true);try{SettingsArchive.apply(c,SettingsArchive.inspect(c,raw,pass));fail();}catch(java.io.IOException expected){assertEquals(9,SessionState.prefs(c).getInt("minimum",0));assertTrue(QueueControl.lock.get());}finally{QueueControl.lock.set(false);}
  }
 }
