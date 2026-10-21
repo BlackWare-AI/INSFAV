@@ -35,7 +35,13 @@ final class OutputFolder {
             while (cursor.moveToNext()) {
                 String name = cursor.getString(1);
                 if(name.toLowerCase(Locale.ROOT).endsWith(".webp")){String user=Identity.normalize(name.substring(0,name.length()-5));if(Identity.valid(user))name=user+".webp";}
-                if (result.containsKey(name)) throw new IOException("OUTPUT_DUPLICATE_NAMES");
+                if (result.containsKey(name)) {
+                    // Multiple case variants refer to one account. Keep an existing readable candidate.
+                    Uri next=DocumentsContract.buildDocumentUriUsingTree(tree,cursor.getString(0));
+                    boolean currentValid=ThumbnailCodec.valid(read(resolver.openInputStream(result.get(name))));
+                    if(!currentValid&&ThumbnailCodec.valid(read(resolver.openInputStream(next))))result.put(name,next);
+                    continue;
+                }
                 result.put(name, DocumentsContract.buildDocumentUriUsingTree(tree, cursor.getString(0)));
             }
         }

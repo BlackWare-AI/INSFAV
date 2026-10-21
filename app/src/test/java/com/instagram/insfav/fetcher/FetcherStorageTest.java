@@ -47,6 +47,12 @@ public class FetcherStorageTest {
         byte[] next=ThumbnailCodec.convert(CodecTest.png(300,200));output.commit("example.webp",next,true);
         assertArrayEquals(old,Files.readAllBytes(new File(provider.root,".thumbnails/example.webp").toPath()));assertArrayEquals(old,Files.readAllBytes(new File(provider.root,".thumbnails/other.webp").toPath()));
     }
+    @Test public void caseAndAtVariantsOfLegacyFilesAreProtected()throws Exception {
+        SessionState.prefs(context).edit().putString("directoryId","root/.thumbnails").commit();File folder=new File(provider.root,".thumbnails");folder.mkdir();
+        android.graphics.Bitmap b=android.graphics.Bitmap.createBitmap(128,128,android.graphics.Bitmap.Config.ARGB_8888);ByteArrayOutputStream bytes=new ByteArrayOutputStream();b.compress(android.graphics.Bitmap.CompressFormat.WEBP,78,bytes);b.recycle();byte[] old=bytes.toByteArray();
+        File one=new File(folder,"Example.WebP"),two=new File(folder,"@EXAMPLE.webp");Files.write(one.toPath(),old);Files.write(two.toPath(),old);
+        OutputFolder out=new OutputFolder(context,tree.toString());assertTrue(out.valid("example.webp"));out.commit("example.webp",ThumbnailCodec.convert(CodecTest.png(320,320)),false);assertArrayEquals(old,Files.readAllBytes(one.toPath()));assertArrayEquals(old,Files.readAllBytes(two.toPath()));assertFalse(new File(folder,"example.webp").exists());
+    }
     @Test public void noWriteGrantStopsBeforeCreatingAnyFile()throws Exception{
         context.getContentResolver().releasePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
         try{new OutputFolder(context,tree.toString());fail();}catch(SecurityException expected){}assertEquals(0,provider.writes);
