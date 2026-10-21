@@ -84,7 +84,8 @@ final class LocalImages {
         checkAccess(); if (!accessible) throw new IOException(accessMessage); store.log("folder_select", "success");
     }
     void cancelScan() {CancellationSignal signal = cancellation; if (signal != null) signal.cancel();}
-    void scan(Listener listener) {
+    void scan(Listener listener) {scan(listener,true);}
+    void scan(Listener listener,boolean cleanupRequested) {
         synchronized (this) {if (scanning) return; scanning = true;} cancellation = new CancellationSignal();
         String treeValue; synchronized (store) {treeValue = store.settings.optString("treeUri");}
         long started = android.os.SystemClock.elapsedRealtime();
@@ -139,9 +140,9 @@ final class LocalImages {
             }
             if (cancellation.isCanceled()) throw new InterruptedException();
             int deleted=0, preserved=0, deleteErrors=0;
-            String cleanupState="Skipped — no validated nonempty Favorites list";
+            String cleanupState=cleanupRequested?"Skipped — no validated nonempty Favorites list":"Not requested — indexing only";
             synchronized(store) {
-                Set<String> current=store.cleanupUsers(); boolean writable=false, managed=false;
+                Set<String> current=cleanupRequested?store.cleanupUsers():null; boolean writable=false, managed=false;
                 for(UriPermission grant:resolver.getPersistedUriPermissions())
                     if(grant.getUri().equals(tree)&&grant.isReadPermission()&&grant.isWritePermission())writable=true;
                 try(Cursor folder=resolver.query(DocumentsContract.buildDocumentUriUsingTree(tree,directoryId),new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME},null,null,null)) {

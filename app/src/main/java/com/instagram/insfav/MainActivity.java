@@ -188,9 +188,10 @@ public final class MainActivity extends Activity {
             intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI,Uri.parse(current));startActivityForResult(intent,WRITE_FOLDER);
         });
     }
-    private void startScan() {
+    private void startScan() {startScan(true);}
+    private void startScan(boolean cleanupRequested) {
         if (!scanPending.compareAndSet(false, true)) {send("message", "A scan is already in progress."); return;}
-        scans.execute(() -> {try {images.scan((event, result) -> send(event, result));} finally {scanPending.set(false);}});
+        scans.execute(() -> {try {images.scan((event, result) -> send(event, result),cleanupRequested);} finally {scanPending.set(false);}});
     }
     private void openInstagram(String name) {
         String user = Store.normalize(name);
@@ -221,7 +222,7 @@ public final class MainActivity extends Activity {
                     int grant=flags&(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
                     if(grant!=(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION))throw new IOException("Folder read/write access was not granted.");
                     getContentResolver().takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);Fetcher.sync();send("fetcher-status",Fetcher.snapshot());if(rescanAfterWriteGrant){rescanAfterWriteGrant=false;startScan();}
-                }else if (request == FOLDER) {images.select(uri, flags); send("status", images.snapshot(true)); startScan();}
+                }else if (request == FOLDER) {images.select(uri, flags); send("status", images.snapshot(true)); startScan(false);}
                 else if (request == IMPORT) {
                     String raw;
                     try (InputStream input = getContentResolver().openInputStream(uri); ByteArrayOutputStream output = new ByteArrayOutputStream()) {

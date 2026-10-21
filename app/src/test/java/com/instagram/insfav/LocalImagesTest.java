@@ -173,6 +173,10 @@ public class LocalImagesTest {
         images.scan((e,v)->{});assertFalse(provider.files.containsKey("root/removed.webp"));assertTrue(provider.files.containsKey("root/other.jpg"));assertArrayEquals(before,Files.readAllBytes(provider.files.get("root/@EXAMPLE.WebP").toPath()));
         assertEquals(1,store.index.getJSONObject("cleanup").getInt("deleted"));assertEquals(1,store.index.getJSONObject("cleanup").getInt("preserved"));assertEquals(RAW,store.original());
     }
+    @Test public void initialFolderIndexingNeverPrunesFiles()throws Exception {
+        provider.add("root/orphan.webp","orphan.webp",128,128);images.select(root,Intent.FLAG_GRANT_READ_URI_PERMISSION);context.getContentResolver().takePersistableUriPermission(root,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        images.scan((e,v)->{},false);assertTrue(provider.files.containsKey("root/orphan.webp"));assertEquals(0,provider.deletes);
+    }
     @Test public void emptyCorruptMissingAndReadOnlyFavoritesNeverDeleteImages()throws Exception {
         provider.add("root/orphan.webp","orphan.webp",128,128);selectAndScan();assertTrue(provider.files.containsKey("root/orphan.webp"));
         context.getContentResolver().takePersistableUriPermission(root,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
