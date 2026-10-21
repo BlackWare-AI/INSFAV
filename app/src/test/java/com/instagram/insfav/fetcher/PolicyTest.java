@@ -32,6 +32,7 @@ public class PolicyTest {
     @Test public void autoResumeNeedsExplicitArmBackgroundAndVerifiedSession() {
         android.content.SharedPreferences p = SessionState.prefs(RuntimeEnvironment.getApplication()); p.edit().clear().commit(); assertFalse(WorkScheduler.enabled(p));
         p.edit().putBoolean("background",true).putBoolean("armed",true).putBoolean("userPaused",false).commit(); assertTrue(WorkScheduler.enabled(p));
-        p.edit().putString("blocked","RATE_LIMITED").commit(); assertFalse(WorkScheduler.enabled(p)); p.edit().putString("blocked","").putBoolean("userPaused",true).commit(); assertFalse(WorkScheduler.enabled(p));
+        p.edit().putString("blocked","RATE_LIMITED").commit(); assertTrue(WorkScheduler.enabled(p));
+        for(String blocked:new String[]{"AUTH_REQUIRED","CHALLENGE_REQUIRED","PROCESSING_ERROR"}){p.edit().putString("blocked",blocked).commit();assertFalse(WorkScheduler.enabled(p));} p.edit().putString("blocked","").putBoolean("userPaused",true).commit(); assertFalse(WorkScheduler.enabled(p));
     }
 }

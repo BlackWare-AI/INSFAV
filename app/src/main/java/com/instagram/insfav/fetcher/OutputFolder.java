@@ -77,7 +77,8 @@ final class OutputFolder {
         String user=Identity.normalize(filename.substring(0,filename.length()-5));Uri found=null;String name=filename;long size=-1,modified=0;
         Uri child=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getDocumentId(folder));
         String[] cols={DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME,DocumentsContract.Document.COLUMN_SIZE,DocumentsContract.Document.COLUMN_LAST_MODIFIED,DocumentsContract.Document.COLUMN_MIME_TYPE};
-        try(Cursor c=resolver.query(child,cols,DocumentsContract.Document.COLUMN_DISPLAY_NAME+"=?",new String[]{filename},null)){
+        android.os.Bundle args=new android.os.Bundle();args.putString(android.content.ContentResolver.QUERY_ARG_SQL_SELECTION,DocumentsContract.Document.COLUMN_DISPLAY_NAME+"=?");args.putStringArray(android.content.ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS,new String[]{filename});
+        try(Cursor c=resolver.query(child,cols,args,null)){
             if(c==null)throw new IOException("OUTPUT_UNAVAILABLE");
             while(c.moveToNext()){
                 String candidate=c.getString(1);if(DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(4))||candidate==null||!candidate.toLowerCase(Locale.ROOT).endsWith(".webp"))continue;
@@ -109,7 +110,7 @@ final class OutputFolder {
             if(!scope.equals(catalog.meta("folder")))db.execSQL("UPDATE accounts SET status='PENDING',phase='PENDING',code='',attempts=0 WHERE status IN ('SUCCESS','EXISTING')");
             Uri children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getDocumentId(folder));FetcherCatalog.listings.incrementAndGet();
             String[] cols={DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME,DocumentsContract.Document.COLUMN_SIZE,DocumentsContract.Document.COLUMN_LAST_MODIFIED,DocumentsContract.Document.COLUMN_MIME_TYPE};
-            try(Cursor c=resolver.query(children,cols,null,null,null)){
+            try(Cursor c=resolver.query(children,cols,null,null)){
                 if(c==null)throw new IOException("OUTPUT_UNAVAILABLE");int count=0,total=c.getCount();
                 while(c.moveToNext()){
                     if(Thread.currentThread().isInterrupted()||QueueControl.requested)throw new IOException("INDEX_INTERRUPTED");
