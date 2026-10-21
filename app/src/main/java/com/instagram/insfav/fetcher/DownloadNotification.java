@@ -26,6 +26,10 @@ final class DownloadNotification {
         }
         String summary(){return String.format(Locale.ROOT,"Downloaded %d · Existing %d · Failed %d · Skipped %d · Pending %d",downloaded,existing,failed,skipped,pending);}
     }
+    static Notification preparing(Context c) {
+        channel(c);
+        return new Notification.Builder(c,"downloads").setSmallIcon(R.drawable.ic_fetch).setContentTitle("INSFAV Thumbnail Fetcher").setContentText("Waiting · Reading queue state").setProgress(0,0,true).setOnlyAlertOnce(true).setOngoing(true).build();
+    }
     static Notification create(Context c,String phase) {
         channel(c);Map<String,Integer> counts;
         try(QueueStore queue=new QueueStore(c)){counts=queue.counts();}
