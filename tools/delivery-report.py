@@ -67,7 +67,8 @@ for variant in ["before","after"]:
 performance=json.loads((build/"measurements/browser-before-after.json").read_text())
 verification["thumbnailNativeBenchmark"]=benchmark
 verification["thumbnailHostBrowserBenchmark"]=performance
-verification["screenOffFixturePassed"]=background["screenOffAfter"]>background["screenOffBefore"]
+verification["screenOffFixturePassed"]=background["screenWasOff"] and background["screenOffAfter"]>background["screenOffBefore"]
+assert verification["screenOffFixturePassed"]
 verification["notificationAndFilesAgree"]=background["notificationDownloaded"]==background["validFiles"]==8
 (destination/"Verification.json").write_text(json.dumps(verification,indent=2)+"\n")
 report=(root/"docs/THUMBNAIL-OPTIMIZATION-TR.md").read_text()
