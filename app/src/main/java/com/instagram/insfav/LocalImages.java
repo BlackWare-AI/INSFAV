@@ -94,6 +94,12 @@ final class LocalImages {
             String directoryId; synchronized (store) {directoryId = store.settings.optString("directoryId", DocumentsContract.getTreeDocumentId(Uri.parse(treeValue)));}
             Uri tree = Uri.parse(treeValue), children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, directoryId);
             String[] columns = {DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_SIZE, DocumentsContract.Document.COLUMN_LAST_MODIFIED, DocumentsContract.Document.COLUMN_MIME_TYPE};
+            // Reuse validated entries only when the provider supplies a usable, unchanged
+            // size and modification timestamp. Missing metadata requires validation.
+            JSONObject previousProfiles;
+            synchronized (store) {
+                previousProfiles = treeValue.equals(store.index.optString("treeUri")) ? store.index.optJSONObject("profiles") : null;
+            }
             ThumbnailPolicy.Catalog catalog = new ThumbnailPolicy.Catalog(); int folderEntries;
             try (Cursor cursor = resolver.query(children, columns, null, null, null, cancellation)) {
                 if (cursor == null) throw new IOException("Folder could not be read.");
@@ -106,7 +112,20 @@ final class LocalImages {
                         Uri uri = DocumentsContract.buildDocumentUriUsingTree(tree, cursor.getString(0));
                         long bytes = cursor.isNull(2) ? -1 : cursor.getLong(2), modified = cursor.isNull(3) ? 0 : cursor.getLong(3);
                         int w = 0, h = 0; boolean readable = false;
-                        try {
+                        String user = ThumbnailPolicy.username(name);
+                        JSONObject previous = previousProfiles == null || user.isEmpty() ? null : previousProfiles.optJSONObject(user);
+                        boolean reuse = previous != null && previous.optBoolean("readable")
+                            && bytes >= 0 && modified > 0
+                            && name.equals(previous.optString("name"))
+                            && uri.toString().equals(previous.optString("uri"))
+                            && bytes == previous.optLong("size", -1)
+                            && modified == previous.optLong("modified", 0);
+                        if (reuse) {
+                            w = previous.optInt("width"); h = previous.optInt("height");
+                            readable = w > 0 && h > 0;
+                            reuse = readable;
+                        }
+                        if (!reuse) try {
                             if (bytes > 64L * 1024 * 1024) throw new IOException("Image size limit");
                             BitmapFactory.Options bounds = ImageCodec.bounds(resolver, uri); w = bounds.outWidth; h = bounds.outHeight;
                             readable = ImageCodec.validate(resolver, uri, bounds);
@@ -123,7 +142,18 @@ final class LocalImages {
                 ThumbnailPolicy.Candidate c = entry.getValue();
                 profiles.put(entry.getKey(), new JSONObject().put("uri", c.uri).put("name", c.name).put("readable", c.readable).put("width", c.width).put("height", c.height).put("size", c.size).put("modified", c.modified));
             }
-            long now = System.currentTimeMillis(), revision; synchronized (store) {revision = Math.max(now, store.index.optLong("revision") + 1);}
+            long now = System.currentTimeMillis(), revision;
+            synchronized (store) {
+                boolean unchanged = treeValue.equals(store.index.optString("treeUri"))
+                    && sameProfileCatalog(previousProfiles, profiles)
+                    && catalog.unreadable == store.index.optInt("unreadable")
+                    && catalog.duplicates == store.index.optInt("duplicates")
+                    && catalog.files == store.index.optInt("files")
+                    && catalog.bytes == store.index.optLong("bytes")
+                    && catalog.unknownSizes == store.index.optInt("unknownSizes");
+                revision = unchanged ? store.index.optLong("revision")
+                    : Math.max(now, store.index.optLong("revision") + 1);
+            }
             JSONObject next = new JSONObject().put("schema", 1).put("treeUri", treeValue).put("revision", revision).put("scannedAt", now).put("profiles", profiles).put("unreadable", catalog.unreadable).put("duplicates", catalog.duplicates).put("files", catalog.files).put("bytes", catalog.bytes).put("unknownSizes", catalog.unknownSizes);
             synchronized (store) {
                 if (!treeValue.equals(store.settings.optString("treeUri"))) throw new IOException("Folder changed during scan.");
@@ -138,6 +168,17 @@ final class LocalImages {
             try {JSONObject value = new JSONObject().put("state", state).put("message", error instanceof InterruptedException ? "Scan interrupted. The last completed index is preserved." : error.getMessage()); progress = value; listener.event("scan-progress", value);} catch (Exception ignored) { }
             store.log("thumbnail_scan", state);
         } finally {scanning = false; try {listener.event("status", snapshot(true));} catch (Exception ignored) { }}
+    }
+    private static boolean sameProfileCatalog(JSONObject oldProfiles, JSONObject next) {
+        if (oldProfiles == null || oldProfiles.length() != next.length()) return false;
+        for (Iterator<String> it = next.keys(); it.hasNext();) {
+            String key = it.next();
+            JSONObject old = oldProfiles.optJSONObject(key), current = next.optJSONObject(key);
+            if (old == null || current == null) return false;
+            for (String field : new String[]{"uri","name","readable","width","height","size","modified"})
+                if (!Objects.equals(old.opt(field), current.opt(field))) return false;
+        }
+        return true;
     }
     private void publish(Listener listener, String state, int processed, int total, long started) throws JSONException {
         long now = android.os.SystemClock.elapsedRealtime();

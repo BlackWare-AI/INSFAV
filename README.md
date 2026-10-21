@@ -1,123 +1,55 @@
 # INSFAV
 
-INSFAV is an independent Instagram account collection manager by **BlackWare**, with **OpenAI ChatGPT** providing AI development assistance. It is not affiliated with Meta or Instagram.
+**REQUIRED: A JSON backup exported from SamMods InstaPro version 15.30 or earlier. INSFAV is designed to read and display the `favorite_page_pref` (Favorites) section of that backup. Without a compatible backup, the app cannot show your InstaPro favorites.**
 
-Version/build are defined in `version.properties` and read from the actual Android package by the About screen. Application ID: `com.instagram.insfav`. Minimum Android 8.0 / API 26; compile and target API 35.
+INSFAV is a local Android viewer and organizer for the Instagram profiles saved in your InstaPro Favorites backup. It presents the original collections in a fast AMOLED-black interface, with search, account counts, optional local profile pictures and a high-resolution image viewer. It does not automatically access your InstaPro installation or synchronize favorites with Instagram.
 
-## Local profile images and optional Thumbnail Fetcher
+## What it does
 
-INSFAV keeps its local SAF thumbnail catalog and adds an optional session-based Thumbnail Fetcher in Settings. Existing collections, JSON import/export, counters and offline image browsing remain available. See [FETCHER-INTEGRATION.md](docs/FETCHER-INTEGRATION.md) for the imported motor, setup, queue states, shared request broker, storage permissions and testing limits.
+- Imports the compatible **InstaPro Favorites JSON backup** and preserves the original JSON for export.
+- Shows favorite collections, saved profiles, search, collection membership and account statistics.
+- Displays local profile photos stored in a user-selected `.thumbnails/<username>.webp` folder using Android's Storage Access Framework (SAF).
+- Offers an integrated, optional **Thumb Fetcher 0.4.0** for collecting profile images, with configurable concurrent WebViews, persisted queue, pause/resume, progress notifications and Android-permitted background processing.
+- Opens a profile image locally first, then attempts to retrieve the original Instagram image for the in-memory HD viewer, where available. The HD image is not permanently saved.
 
-1. Open **Application Information → Settings → Select Thumbnail Folder**.
-2. Select `.thumbnails` using the Android system folder picker. If your picker hides dot folders, select its parent; INSFAV recognizes a direct `.thumbnails` child automatically.
-3. Grant read access. INSFAV persists the SAF read grant and scans the folder without modifying source files during scanning. The optional fetcher writes only validated thumbnails after write authorization.
-4. Use **Rescan Thumbnails** after changing the folder contents. Scrolling never rescans the directory.
+## How to use
 
-```text
-.thumbnails/
-  example.user.webp
-  second_user.jpg
-  third_user.JPEG
-  another_user.PNG
-```
+1. In **SamMods InstaPro 15.30 or earlier**, export its settings/backup as a **`.json` file**. The backup must contain the **`favorite_page_pref` Favorites data**. An arbitrary Instagram data export or a newer incompatible backup is **not** a substitute.
+2. Open INSFAV and **Import JSON**. Choose the backup. Your Favorites collections and accounts appear.
+3. Browse the collections, search for profiles and open their links.
+4. **Optional — local avatars:** Select the `.thumbnails` folder in Settings, grant read access, then tap **Rescan Thumbnails**. For a parent folder that contains `.thumbnails`, the app can select the hidden child where supported.
+5. **Optional — Thumb Fetcher:** Grant the chosen folder write access, configure Instagram cookies and concurrent WebViews in Fetcher settings, then start the missing-images queue. Observe progress in the application or Android notifications. Instagram authentication, restrictions and connectivity may limit retrieval.
+6. Export your collection JSON as a backup whenever needed.
 
-Names are trimmed, one leading `@` is removed, and matching is case insensitive. Periods within usernames are preserved. Supported extensions are `.webp`, `.jpg`, `.jpeg`, and `.png`. Only direct children of the chosen folder are scanned. Filename mapping is sufficient; a `manifest.json` is not required and is currently ignored. Account JSON records do not need image-path fields.
+### Thumbnail rescan in 4.0.0
 
-Each candidate is checked with bounded image decoding. Malformed, unsupported, oversized and unreadable files do not crash the application. Missing photos use a gray person glyph in the original 40 dp rounded rectangular box. Lists serve the original indexed bytes directly at 40×40 CSS pixels with object-fit cover; there is no native list bitmap conversion or derived thumbnail disk archive. New fetcher output is 256×256 WebP quality 78; existing 128×128 sources stay valid. Fullscreen uses the same selected local source, retains its aspect ratio and supports pinch zoom, double tap, pan and Back. Source images up to 2048 px are shown at their available decoded resolution; larger images use a memory-bounded preview up to 2048 px, explicitly labeled. Fullscreen previews are encoded losslessly in memory and are not saved to permanent storage. No save-photo button or artificial Full HD source is provided.
+Rescan checks the selected folder for added, modified and removed files, while reusing verified indexed metadata for unchanged images when the SAF provider reports reliable file size and modification time. Existing images are not needlessly decoded again in that case. If provider metadata is missing, images are validated again for safety. Malformed images are retried; duplicate candidates are rechecked so the best image is selected. Rescan does **not** change your Favorites JSON or delete original photos. A provider that returns incorrect, unchanged metadata cannot guarantee detection of an overwritten image; choose an updated file timestamp or reselect the folder if necessary.
 
-If duplicate candidates normalize to the same username, readable images win; then higher pixel area, WebP/JPEG/PNG preference at equal resolution, exact filename and URI provide deterministic tie breaking. Provider enumeration order does not change the choice.
+## Requirements and privacy
 
-### Statistics
+- Android 8.0 (API 26) or newer.
+- The compatible InstaPro `.json` backup described above is **mandatory for viewing favorites**.
+- Local image folders are user-selected; scanning is read-only. The Fetcher writes only when explicitly granted access.
+- Original source thumbnails are not re-encoded into a second private thumbnail archive. WebView may temporarily cache original responses.
+- HD photos are kept in memory, not saved by INSFAV.
+- The Fetcher depends on Instagram availability and account access; neither live retrieval nor uninterrupted background work is guaranteed. Android Force Stop and operating-system restrictions still apply.
+- INSFAV is an independent project and is not affiliated with Instagram, Meta or SamMods.
 
-- **Total Accounts**: all collection memberships, including repeated accounts.
-- **Unique Accounts**: normalized nonempty usernames in the current JSON.
-- **Matched Images**: unique current accounts whose indexed selected candidate passed validation and whose folder remains accessible.
-- **Missing Images**: unique current accounts minus matched accounts; includes accounts with only unreadable candidates.
-- **Unreadable Images**: candidate files that failed validation across the whole scanned folder, plus selected files found unreadable during later access.
-- **Duplicate Image Candidates**: extra files beyond the first candidate for a normalized username across the folder, including invalid candidates.
-- **Indexed Folder Size**: sum of known sizes of supported-extension source files. Unknown sizes are marked separately. This is not app cache usage.
-- **Last Scan Date**: last successfully committed complete scan.
-- **Selected Folder**: friendly name and provider document ID. Folder URIs are never written to diagnostic logs.
+## Open source and development
 
-Counts describe the last committed index, not a continuously watched filesystem. If files change, rescan. A lost grant, removed/moved folder or unavailable provider is reported in Settings; reselecting the folder restores access when available. Android's folder picker restrictions still apply: no access is requested to restricted system directories, storage roots or other apps' private data.
+This public GitHub repository may be **forked** to study, modify and extend the project, subject to its license and any applicable third-party terms. Contributions can be proposed by pull request. Do not commit private JSON backups, cookies or signing keys.
 
-**Clear Image Cache** releases retained browser Image elements, clears WebView resource cache and removes known obsolete app-owned display files, including former v3.0 image-cache files. **Clear Thumbnail Index** removes only the app's mapping and display cache; it keeps the selected folder and its read grant. Neither operation deletes source photos or the collection JSON. Both require confirmation. Folder replacement invalidates the old mapping and releases the old read grant after the new selection is saved. Scans are foreground, cancellable with Activity destruction and transactional: an interrupted rescan preserves the last completed index for the same folder; it never publishes a partial catalog. Rescan manually after interruption.
+The stable source history is retained in Git. A separately named pre-4.0.0 backup branch preserves the previous mainline code. Tagged 4.0.0 source and binaries should be published only after verification and release signing.
 
-## Collection data and migration
-
-Import accepts a collection array or an object whose `favorite_page_pref` is an array or a JSON-encoded collection string. Original import text is retained atomically and exported unchanged, including unknown fields, preferences, ordering, case and multi-collection memberships. Invalid input does not replace the existing document. Import size is limited to 32 MiB.
-
-Updating a release signed with the same key preserves `document.json`, usage/import/reset counters and settings. Obsolete v3.0 scraping queue/cooldown files are removed and never resumed. The new integrated fetcher has its own persistent SQLite queue and requires explicit user setup. The old `thumbnails` private files are not used as external sources and can be removed with explicit **Clear Image Cache**. The `.thumbnails` directory belongs to the user. Scanning is read-only; only the explicitly configured fetcher can write validated thumbnails after write authorization.
-
-Collection management currently means importing/exporting backups, browsing, expanding/collapsing collections and resetting the imported document. Arbitrary manual account/category editing is not presented as an implemented capability.
-
-## Architecture
-
-- `MainActivity`: protected local WebView, native window insets, SAF folder selection and optional same-folder write authorization, JSON system pickers, app metadata, external profile intents and bounded task lifetimes.
-- `Store`: atomic original JSON, preferences, index metadata and rotated redacted diagnostics.
-- `LocalImages`: transactional SAF scan, persisted URI/index, permission checks and coalesced original-byte reads, exact MIME types, transient read statistics and a safe migration of the obsolete derived cache.
-- `ImageCodec`: validated, bounded local decoding and prompt stream/bitmap cleanup.
-- `ThumbnailPolicy`: Android-independent identity, duplicate ordering and statistics policy.
-- `web/`: readable UI source. `app/src/main/assets/`: reproducible minified runtime bundles, fonts and supplied logo.
-
-AndroidX WorkManager 2.10.1 is the integrated fetcher’s runtime scheduling dependency, with its transitive AndroidX/Kotlin libraries. JUnit/Robolectric and npm packages remain development-only. About credits do not imply ownership by OpenAI. The original supplied logo is retained in `artwork/` and packaged into launcher, adaptive and in-app assets through normal sizing, without redesigning it. `tools/prepare-icons.py` (optional Pillow development tool) reproduces the lossless WebP sizes and validates decoded pixels.
-
-## Build
-
-Install JDK 17, Android SDK Platform 35 / Build Tools 35.0.0, then open the project root in Android Studio:
+Build using **JDK 17**, Android SDK Platform 35 and the Gradle wrapper:
 
 ```sh
-./gradlew :app:assembleDebug :app:assembleRelease :app:lintDebug :app:testDebugUnitTest
+./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+./gradlew :app:assembleRelease
 ```
 
-Windows: `gradlew.bat`. Gradle 8.13 / AGP 8.9.1 are pinned. Generated web bundles are committed, so Android Studio does not require Node to build. To edit the UI, edit `web/`, then run:
+The `release` build requires the original private signing key to produce an installable, update-compatible APK. Configure `INSFAV_KEYSTORE`, `INSFAV_STORE_PASSWORD`, `INSFAV_KEY_ALIAS` and `INSFAV_KEY_PASSWORD` locally or as secured CI secrets. **Never publish the keystore or passwords.** Unsigned APKs are not an installable public release, and replacing an installed APK signed with another certificate is not a safe in-place upgrade.
 
-```sh
-npm ci --ignore-scripts
-npm run web
-```
+Source files: `web/` (UI), `app/src/main/java/` (Android, SAF and Fetcher), `app/src/test/` and `tests/` (verification). Web bundles in `app/src/main/assets/` are generated via `npm ci --ignore-scripts && npm run web`.
 
-Pinned Terser/CleanCSS tooling preserves global bridge bindings and creates source maps outside the APK. CI regenerates bundles and rejects drift. R8 and resource shrinking are enabled for release. Never edit generated assets directly.
-
-Release signing uses private environment variables `INSFAV_KEYSTORE`, `INSFAV_KEY_ALIAS` (default `insfav`), `INSFAV_STORE_PASSWORD`, and `INSFAV_KEY_PASSWORD` (defaults to store password). Without them Gradle produces an unsigned release. The supplied release uses the same private release key as v3.0, allowing a normal update. Debug and release signatures differ; export data before uninstalling to switch variants.
-
-The legacy `tools/build-sdk.py` entrypoint now delegates to the pinned Gradle wrapper (add `--release` for release). The former SDK-only path cannot resolve WorkManager and is no longer advertised as a standalone build route.
-
-## Verification
-
-```sh
-node --test tests/core.test.cjs
-javac -d /tmp/insfav-policy app/src/main/java/com/instagram/insfav/ThumbnailPolicy.java tests/java/com/instagram/insfav/ThumbnailPolicyTest.java
-java -cp /tmp/insfav-policy com.instagram.insfav.ThumbnailPolicyTest
-CHROME_BIN=/path/to/chromium node tests/browser.cjs
-```
-
-Browser tests use a simulated Android bridge and anonymous data. `PRIVATE_JSON` optionally verifies a local private backup without printing/copying its contents; `UI_SCREENSHOT` writes an anonymous test screenshot. They do not prove physical device behavior.
-
-Robolectric tests run the actual storage, scan and image modules against an isolated SAF provider at simulated Android API 28 and 34. They cover JSON preservation, duplicate matching, malformed images, read-grant persistence/loss, folder replacement, hidden-child selection, cache/index isolation and absence of directory rescans on image access. Real Samsung/system-picker behavior, USB/cloud providers and physical-device frame pacing still require device testing.
-
-Do not commit personal backups, usernames, private logs or signing keys. Diagnostic logs are limited to two approximately 256 KiB files and omit document URIs, account names and original JSON.
-
-Android SAF references: https://developer.android.com/training/data-storage/shared/documents-files and https://developer.android.com/reference/android/provider/DocumentsContract .
-
-### Application Information
-
-Total Accounts, Usage Count, and Load Count use the same compact rows as version/build metadata. Features & Functions opens its own AMOLED screen; Android Back or its toolbar back button returns to the existing About view. Counter sources, successful-import increments, startup increments, and Android preference keys are unchanged.
-
-For the presentation regression, extract the previous packaged assets from commit `68717797719c11e77bb059af05c582f45612c16e`, then run `BASELINE_ASSETS=/absolute/baseline/assets CHROME_BIN=/path/to/chrome node tests/about-counters.cjs`. `BASELINE_REF` optionally selects that same previous commit for native source identity checks. These are browser bridge tests, not physical device persistence tests.
-
-## Fetcher 0.4 pool integration
-
-INSFAV 3.3.0 adds requested/effective/active WebView counts, a reusable concurrent pool, 256x256 WebP output, explicit legacy refresh and skipped-profile retry. See [Fetcher 0.4 integration](docs/FETCHER-040.md) for pacing, memory estimates, background limits and verification scope. The previous serial integration notes are historical.
-
-## Thumbnail pipeline and progress notifications (3.4.0)
-
-The only application-managed persistent thumbnail source is the selected `.thumbnails` folder. A bounded pool of browser Image elements and WebView's normal resource cache can reuse original images; no native bitmap cache is added. Source-version changes invalidate only the affected avatar. Directional overscan, visible-first loading and row reuse keep DOM and request work bounded.
-
-Image Cache Size measures leftover legacy app copies, not all Chromium storage. Thumbnail Index Size and aggregate WebView Storage are shown separately. Export Diagnostics includes aggregate directory byte totals and image I/O counters without filenames or secrets.
-
-Fetcher notifications report Downloaded, Existing, Failed, Skipped and Pending separately, queue-backed percentage/progress, active WebViews, rate and available ETA. The final notification is retained. Existing foreground-service/WorkManager policies and the shared HD/session engine are preserved. OS force-stop, service quotas and manufacturer restrictions remain applicable.
-
-`tests/thumbnail-performance.cjs` compares 5k/10k/20k synthetic lists against `BASELINE_ASSETS`; it reports host Chromium timing, not device FPS. `ThumbnailPipelineBenchmarkTest` measures the actual native byte path with an isolated synthetic SAF provider. The CI artifact includes raw measurements, the debug APK, Android Studio source ZIP and a Turkish development report. Physical device and live Instagram checks are identified separately.
-
-Measured results and explicit test limits: [Turkish verification report](docs/THUMBNAIL-VERIFICATION-TR.md). The verified debug APK and complete source package are available in the [3.4.0 delivery](https://github.com/BlackWare-AI/INSFAV/actions/runs/39527991317/artifacts/12312829221). CI debug signing keys differ from the previous 3.3.0 CI package; it cannot replace that package in place. Do not uninstall or clear existing app data to work around a signing mismatch; a same-key update is required to preserve an existing installation directly.
+For technical verification and limitations, see [Thumbnail verification](docs/THUMBNAIL-VERIFICATION-TR.md) and [Fetcher integration](docs/FETCHER-040.md).

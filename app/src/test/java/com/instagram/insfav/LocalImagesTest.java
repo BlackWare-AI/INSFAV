@@ -51,6 +51,29 @@ public class LocalImagesTest {
         assertEquals(1, result.getInt("missing")); assertEquals(1, result.getInt("unreadable")); assertEquals(1, result.getInt("duplicates"));
         assertEquals(64, result.getJSONObject("profiles").getJSONObject("example").getInt("width")); assertEquals(RAW, store.original());
     }
+    @Test public void unchangedRescanReusesReadableMetadataAndPreservesRevision() throws Exception {
+        selectAndScan();
+        int before = provider.opens;
+        long revision = store.index.getLong("revision");
+        String original = store.original();
+        images.scan((event, value) -> {});
+        // The readable winner is reused. The duplicate candidate and broken
+        // image are still revalidated to preserve duplicate selection safety.
+        assertEquals(before + 3, provider.opens);
+        assertEquals(revision, store.index.getLong("revision"));
+        assertEquals(original, store.original());
+        assertEquals(1, images.snapshot(true).getInt("matched"));
+    }
+    @Test public void changedThumbnailIsRevalidatedAndIndexRevisionAdvances() throws Exception {
+        selectAndScan();
+        long revision = store.index.getLong("revision");
+        // The provider test fixture reports a fixed mtime, so change size to
+        // simulate a reliable provider change while keeping the same identity.
+        provider.add("root/example.PNG", "example.PNG", 96, 96);
+        images.scan((event, value) -> {});
+        assertEquals(96, images.snapshot(true).getJSONObject("profiles").getJSONObject("example").getInt("width"));
+        assertTrue(store.index.getLong("revision") > revision);
+    }
     @Test public void persistedIndexIsReusableWithoutRescanning() throws Exception {
         selectAndScan(); int before = provider.childQueries;
         Store restarted = new Store(context); LocalImages reopened = new LocalImages(context, restarted); reopened.checkAccess();
