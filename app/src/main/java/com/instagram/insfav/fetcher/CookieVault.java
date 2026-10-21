@@ -34,17 +34,17 @@ final class CookieVault {
             output = file.startWrite(); output.write(1); output.write(iv.length); output.write(iv); output.write(encrypted); file.finishWrite(output); output = null;
         } finally { Arrays.fill(plain, (byte)0); if (output != null) file.failWrite(output); }
     }
-    synchronized CookieJar load() throws ProfileProvider.Failure {
-        byte[] plain = null;
+    synchronized String stored() throws Exception {
+        byte[] plain=null;
         try {
-            byte[] bytes = file.readFully(); if (bytes.length < 30 || bytes.length > 131072 || bytes[0] != 1 || bytes[1] != 12) throw new GeneralSecurityException();
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.DECRYPT_MODE, keys.get(), new GCMParameterSpec(128, Arrays.copyOfRange(bytes, 2, 14))); cipher.updateAAD("INSFAV_COOKIE_V1".getBytes(StandardCharsets.US_ASCII));
-            plain = cipher.doFinal(bytes, 14, bytes.length - 14); CookieJar jar = CookieJar.decode(new String(plain, StandardCharsets.UTF_8));
-            if (jar.value("sessionid", System.currentTimeMillis()).isEmpty()) throw new ProfileProvider.Failure("COOKIE_EXPIRED"); return jar;
-        } catch (ProfileProvider.Failure e) { throw e; }
-        catch (FileNotFoundException e) { throw new ProfileProvider.Failure("COOKIE_REQUIRED"); }
-        catch (Exception e) { throw new ProfileProvider.Failure("COOKIE_DECRYPT_FAILED"); }
-        finally { if (plain != null) Arrays.fill(plain, (byte)0); }
+            byte[] bytes=file.readFully();if(bytes.length<30||bytes.length>131072||bytes[0]!=1||bytes[1]!=12)throw new GeneralSecurityException();
+            Cipher cipher=Cipher.getInstance("AES/GCM/NoPadding");cipher.init(Cipher.DECRYPT_MODE,keys.get(),new GCMParameterSpec(128,Arrays.copyOfRange(bytes,2,14)));cipher.updateAAD("INSFAV_COOKIE_V1".getBytes(StandardCharsets.US_ASCII));
+            plain=cipher.doFinal(bytes,14,bytes.length-14);String value=new String(plain,StandardCharsets.UTF_8);CookieJar.decode(value);return value;
+        }finally{if(plain!=null)Arrays.fill(plain,(byte)0);}
+    }
+    synchronized CookieJar load() throws ProfileProvider.Failure {
+        try {CookieJar jar=CookieJar.decode(stored());if(jar.value("sessionid",System.currentTimeMillis()).isEmpty())throw new ProfileProvider.Failure("COOKIE_EXPIRED");return jar;}
+        catch(ProfileProvider.Failure e){throw e;}catch(FileNotFoundException e){throw new ProfileProvider.Failure("COOKIE_REQUIRED");}catch(Exception e){throw new ProfileProvider.Failure("COOKIE_DECRYPT_FAILED");}
     }
     synchronized void remove() { file.delete(); }
 }

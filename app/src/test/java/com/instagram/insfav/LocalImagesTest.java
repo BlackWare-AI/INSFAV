@@ -166,9 +166,28 @@ public class LocalImagesTest {
         File derived=new File(dir,Store.key("legacy")+".webp"),unknown=new File(dir,"unrelated.txt");Files.write(derived.toPath(),new byte[]{1,2,3});Files.write(unknown.toPath(),new byte[]{4});
         LocalImages upgraded=new LocalImages(context,store);assertFalse(derived.exists());assertTrue(unknown.exists());assertEquals(indexSize,new File(store.root,"thumbnail-index.json").length());assertEquals(original,store.original());assertEquals(0,provider.writes);
     }
+    @Test public void rescanDeletesOnlyDirectOrphanWebpAndKeepsCurrentLegacyBytes() throws Exception {
+        provider.add("root/@EXAMPLE.WebP","@EXAMPLE.WebP",128,128);provider.add("root/removed.webp","removed.webp",256,256);
+        provider.add("root/other.jpg","other.jpg",32,32);byte[] before=Files.readAllBytes(provider.files.get("root/@EXAMPLE.WebP").toPath());
+        images.select(root,Intent.FLAG_GRANT_READ_URI_PERMISSION);context.getContentResolver().takePersistableUriPermission(root,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        images.scan((e,v)->{});assertFalse(provider.files.containsKey("root/removed.webp"));assertTrue(provider.files.containsKey("root/other.jpg"));assertArrayEquals(before,Files.readAllBytes(provider.files.get("root/@EXAMPLE.WebP").toPath()));
+        assertEquals(1,store.index.getJSONObject("cleanup").getInt("deleted"));assertEquals(1,store.index.getJSONObject("cleanup").getInt("preserved"));assertEquals(RAW,store.original());
+    }
+    @Test public void emptyCorruptMissingAndReadOnlyFavoritesNeverDeleteImages()throws Exception {
+        provider.add("root/orphan.webp","orphan.webp",128,128);selectAndScan();assertTrue(provider.files.containsKey("root/orphan.webp"));
+        context.getContentResolver().takePersistableUriPermission(root,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        for(String raw:new String[]{"[]","{broken",""}){store.write("document.json",raw);images.scan((e,v)->{});assertTrue(provider.files.containsKey("root/orphan.webp"));}
+        store.importDocument(RAW);provider.available=false;images.scan((e,v)->{});assertTrue(provider.files.containsKey("root/orphan.webp"));assertEquals(0,provider.deletes);
+    }
+    @Test public void tenThousandAccountRescanReusesAllValidImages()throws Exception {
+        provider.files.clear();provider.names.clear();provider.add("root/base.webp","base.webp",128,128);File file=provider.files.remove("root/base.webp");provider.names.remove("root/base.webp");
+        JSONArray items=new JSONArray();JSONObject old=new JSONObject();for(int n=0;n<10000;n++){String user="synthetic_"+n,id="root/"+user+".webp";provider.files.put(id,file);provider.names.put(id,user+".webp");items.put(new JSONObject().put("pageId",user));old.put(user,new JSONObject().put("uri",DocumentsContract.buildDocumentUriUsingTree(root,id).toString()).put("name",user+".webp").put("readable",true).put("width",128).put("height",128).put("size",file.length()).put("modified",1));}
+        store.importDocument(new JSONArray().put(new JSONObject().put("name","Synthetic").put("items",items)).toString());images.select(root,Intent.FLAG_GRANT_READ_URI_PERMISSION);context.getContentResolver().takePersistableUriPermission(root,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);store.replaceIndex(new JSONObject().put("treeUri",root.toString()).put("profiles",old));
+        int opens=provider.opens;long begin=System.nanoTime();images.scan((e,v)->{});System.out.println("RESCAN_10000_MS="+(System.nanoTime()-begin)/1000000);assertEquals(opens,provider.opens);assertEquals(10000,images.snapshot(false).getInt("matched"));assertEquals(0,provider.deletes);
+    }
     public static final class FixtureProvider extends ContentProvider {
         volatile long delayMs; File directory; final Map<String,File> files = new LinkedHashMap<>(); final Map<String,String> names = new HashMap<>();
-        int childQueries, opens, writes; boolean available = true, parentHasThumbnailChild;
+        int childQueries, opens, writes, deletes; boolean available = true, parentHasThumbnailChild;
         void add(String id,String name,int w,int h) throws Exception {File file = new File(directory, name); Bitmap image = Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888); try(FileOutputStream output = new FileOutputStream(file)){if(!image.compress(name.toLowerCase(Locale.ROOT).endsWith(".webp") ? Bitmap.CompressFormat.WEBP : name.toLowerCase(Locale.ROOT).matches(".*\\.jpe?g$") ? Bitmap.CompressFormat.JPEG : Bitmap.CompressFormat.PNG,100,output))throw new IOException("Fixture encoding failed");}finally{image.recycle();} files.put(id,file); names.put(id,name);}
         void addBroken(String id,String name) throws Exception {File file = new File(directory,name); Files.write(file.toPath(), new byte[]{1,2,3}); files.put(id,file); names.put(id,name);}
         Map<String,byte[]> contents() throws Exception {Map<String,byte[]> out=new HashMap<>(); for(String id:files.keySet())out.put(id,Files.readAllBytes(files.get(id).toPath()));return out;}
@@ -199,6 +218,10 @@ public class LocalImagesTest {
             if(!"r".equals(mode)){writes++;throw new FileNotFoundException("Read only");}opens++;
             File file=files.get(DocumentsContract.getDocumentId(uri));if(file==null||!available)throw new FileNotFoundException();
             return ParcelFileDescriptor.open(file,ParcelFileDescriptor.MODE_READ_ONLY);
+        }
+        @Override public android.os.Bundle call(String method,String arg,android.os.Bundle extras){
+            if("android:deleteDocument".equals(method)){Uri uri=extras.getParcelable("uri");String id=DocumentsContract.getDocumentId(uri);File file=files.remove(id);names.remove(id);if(file!=null)file.delete();deletes++;return new android.os.Bundle();}
+            return super.call(method,arg,extras);
         }
         @Override public String getType(Uri uri){return "image/png";}
         @Override public Uri insert(Uri uri,ContentValues values){writes++;throw new UnsupportedOperationException();}

@@ -16,12 +16,12 @@ final class QueueEngine {
  boolean interrupted(){return cancelled||stopped.getAsBoolean()||QueueControl.requested||Thread.currentThread().isInterrupted();}
  void state(String value){long now=android.os.SystemClock.elapsedRealtime();if(value.equals(lastState)&&now-lastSignal<250)return;lastState=value;lastSignal=now;QueueControl.phase=value;settings.edit().putString("state",value).apply();reporter.update(value);Fetcher.publish();}
  void run(String action,boolean bounded){
-  long started=System.currentTimeMillis(),generation=settings.getLong("datasetGeneration",0);int finished=0,cached=0;FetchBroker broker=FetchBroker.get(context);Map<String,CompletableFuture<byte[]>> flights=new LinkedHashMap<>();boolean refresh=action.equals("refresh_legacy")||action.equals("scheduled")&&settings.getBoolean("refreshLegacy",false)||action.equals("resume")&&settings.getBoolean("refreshLegacy",false);boolean hoursEnded=false;
+  long started=System.currentTimeMillis(),generation=settings.getLong("datasetGeneration",0);int finished=0,cached=0;FetchBroker broker=FetchBroker.get(context);Map<String,CompletableFuture<byte[]>> flights=new LinkedHashMap<>();boolean hoursEnded=false;
   QueueControl.completedPerMinute=0;QueueControl.etaSeconds=-1;
-  settings.edit().putLong("startedAt",started).putBoolean("refreshLegacy",refresh).apply();broker.beginBatch();
+  settings.edit().putLong("startedAt",started).apply();broker.beginBatch();
   try(QueueStore queue=new QueueStore(context)){
    if(action.equals("missing")){queue.prepareMissing();for(String user:queue.completedImages())if(!Fetcher.host().hasImage(user))queue.requeueLost(user);}
-   if(action.equals("retry_skipped"))queue.retrySkipped();if(action.equals("refresh_legacy"))queue.refreshLegacy();
+   if(action.equals("retry_skipped"))queue.retrySkipped();
    int startingTerminal=terminalCount(queue.counts());
    OutputFolder output=new OutputFolder(context,settings.getString("tree",""));
    ArrayDeque<String> targets=new ArrayDeque<>(queue.eligible());
@@ -31,12 +31,13 @@ final class QueueEngine {
     if(!RunPolicy.read(settings).contains(ZonedDateTime.now()))hoursEnded=true;
     if(bounded&&System.currentTimeMillis()-started>=120000)hoursEnded=true;
     while(!hoursEnded&&!targets.isEmpty()&&flights.size()<broker.capacity()&&!interrupted()){
-     String user=targets.remove();String filename=Identity.outputFilename(user);boolean validOutput=output.valid(filename);boolean legacy=refresh&&(validOutput&&output.legacy(filename)||Fetcher.host().legacyImage(user));
-     if((Fetcher.host().hasImage(user)||validOutput)&&!legacy){if(validOutput)Fetcher.host().imageWritten(user,output.uri(filename),settings.getString("tree",""));queue.mark(user,"EXISTING","LOCAL_IMAGE");state("Checking existing thumbnails");if(bounded&&++cached>=128&&flights.isEmpty())return;continue;}
+     if(!RunPolicy.read(settings).contains(ZonedDateTime.now())){hoursEnded=true;break;}
+     String user=targets.remove();String filename=Identity.outputFilename(user);boolean validOutput=output.valid(filename);
+     if((Fetcher.host().hasImage(user)||validOutput)){if(validOutput)Fetcher.host().imageWritten(user,output.uri(filename),settings.getString("tree",""));queue.mark(user,"EXISTING","LOCAL_IMAGE");state("Checking existing thumbnails");if(bounded&&++cached>=128&&flights.isEmpty())return;continue;}
      QueueControl.current=user;flights.put(user,broker.submit(user,false));state("Downloading");
     }
     if(flights.isEmpty()){
-     if(hoursEnded){state("Waiting for working hours / next background window");return;}
+     if(hoursEnded){state("Paused — Outside Schedule");return;}
      if(targets.isEmpty()){targets.addAll(queue.eligible());if(targets.isEmpty()){settings.edit().putBoolean("armed",false).commit();state("Completed");return;}}
      continue;
     }
@@ -45,7 +46,7 @@ final class QueueEngine {
      try{
       original=f.getValue().get();byte[] thumbnail=ThumbnailCodec.convert(original);if(interrupted())break;
       if(generation!=settings.getLong("datasetGeneration",0)){state("Paused: data changed");return;}
-      android.net.Uri uri=output.commit(Identity.outputFilename(user),thumbnail,refresh);Fetcher.host().imageWritten(user,uri,settings.getString("tree",""));queue.mark(user,"SUCCESS","VALID_WEBP");new Diagnostics(context).log("PROFILE","SUCCESS",0);
+      android.net.Uri uri=output.commit(Identity.outputFilename(user),thumbnail,false);Fetcher.host().imageWritten(user,uri,settings.getString("tree",""));queue.mark(user,"SUCCESS","VALID_WEBP");new Diagnostics(context).log("PROFILE","SUCCESS",0);
      }catch(ExecutionException e){Throwable cause=e.getCause();ProfileProvider.Failure error=cause instanceof ProfileProvider.Failure?(ProfileProvider.Failure)cause:new ProfileProvider.Failure("PROCESSING_ERROR");
       if(error.code.equals("OUTSIDE_WORKING_HOURS")){hoursEnded=true;}
       else if(FailurePolicy.pause(error)){queue.mark(user,"RETRY_LATER",error.code);state("Paused: "+error.code);return;}

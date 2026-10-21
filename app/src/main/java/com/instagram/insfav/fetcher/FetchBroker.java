@@ -38,7 +38,7 @@ final class FetchBroker {
   Request r=tasks.peek();if(r==null||active.size()>=limit){Thread.sleep(20);continue;}
   if(r.result.isCancelled()){tasks.remove(r);continue;}
   String blocked=prefs.getString("blocked","");if(!blocked.isEmpty()){tasks.remove(r);r.result.completeExceptionally(new ProfileProvider.Failure(blocked,0,prefs.getLong("retryAt",0),true));continue;}
-  if(!r.full&&!RunPolicy.read(prefs).contains(java.time.ZonedDateTime.now())){tasks.remove(r);r.result.completeExceptionally(new ProfileProvider.Failure("OUTSIDE_WORKING_HOURS"));continue;}
+  if(!r.full&&!RunPolicy.read(prefs).contains(java.time.Instant.ofEpochMilli(time.now()).atZone(java.time.ZoneId.systemDefault()))){tasks.remove(r);r.result.completeExceptionally(new ProfileProvider.Failure("OUTSIDE_WORKING_HOURS"));continue;}
   long now=time.now(),gate=Math.max(prefs.getLong("nextRequestAt",0),prefs.getLong("retryAt",0));if(now<gate){time.sleep(Math.min(50,gate-now));continue;}
   boolean[] busy=new boolean[30];for(Request a:active)if(a.slot>=0)busy[a.slot]=true;
   int slot=-1;long earliest=Long.MAX_VALUE;for(int i=0;i<limit;i++)if(!busy[i]){long ready=WorkerPacing.ready(prefs,i);if(ready<=now){slot=i;break;}earliest=Math.min(earliest,ready);}
@@ -51,7 +51,7 @@ final class FetchBroker {
   workers.execute(()->execute(r));
  }catch(InterruptedException ignored){}catch(RuntimeException|OutOfMemoryError e){QueueControl.memoryPressure=true;}}
  private void execute(Request r){r.thread=Thread.currentThread();byte[] bytes=null;try{
-  if(r.result.isCancelled())return;ProfileProvider p=provider;bytes=p.fetch(r.user,r.full);if(!r.result.complete(bytes))Arrays.fill(bytes,(byte)0);
+  if(r.result.isCancelled())return;if(!r.full&&!RunPolicy.read(prefs).contains(java.time.Instant.ofEpochMilli(time.now()).atZone(java.time.ZoneId.systemDefault())))throw new ProfileProvider.Failure("OUTSIDE_WORKING_HOURS");ProfileProvider p=provider;bytes=p.fetch(r.user,r.full);if(!r.result.complete(bytes))Arrays.fill(bytes,(byte)0);
  }catch(ProfileProvider.Failure e){if(FailurePolicy.pause(e))block(e);r.result.completeExceptionally(e);if(e.code.equals("WEBVIEW_RENDERER_GONE"))QueueControl.memoryPressure=true;}
  catch(OutOfMemoryError e){QueueControl.memoryPressure=true;r.result.completeExceptionally(new ProfileProvider.Failure("IMAGE_MEMORY_LIMIT"));}
  catch(RuntimeException e){r.result.completeExceptionally(new ProfileProvider.Failure("PROFILE_PROCESSING_ERROR"));}

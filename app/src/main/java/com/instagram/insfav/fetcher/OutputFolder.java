@@ -34,6 +34,7 @@ final class OutputFolder {
             if (cursor == null) throw new IOException("OUTPUT_UNAVAILABLE");
             while (cursor.moveToNext()) {
                 String name = cursor.getString(1);
+                if(name.toLowerCase(Locale.ROOT).endsWith(".webp")){String user=Identity.normalize(name.substring(0,name.length()-5));if(Identity.valid(user))name=user+".webp";}
                 if (result.containsKey(name)) throw new IOException("OUTPUT_DUPLICATE_NAMES");
                 result.put(name, DocumentsContract.buildDocumentUriUsingTree(tree, cursor.getString(0)));
             }
@@ -55,7 +56,6 @@ final class OutputFolder {
         catch (FileNotFoundException error) { throw new IOException("OUTPUT_UNAVAILABLE", error); }
         catch (IOException error) { if ("OUTPUT_SIZE_REJECTED".equals(error.getMessage())) return false; throw error; }
     }
-    boolean legacy(String filename)throws IOException {Uri file=files.get(filename);if(file==null)return false;byte[] b=read(resolver.openInputStream(file));android.graphics.BitmapFactory.Options bounds=new android.graphics.BitmapFactory.Options();bounds.inJustDecodeBounds=true;android.graphics.BitmapFactory.decodeByteArray(b,0,b.length,bounds);return ThumbnailCodec.valid(b)&&bounds.outWidth==128;}
     void recover(String filename) throws IOException {
         Uri partial = files.get(filename + ".part");
         if (partial != null) {
@@ -92,7 +92,7 @@ final class OutputFolder {
         synchronized(WRITE_LOCK){
             if(!filename.matches("[a-z0-9._]{1,30}\\.webp")||!ThumbnailCodec.valid(bytes))throw new IOException("OUTPUT_INVALID_WEBP");
             if(seenRevision!=CONTENT_REVISION.get()||journal.getBaseFile().exists()){files.clear();files.putAll(children(folder));recoverJournal();files.clear();files.putAll(children(folder));seenRevision=CONTENT_REVISION.get();}
-            if(!replace&&valid(filename))return files.get(filename);
+            if(valid(filename))return files.get(filename);
             String nonce=java.util.UUID.randomUUID().toString();String pendingName=".insfav-"+nonce+".part",backupName=".insfav-"+nonce+".bak";
             Uri pending=null,old=files.get(filename),backup=null,committed=null;
             try{

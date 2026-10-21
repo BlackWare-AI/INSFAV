@@ -25,4 +25,16 @@ public class BrokerTest{
   SessionState.prefs(c).edit().putString("blocked","").commit();assertArrayEquals(new byte[]{9},b.submit("second",false).get(3,TimeUnit.SECONDS));assertEquals(2,opened.get());b.endBatch();
  }
 
+ @Test public void dispatchHonorsLocalScheduleAcrossMidnightAndTimezoneChanges()throws Exception {
+  SharedPreferences p=SessionState.prefs(c);p.edit().putInt("startMinute",1320).putInt("endMinute",360).commit();
+  java.util.TimeZone old=java.util.TimeZone.getDefault();java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("Europe/Istanbul"));
+  try {
+   java.util.concurrent.atomic.AtomicLong now=new java.util.concurrent.atomic.AtomicLong(java.time.Instant.parse("2026-10-21T18:59:00Z").toEpochMilli());java.util.concurrent.atomic.AtomicInteger calls=new java.util.concurrent.atomic.AtomicInteger();
+   FetchBroker b=new FetchBroker(c,full->new ProfileProvider(){public byte[] fetch(String u){calls.incrementAndGet();return new byte[]{1};}public void cancel(){}},new FetchBroker.Time(){public long now(){return now.get();}public void sleep(long m){now.addAndGet(m);Thread.yield();}});
+   try{b.submit("outside",false).get(3,TimeUnit.SECONDS);fail();}catch(ExecutionException expected){}assertEquals(0,calls.get());
+   now.set(java.time.Instant.parse("2026-10-21T19:00:00Z").toEpochMilli());b.submit("night",false).get(3,TimeUnit.SECONDS);assertEquals(1,calls.get());
+   now.set(java.time.Instant.parse("2026-10-22T03:00:00Z").toEpochMilli());try{b.submit("end",false).get(3,TimeUnit.SECONDS);fail();}catch(ExecutionException expected){}assertEquals(1,calls.get());
+   java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("UTC"));b.submit("new_zone",false).get(3,TimeUnit.SECONDS);assertEquals(2,calls.get());b.cancelAll();
+  } finally {java.util.TimeZone.setDefault(old);}
+ }
 }

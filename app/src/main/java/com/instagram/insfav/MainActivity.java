@@ -12,6 +12,7 @@ import android.webkit.*;
 import android.widget.FrameLayout;
 import org.json.*;
 import com.instagram.insfav.fetcher.Fetcher;
+import com.instagram.insfav.fetcher.SettingsBackupUi;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.*;
@@ -24,6 +25,7 @@ public final class MainActivity extends Activity {
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final ExecutorService scans = Executors.newSingleThreadExecutor();
     private String pendingExport;
+    private SettingsBackupUi settingsBackup;
     private final DoubleBackExit exitBack = new DoubleBackExit();
     private final java.util.concurrent.atomic.AtomicBoolean scanPending = new java.util.concurrent.atomic.AtomicBoolean();
     private static final int IMPORT = 20, EXPORT = 21, FOLDER = 22, WRITE_FOLDER = 23;
@@ -34,6 +36,27 @@ public final class MainActivity extends Activity {
     };
     @Override public void onCreate(Bundle state) {
         super.onCreate(state); Fetcher.addListener(fetchListener); store = Store.get(this); images = new LocalImages(this, store);
+        settingsBackup=new SettingsBackupUi(this,io,new SettingsBackupUi.Host(){
+            public String export(char[] pass)throws Exception {
+                JSONObject extra=new JSONObject();synchronized(store){for(String k:new String[]{"treeUri","directoryId","folderLabel"})if(store.settings.has(k))extra.put(k,store.settings.getString(k));}
+                return Fetcher.exportSettings(pass,extra);
+            }
+            public JSONObject inspect(String raw,char[] pass)throws Exception {
+                JSONObject data=Fetcher.inspectSettings(raw,pass),extra=data.getJSONObject("extra");
+                for(java.util.Iterator<String> i=extra.keys();i.hasNext();){String key=i.next();if(!java.util.Arrays.asList("treeUri","directoryId","folderLabel").contains(key)||!(extra.get(key) instanceof String))throw new IOException("Invalid settings.");}
+                return data;
+            }
+            public void apply(JSONObject data)throws Exception {
+                if(images.scanning()||scanPending.get())throw new IOException("Wait for the scan to finish.");
+                Fetcher.restoreSettings(data);
+                // SAF grants are device-owned, never restored from a JSON claim.
+                JSONObject extra=data.getJSONObject("extra");String tree=extra.optString("treeUri");boolean granted=false;
+                for(UriPermission grant:getContentResolver().getPersistedUriPermissions())if(grant.getUri().toString().equals(tree)&&grant.isReadPermission())granted=true;
+                if(granted)synchronized(store){String old=store.settings.optString("treeUri");JSONObject before=new JSONObject(store.settings.toString());try{for(java.util.Iterator<String> i=extra.keys();i.hasNext();){String k=i.next();store.settings.put(k,extra.get(k));}store.saveSettings();if(!old.equals(tree))store.replaceIndex(new JSONObject());}catch(Exception e){store.settings=before;throw e;}}
+                images.checkAccess();Fetcher.sync();send("fetcher-status",Fetcher.snapshot());send("status",images.snapshot(true));
+            }
+            public void message(String text){send("message",text);}
+        });
         getWindow().setStatusBarColor(Color.BLACK);getWindow().setNavigationBarColor(Color.BLACK);
         getWindow().getDecorView().setSystemUiVisibility(0);
         if(Build.VERSION.SDK_INT>=29)getWindow().setNavigationBarContrastEnforced(false);
@@ -132,9 +155,11 @@ public final class MainActivity extends Activity {
                             intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/json", "text/plain", "application/octet-stream"}); startActivityForResult(intent, IMPORT);
                         }); break;
                         case "export": if (store.original().isEmpty()) throw new IOException("No collections to export"); export(store.original(), "INSFAV-backup.json", "application/json"); break;
+                        case "settings-export": settingsBackup.start(true); break;
+                        case "settings-import": settingsBackup.start(false); break;
                         case "logs": export(store.logs()+"\nStorage bytes: "+images.storageAudit().toString()+"\nImage I/O: "+images.snapshot(false).optJSONObject("imageIO"), "INSFAV-diagnostics.txt", "text/plain"); break;
                         case "frontend-error": store.log("web_error", input.optString("code", "script")); break;
-                        case "clear-data": if(Fetcher.running())throw new IOException("Pause the fetcher before clearing collections.");store.clearDocument(); getPreferences(0).edit().putInt("clear", getPreferences(0).getInt("clear", 0) + 1).apply(); send("cleared", ""); break;
+                        case "clear-data": if(images.scanning()||scanPending.get())throw new IOException("Wait for the scan to finish.");if(Fetcher.running())throw new IOException("Pause the fetcher before clearing collections.");store.clearDocument(); getPreferences(0).edit().putInt("clear", getPreferences(0).getInt("clear", 0) + 1).apply(); send("cleared", ""); break;
                         case "open": openInstagram(input.getString("user")); break;
                         default: throw new IOException("Unsupported operation");
                     }
@@ -183,6 +208,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onActivityResult(int request, int result, Intent intent) {
         super.onActivityResult(request, result, intent);
+        if(settingsBackup.result(request,result,intent))return;
         if (result != RESULT_OK || intent == null || intent.getData() == null) {if (request == EXPORT) pendingExport = null; return;}
         Uri uri = intent.getData(); int flags = intent.getFlags();
         io.execute(() -> {
@@ -201,7 +227,7 @@ public final class MainActivity extends Activity {
                         while ((length = input.read(bytes)) != -1) {if (output.size() + length > 32 * 1024 * 1024) throw new IOException("JSON exceeds 32 MiB"); output.write(bytes, 0, length);}
                         raw = output.toString("UTF-8");
                     }
-                    if(Fetcher.running())throw new IOException("Pause the fetcher before importing collections.");
+                    if(Fetcher.running()||images.scanning()||scanPending.get())throw new IOException("Pause the fetcher and wait for scans before importing collections.");
                     store.importDocument(raw); getPreferences(0).edit().putInt("load", getPreferences(0).getInt("load", 0) + 1).apply();
                     JSONObject snapshot = images.snapshot(true); snapshot.put("raw", raw); send("imported", snapshot);
                 } else if (request == EXPORT && pendingExport != null) {
