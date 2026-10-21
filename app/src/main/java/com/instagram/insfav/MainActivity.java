@@ -24,6 +24,7 @@ public final class MainActivity extends Activity {
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final ExecutorService scans = Executors.newSingleThreadExecutor();
     private String pendingExport;
+    private final DoubleBackExit exitBack = new DoubleBackExit();
     private final java.util.concurrent.atomic.AtomicBoolean scanPending = new java.util.concurrent.atomic.AtomicBoolean();
     private static final int IMPORT = 20, EXPORT = 21, FOLDER = 22, WRITE_FOLDER = 23;
     private final Fetcher.Listener fetchListener=new Fetcher.Listener(){
@@ -210,8 +211,14 @@ public final class MainActivity extends Activity {
             } catch (Exception error) {if (request == EXPORT) pendingExport = null; error(error);}
         });
     }
-    @Override public void onBackPressed() {if (web == null) {super.onBackPressed(); return;} web.evaluateJavascript("window.handleBack&&window.handleBack()", value -> {if (!"true".equals(value)) super.onBackPressed();});}
-    @Override protected void onStop(){foreground=false;Fetcher.foregroundStopped();super.onStop();}
+    @Override public void onBackPressed() {if (web == null) {requestExit(); return;} web.evaluateJavascript("window.handleBack&&window.handleBack()", value -> {if ("true".equals(value)) exitBack.reset(); else requestExit();});}
+    private void requestExit() {
+        if (!foreground || isFinishing() || isDestroyed()) return;
+        if (exitBack.press(SystemClock.elapsedRealtime())) super.onBackPressed();
+        else if (web != null) send("message", "Press back again to exit.");
+        else android.widget.Toast.makeText(this, "Press back again to exit.", android.widget.Toast.LENGTH_SHORT).show();
+    }
+    @Override protected void onStop(){exitBack.reset();foreground=false;Fetcher.foregroundStopped();super.onStop();}
     @Override protected void onDestroy() {
         Fetcher.removeListener(fetchListener);Fetcher.closeViewer();
         images.cancelScan(); scans.shutdownNow(); io.shutdownNow();
