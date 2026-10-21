@@ -19,10 +19,11 @@ public class BrokerTest{
   Fetcher.initialize(c,new Fetcher.Host(){public Collection<String> users(){return Collections.emptyList();}public String tree(){return "";}public String directory(){return "";}public long revision(){return 0;}public boolean hasImage(String u){return false;}public void imageWritten(String u,android.net.Uri uri,String tree){}});
   byte[] data=new byte[]{1,2,3};java.lang.reflect.Field bytes=Fetcher.class.getDeclaredField("fullBytes"),token=Fetcher.class.getDeclaredField("viewerToken");bytes.setAccessible(true);token.setAccessible(true);bytes.set(null,data);token.set(null,"token");assertEquals(3,Fetcher.full("token").length);Fetcher.closeViewer();assertArrayEquals(new byte[3],data);assertEquals(0,Fetcher.full("token").length);assertNull(bytes.get(null));
  }
- @Test public void resumeReplacesGloballyFailedSessionEvenWithoutProviderBarrier()throws Exception{
-  AtomicInteger opened=new AtomicInteger();FetchBroker b=new FetchBroker(c,full->{boolean bad=opened.incrementAndGet()==1;return new ProfileProvider(){public byte[] fetch(String u)throws Failure{if(bad)throw new Failure("COOKIE_WEBVIEW_SETUP_TIMEOUT",0,0,true);return new byte[]{9};}public void cancel(){}};},new TestTime());b.batch=true;
-  try{b.submit("first",false).get(3,TimeUnit.SECONDS);fail();}catch(ExecutionException expected){}
-  SessionState.prefs(c).edit().putString("blocked","").commit();assertArrayEquals(new byte[]{9},b.submit("second",false).get(3,TimeUnit.SECONDS));assertEquals(2,opened.get());b.endBatch();
+ @Test public void resumeReplacesInconclusiveSessionWithoutMarkingCookiesInvalid()throws Exception{
+  AtomicInteger opened=new AtomicInteger();FetchBroker b=new FetchBroker(c,full->{boolean bad=opened.incrementAndGet()==1;return new ProfileProvider(){public void authenticate()throws Failure{if(bad)throw new Failure("COOKIE_WEBVIEW_SETUP_TIMEOUT",0,0,true);}public byte[] fetch(String u){return new byte[]{9};}public void cancel(){}};},new TestTime());b.beginBatch();
+  try{b.submit("first",false).get(3,TimeUnit.SECONDS);fail();}catch(ExecutionException expected){assertEquals("COOKIE_AUTH_UNVERIFIED",((ProfileProvider.Failure)expected.getCause()).code);}
+  assertEquals("",SessionState.prefs(c).getString("blocked",""));assertEquals("UNKNOWN",SessionState.evidence(SessionState.prefs(c)));assertTrue(SessionState.prefs(c).getLong("retryAt",0)>System.currentTimeMillis());
+  SessionState.prefs(c).edit().putLong("retryAt",0).commit();assertArrayEquals(new byte[]{9},b.submit("second",false).get(3,TimeUnit.SECONDS));assertEquals(2,opened.get());b.endBatch();
  }
 
  @Test public void dispatchHonorsLocalScheduleAcrossMidnightAndTimezoneChanges()throws Exception {
@@ -36,5 +37,16 @@ public class BrokerTest{
    now.set(java.time.Instant.parse("2026-10-22T03:00:00Z").toEpochMilli());try{b.submit("end",false).get(3,TimeUnit.SECONDS);fail();}catch(ExecutionException expected){}assertEquals(1,calls.get());
    java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("UTC"));b.submit("new_zone",false).get(3,TimeUnit.SECONDS);assertEquals(2,calls.get());b.cancelAll();
   } finally {java.util.TimeZone.setDefault(old);}
+ }
+ @Test public void eachBatchAuthenticatesBeforeProfilesEvenWithReusedProvider()throws Exception{
+  AtomicInteger authenticated=new AtomicInteger(),opened=new AtomicInteger();List<String> order=Collections.synchronizedList(new ArrayList<>());
+  FetchBroker b=new FetchBroker(c,full->{opened.incrementAndGet();return new ProfileProvider(){public void authenticate(){authenticated.incrementAndGet();order.add("auth");}public byte[] fetch(String u){order.add(u);return new byte[]{1};}public void cancel(){}};},new TestTime());
+  b.beginBatch();b.submit("first",false).get(3,TimeUnit.SECONDS);long end=System.nanoTime()+TimeUnit.SECONDS.toNanos(2);while(!b.active.isEmpty()&&System.nanoTime()<end)Thread.yield();assertTrue(b.active.isEmpty());
+  b.beginBatch();b.submit("second",false).get(3,TimeUnit.SECONDS);assertEquals(Arrays.asList("auth","first","auth","second"),order);assertEquals(2,authenticated.get());assertEquals(1,opened.get());b.endBatch();
+ }
+ @Test public void pausingDuringAuthenticationCannotStartProfileAndResumeReverifies()throws Exception{
+  CountDownLatch authenticating=new CountDownLatch(1);AtomicInteger profiles=new AtomicInteger(),opened=new AtomicInteger();
+  FetchBroker b=new FetchBroker(c,full->{boolean wait=opened.incrementAndGet()==1;return new ProfileProvider(){public void authenticate()throws Failure{if(wait){authenticating.countDown();try{new CountDownLatch(1).await();}catch(InterruptedException e){throw new Failure("REQUEST_CANCELLED");}}}public byte[] fetch(String u){profiles.incrementAndGet();return new byte[]{1};}public void cancel(){}};},new TestTime());
+  b.beginBatch();CompletableFuture<byte[]> first=b.submit("first",false);assertTrue(authenticating.await(3,TimeUnit.SECONDS));b.cancelBulk();assertTrue(first.isCancelled());long end=System.nanoTime()+TimeUnit.SECONDS.toNanos(2);while(b.authenticating!=null&&System.nanoTime()<end)Thread.yield();assertEquals(0,profiles.get());b.beginBatch();assertArrayEquals(new byte[]{1},b.submit("next",false).get(3,TimeUnit.SECONDS));assertEquals(2,opened.get());assertEquals(1,profiles.get());b.endBatch();
  }
 }

@@ -59,7 +59,13 @@ final class WebViewProfileProvider implements ProfileProvider {
         } catch (IOException error) { throw new Failure("WEBVIEW_PROBE_UNAVAILABLE", 0, 0, true); }
         try (InputStream in = context.getAssets().open("profile-probe-hd.js")) { ByteArrayOutputStream out = new ByteArrayOutputStream(); byte[] b = new byte[4096]; int n; while((n=in.read(b))!=-1){if(out.size()+n>32768)throw new IOException();out.write(b,0,n);} hdProbe = out.toString("UTF-8"); } catch(IOException e) { throw new Failure("WEBVIEW_PROBE_UNAVAILABLE"); }
     }
-    @Override public void authenticate() throws Failure { log.session("AUTHENTICATION_STARTED"); try { resolve("", false); log.session("SESSION_VERIFIED"); } catch (Failure e) { log.session(e.code.equals("COOKIE_INVALID_EXPIRED") ? "SESSION_UNVERIFIED" : "SESSION_UNKNOWN"); throw e; } }
+    private volatile boolean verifiedSession;
+    @Override public void authenticate() throws Failure {
+        if (sessionReady.getCount() == 0 && sessionFailure == null) log.session("SHARED_COOKIES_REUSED");
+        log.session("AUTHENTICATION_STARTED"); verifiedSession = false;
+        try { resolve("", false); verifiedSession = true; log.session("SESSION_VERIFIED"); }
+        catch (Failure e) { log.session(e.code.equals("COOKIE_INVALID_EXPIRED") ? "SESSION_UNVERIFIED" : "SESSION_UNKNOWN"); throw e; }
+    }
     @Override public byte[] fetch(String user) throws Failure { return fetch(user, false); }
     @Override public byte[] fetch(String user, boolean highResolution) throws Failure {
         if (!Identity.valid(user) || !Identity.normalize(user).equals(user)) throw new Failure("PROFILE_IDENTITY_UNVERIFIED");
@@ -114,7 +120,7 @@ final class WebViewProfileProvider implements ProfileProvider {
         if (sessionFailure != null) throw sessionFailure;
         if (cancelled) throw new Failure("REQUEST_CANCELLED");
     }
-    private void applySessionCookies(CookieManager manager, int index) {
+    void applySessionCookies(CookieManager manager, int index) {
         if (cancelled) { sessionFailure = new Failure("REQUEST_CANCELLED"); sessionReady.countDown(); return; }
         if (index == cookies.entries.size()) { log.session("SHARED_COOKIES_APPLIED"); sessionReady.countDown(); return; }
         CookieJar.Entry entry = cookies.entries.get(index);
@@ -122,10 +128,13 @@ final class WebViewProfileProvider implements ProfileProvider {
             || !(entry.domain.equals("www.instagram.com") || entry.domain.equals("instagram.com") && entry.subdomains)) { applySessionCookies(manager, index + 1); return; }
         if (!entry.path.matches("/[A-Za-z0-9_./%~\\-]*")) { sessionFailure = new Failure("COOKIE_INVALID", 0, 0, true); sessionReady.countDown(); return; }
         String value = entry.name + "=" + entry.value + "; Path=" + entry.path + "; Secure; SameSite=Lax" + (entry.name.equals("sessionid") ? "; HttpOnly" : "");
-        manager.setCookie("https://www.instagram.com/", value, accepted -> {
-            if (!Boolean.TRUE.equals(accepted)) { sessionFailure = new Failure("COOKIE_WEBVIEW_REJECTED", 0, 0, true); sessionReady.countDown(); }
-            else applySessionCookies(manager, index + 1);
-        });
+        try {
+            manager.setCookie("https://www.instagram.com/", value, accepted -> {
+                if (!Boolean.TRUE.equals(accepted)) { sessionFailure = new Failure("COOKIE_WEBVIEW_REJECTED", 0, 0, true); sessionReady.countDown(); }
+                else applySessionCookies(manager, index + 1);
+            });
+        } catch (RuntimeException error) { sessionFailure = new Failure("WEBVIEW_UNAVAILABLE", 0, 0, true); sessionReady.countDown(); }
+
     }
     @Override public void trim(int limit) { ceiling = Math.max(1, limit); main.post(() -> { while (views.size() > ceiling && !idle.isEmpty()) destroy(idle.remove()); }); }
     private void destroy(WebView view) { idle.remove(view); if (views.remove(view)) view.destroy(); }
@@ -162,7 +171,7 @@ final class WebViewProfileProvider implements ProfileProvider {
         }
     }
 
-    private final class Operation {
+    final class Operation {
         final String user, expectedId;
         final boolean highResolution;
         final CountDownLatch done = new CountDownLatch(1);
@@ -176,14 +185,17 @@ final class WebViewProfileProvider implements ProfileProvider {
         boolean pageFinished, candidateFound; int http;
         String sessionEvidence = "UNKNOWN";
         Diagnostics.Reason reason = Diagnostics.Reason.UNKNOWN_RESPONSE;
-        Operation(String user, String expectedId, boolean highResolution) { this.user = user; this.expectedId = expectedId; this.highResolution = highResolution; }
+        Operation(String user, String expectedId, boolean highResolution) { this.user = user; this.expectedId = expectedId; this.highResolution = highResolution; sessionEvidence = verifiedSession ? "VERIFIED" : "UNKNOWN"; }
         void later(Runnable action, long delay) { main.postAtTime(action, token, SystemClock.uptimeMillis() + delay); }
+        void armWatchdog() {
+            if (!timingStarted) { timingStarted = true; later(() -> fail(new Failure("WEBVIEW_TIMEOUT")), user.isEmpty() ? 18000 : 55000); }
+        }
         @SuppressLint("SetJavaScriptEnabled")
         void start() {
             if (finishing) return;
             if (cancelled) { fail(new Failure("REQUEST_CANCELLED")); return; }
             // Includes creation/cookie setup; no indefinitely pending platform callback.
-            if(!timingStarted){timingStarted=true;later(() -> fail(new Failure("WEBVIEW_TIMEOUT", 0, 0, true)), user.isEmpty() ? 18000 : 55000);}
+            armWatchdog();
             try {
                 WebView.setWebContentsDebuggingEnabled(false);
                 view = idle.poll();
@@ -225,7 +237,8 @@ final class WebViewProfileProvider implements ProfileProvider {
                 started = true; deadline = SystemClock.uptimeMillis() + (user.isEmpty() ? 10000 : 45000);
                 pages.load(view, "https://www.instagram.com/" + (user.isEmpty() ? "" : user + "/"));
                 later(this::poll, 500);
-            } catch (RuntimeException | LinkageError error) { fail(new Failure("WEBVIEW_UNAVAILABLE", 0, 0, true)); }
+            } catch (OutOfMemoryError error) { fail(new Failure("IMAGE_MEMORY_LIMIT", 0, 0, true)); }
+            catch (RuntimeException | LinkageError error) { fail(new Failure("WEBVIEW_UNAVAILABLE", 0, 0, true)); }
         }
         WebViewClient client() { return new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest request) {
@@ -237,6 +250,7 @@ final class WebViewProfileProvider implements ProfileProvider {
             }
             @Override public void onPageStarted(WebView v, String url, Bitmap favicon) {
                 if (finishing || !started) return;
+                pageFinished = false; http = 0;
                 String code = WebProfilePolicy.navigation(url, user);
                 if (!code.isEmpty()) fail(new Failure(code, 0, 0, true));
             }
@@ -260,7 +274,7 @@ final class WebViewProfileProvider implements ProfileProvider {
                 if (response.getResponseHeaders() != null) for (Map.Entry<String,String> entry : response.getResponseHeaders().entrySet())
                     if (entry.getKey().equalsIgnoreCase("Retry-After")) retry = entry.getValue();
                 Failure error = WebProfilePolicy.http(response.getStatusCode(), request.isForMainFrame(), retry);
-                if (error != null) fail(error);
+                if (error != null && !(request.isForMainFrame() && response.getStatusCode() == 404 && !user.isEmpty())) fail(error);
             }
             @Override public void onReceivedError(WebView v, WebResourceRequest request, WebResourceError error) {
                 if (request.isForMainFrame() && !finishing) fail(new Failure("WEBVIEW_NETWORK_ERROR", 0, 0, true));
@@ -286,10 +300,8 @@ final class WebViewProfileProvider implements ProfileProvider {
         void poll() {
             if (finishing) return;
             if (cancelled) { fail(new Failure("REQUEST_CANCELLED")); return; }
-            if (SystemClock.uptimeMillis() >= deadline) {
-                reason = Diagnostics.Reason.DEADLINE;
-                fail(new Failure(user.isEmpty() ? "COOKIE_AUTH_UNVERIFIED" : "PROFILE_IMAGE_URL_MISSING", 200, 0, user.isEmpty())); return;
-            }
+            Failure expired = ProbeDecision.deadline(SystemClock.uptimeMillis(), deadline);
+            if (expired != null) { reason = Diagnostics.Reason.DEADLINE; fail(expired); return; }
             try {
                 String url = view.getUrl();
                 if (url == null || url.equals("about:blank")) { later(this::poll, 500); return; }
@@ -300,27 +312,28 @@ final class WebViewProfileProvider implements ProfileProvider {
                     try {
                         JSONObject data = WebProfilePolicy.snapshot(encoded);
                         reason = Diagnostics.reason(data.optString("reason"));
-                        candidateFound = data.optBoolean("candidateFound") || data.has("url");
+                        candidateFound |= data.optBoolean("candidateFound") || data.has("url");
                         if (data.optBoolean("authenticated")) sessionEvidence = "VERIFIED";
-                        String wall = data.optString("wall");
-                        if (!wall.isEmpty()) {
-                            // Only this fixed vocabulary may cross into logs.
-                            for (String allowed : new String[]{"RATE_LIMITED","ACCESS_BLOCKED","CHALLENGE_REQUIRED","COOKIE_INVALID_EXPIRED","PROFILE_PAGE_UNAVAILABLE","PROFILE_DEFAULT_AVATAR","PROFILE_DATA_AMBIGUOUS","UNTRUSTED_SOURCE"})
-                                if (wall.equals(allowed)) { fail(new Failure(allowed, 200, allowed.equals("RATE_LIMITED") ? PublicProfileProvider.retryAt(null, System.currentTimeMillis()) : 0, !allowed.equals("PROFILE_DEFAULT_AVATAR") && !allowed.equals("PROFILE_DATA_AMBIGUOUS") && !allowed.equals("PROFILE_PAGE_UNAVAILABLE"))); return; }
-                            fail(new Failure("WEBVIEW_SNAPSHOT_INVALID", 0, 0, true)); return;
-                        }
-                        if (user.isEmpty() && data.optBoolean("authenticated")) { finish(data, null); return; }
-                        if (!user.isEmpty() && data.has("url")) { WebProfilePolicy.image(data, user); log.log("WEBVIEW", "PROFILE_IMAGE_RESOLVED", 0); finish(data, null); return; }
+                        // A late JS callback must not turn an expired operation into success or no-image.
+                        Failure late = ProbeDecision.deadline(SystemClock.uptimeMillis(), deadline);
+                        if (late != null) { fail(late); return; }
+                        if (user.isEmpty() && data.optBoolean("authenticated") && data.optString("wall").isEmpty()) { finish(data, null); return; }
+                        if (!user.isEmpty() && data.has("url") && data.optString("wall").isEmpty()) { WebProfilePolicy.image(data, user); finish(data, null); return; }
+                        Failure decision = ProbeDecision.failure(data, user, http, verifiedSession, candidateFound);
+                        if (decision != null) { fail(decision); return; }
                         later(this::poll, 500);
                     } catch (Failure error) { fail(error); }
+                    catch (OutOfMemoryError error) { fail(new Failure("IMAGE_MEMORY_LIMIT", 0, 0, true)); }
+                    catch (RuntimeException error) { fail(new Failure("WEBVIEW_SCRIPT_ERROR", 0, 0, true)); }
                 });
-            } catch (RuntimeException error) { fail(new Failure("WEBVIEW_SCRIPT_ERROR", 0, 0, true)); }
+            } catch (OutOfMemoryError error) { fail(new Failure("IMAGE_MEMORY_LIMIT", 0, 0, true)); }
+            catch (RuntimeException error) { fail(new Failure("WEBVIEW_SCRIPT_ERROR", 0, 0, true)); }
         }
         void fail(Failure error) { if (error.code.equals("WEBVIEW_TIMEOUT")) reason = Diagnostics.Reason.DEADLINE; if (error.code.equals("COOKIE_INVALID_EXPIRED")) { reason = Diagnostics.Reason.COOKIE_OR_LOGIN_GATE; sessionEvidence = "UNVERIFIED"; } finish(null, error); }
         void finish(JSONObject data, Failure error) {
             if (finishing) return;
             finishing = true; result = data; failure = error; main.removeCallbacksAndMessages(token);
-            log.outcome(error == null ? (user.isEmpty() ? "SESSION_VERIFIED" : "PROFILE_IMAGE_RESOLVED") : error.code, reason, http, pageFinished, candidateFound, sessionEvidence, SystemClock.uptimeMillis() - began, user.isEmpty() ? 10000 : 45000);
+            log.outcome(error == null ? (user.isEmpty() ? "SESSION_VERIFIED" : "PROFILE_IMAGE_RESOLVED") : error.code, reason, error != null && error.http != 0 ? error.http : http, pageFinished, candidateFound, sessionEvidence, SystemClock.uptimeMillis() - began, user.isEmpty() ? 10000 : 45000);
             if (error != null) log.log("WEBVIEW", error.code, error.http);
             if (error != null && FailurePolicy.pause(error)) barrier = error;
             try {
@@ -345,7 +358,7 @@ final class WebViewProfileProvider implements ProfileProvider {
                 });
                 later(() -> { if (!completed) { destroy(reset); complete(); } }, 2000);
                 reset.loadUrl("about:blank");
-            } catch (RuntimeException | LinkageError cleanup) { failure = new Failure("WEBVIEW_CLEANUP_FAILED", 0, 0, true); complete(); }
+            } catch (RuntimeException | LinkageError cleanup) { barrier = new Failure("WEBVIEW_CLEANUP_FAILED", 0, 0, true); if (failure == null) failure = barrier; log.log("WEBVIEW", "WEBVIEW_CLEANUP_FAILED", 0); complete(); }
         }
         void complete() {
             if (completed) return;

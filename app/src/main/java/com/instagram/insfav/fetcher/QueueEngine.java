@@ -31,7 +31,7 @@ final class QueueEngine {
    ArrayDeque<String> targets=new ArrayDeque<>(queue.eligible());
    while(!interrupted()){
     if(generation!=settings.getLong("datasetGeneration",0)){state("Paused: collections or folder changed");return;}
-    if(!settings.getString("blocked","").isEmpty()){for(String user:flights.keySet())queue.mark(user,"RETRY_LATER",settings.getString("blocked",""));state("RATE_LIMITED".equals(settings.getString("blocked",""))?"Rate Limited":"Paused: "+settings.getString("blocked",""));return;}
+    if(!settings.getString("blocked","").isEmpty()){for(String user:flights.keySet())queue.mark(user,"RETRY_LATER",settings.getString("blocked",""));state("RATE_LIMITED".equals(settings.getString("blocked",""))?"Rate Limited":SessionState.pausedText(settings.getString("blocked","")));return;}
     if(!RunPolicy.read(settings).contains(ZonedDateTime.now()))hoursEnded=true;
     if(bounded&&System.currentTimeMillis()-started>=120000)hoursEnded=true;
     while(!hoursEnded&&!targets.isEmpty()&&flights.size()<broker.capacity()&&!interrupted()){
@@ -42,24 +42,28 @@ final class QueueEngine {
     }
     if(flights.isEmpty()){
      if(hoursEnded){state("Paused — Outside Schedule");return;}
-     if(targets.isEmpty()){targets.addAll(queue.eligible());if(targets.isEmpty()){settings.edit().putBoolean("armed",false).commit();state("Completed");return;}}
+     if(targets.isEmpty()){targets.addAll(queue.eligible());if(targets.isEmpty()){if(queue.counts().getOrDefault("RETRY_LATER",0)>0){state("Paused: retry limit reached; queue preserved");return;}settings.edit().putBoolean("armed",false).commit();state("Completed");return;}}
      continue;
     }
     boolean completed=false;
-    for(Iterator<Map.Entry<String,CompletableFuture<byte[]>>> it=flights.entrySet().iterator();it.hasNext();){Map.Entry<String,CompletableFuture<byte[]>> f=it.next();if(!f.getValue().isDone())continue;completed=true;String user=f.getKey();byte[] original=null;
+    for(Iterator<Map.Entry<String,CompletableFuture<byte[]>>> it=flights.entrySet().iterator();it.hasNext();){Map.Entry<String,CompletableFuture<byte[]>> f=it.next();if(!f.getValue().isDone())continue;completed=true;String user=f.getKey();byte[] original=null;boolean committing=false;
      try{
       original=f.getValue().get();byte[] thumbnail=ThumbnailCodec.convert(original);if(interrupted())break;
       if(generation!=settings.getLong("datasetGeneration",0)){state("Paused: data changed");return;}
-      android.net.Uri uri=output.commit(Identity.outputFilename(user),thumbnail,false);Fetcher.host().imageWritten(user,uri,settings.getString("tree",""));queue.mark(user,output.lastWriteCreated?"SUCCESS":"EXISTING","VALID_WEBP");new Diagnostics(context).log("PROFILE","SUCCESS",0);
-     }catch(ExecutionException e){Throwable cause=e.getCause();ProfileProvider.Failure error=cause instanceof ProfileProvider.Failure?(ProfileProvider.Failure)cause:new ProfileProvider.Failure("PROCESSING_ERROR");
+      committing=true;android.net.Uri uri=output.commit(Identity.outputFilename(user),thumbnail,false);Fetcher.host().imageWritten(user,uri,settings.getString("tree",""));queue.mark(user,output.lastWriteCreated?"SUCCESS":"EXISTING","VALID_WEBP");new Diagnostics(context).log("PROFILE","SUCCESS",0);
+     }catch(ExecutionException e){Throwable cause=e.getCause();ProfileProvider.Failure error=cause instanceof ProfileProvider.Failure?(ProfileProvider.Failure)cause:new ProfileProvider.Failure("PROFILE_PROCESSING_ERROR");
       if(error.code.equals("OUTSIDE_WORKING_HOURS")){hoursEnded=true;}
-      else if(FailurePolicy.pause(error)){queue.mark(user,"RETRY_LATER",error.code);state(error.code.equals("RATE_LIMITED")?"Rate Limited":"Paused: "+error.code);return;}
+      else if(FailurePolicy.sessionTransient(error)){queue.mark(user,"RETRY_LATER",error.code);state("Waiting: session verification retry");return;}
+      else if(FailurePolicy.pause(error)){queue.mark(user,"RETRY_LATER",error.code);state(error.code.equals("RATE_LIMITED")?"Rate Limited":SessionState.pausedText(error.code));return;}
       else if(FailurePolicy.unavailable(error))queue.mark(user,"SKIPPED_UNAVAILABLE",error.code);
       else if(FailurePolicy.noImage(error))queue.mark(user,"SKIPPED_NO_IMAGE",error.code);
+      else if(FailurePolicy.retry(error)){queue.attempted(user);queue.mark(user,"RETRY_LATER",error.code);}
       else{queue.attempted(user);queue.mark(user,"FAILED",error.code);}
       new Diagnostics(context).log("PROFILE",error.code,error.http);
      }catch(CancellationException e){queue.mark(user,"RETRY_LATER","REQUEST_CANCELLED");}
-     catch(IOException e){queue.attempted(user);queue.mark(user,"FAILED",Diagnostics.imageCode(e));}
+     catch(IOException e){if(committing)throw e;queue.attempted(user);queue.mark(user,"FAILED",Diagnostics.imageCode(e));}
+     catch(SecurityException|android.database.sqlite.SQLiteException e){throw e;}
+     catch(RuntimeException e){queue.attempted(user);queue.mark(user,"FAILED","PROFILE_PROCESSING_ERROR");new Diagnostics(context).log("PROFILE","PROFILE_PROCESSING_ERROR",0);}
      finally{if(original!=null)Arrays.fill(original,(byte)0);it.remove();}
      Map<String,Integer> totals=queue.counts();finished=Math.max(0,terminalCount(totals)-startingTerminal);long elapsed=Math.max(1,System.currentTimeMillis()-started);QueueControl.completedPerMinute=finished*60000.0/elapsed;QueueControl.etaSeconds=finished>=3?(long)(Math.max(0,totals.getOrDefault("PENDING",0)+totals.getOrDefault("RETRY_LATER",0))*60.0/QueueControl.completedPerMinute):-1;state("Downloading");
     }
@@ -67,7 +71,11 @@ final class QueueEngine {
    }
    state(QueueControl.requested?QueueControl.requestedState:cancelledState);
   }catch(SecurityException e){settings.edit().putString("blocked","STORAGE_PERMISSION_LOST").commit();state("Paused: folder write permission required");}
-  catch(Exception|OutOfMemoryError e){settings.edit().putString("blocked","PROCESSING_ERROR").commit();state("Paused: processing error; queue preserved");}
-  finally{try(QueueStore q=new QueueStore(context)){q.meta("sourceRevision",Long.toString(Fetcher.host().revision()));}catch(Exception ignored){}broker.cancelBulk();broker.endBatch();settings.edit().putLong("elapsedSeconds",settings.getLong("elapsedSeconds",0)+Math.max(0,(System.currentTimeMillis()-started)/1000)).putLong("startedAt",0).apply();QueueControl.current="";QueueControl.etaSeconds=-1;Fetcher.publish();}
+  catch(android.database.sqlite.SQLiteException e){settings.edit().putString("blocked","DATABASE_ERROR").commit();state("Paused: database error; queue preserved");}
+  catch(IOException e){String code=Diagnostics.storageCode(e);settings.edit().putString("blocked",code).commit();new Diagnostics(context).log("STORAGE",code,0);state("Paused: storage access error; queue preserved");}
+  catch(OutOfMemoryError e){broker.cancelBulk();settings.edit().putString("blocked","IMAGE_MEMORY_LIMIT").commit();state("Paused: memory limit; queue preserved");}
+  catch(InterruptedException e){Thread.currentThread().interrupt();state(cancelledState);}
+  catch(Exception e){settings.edit().putString("blocked","PROCESSING_ERROR").commit();state("Paused: processing error; queue preserved");}
+  finally{broker.cancelBulk();try(QueueStore q=new QueueStore(context)){q.deferClaims("REQUEST_CANCELLED");q.meta("sourceRevision",Long.toString(Fetcher.host().revision()));}catch(Exception ignored){}broker.endBatch();settings.edit().putLong("elapsedSeconds",settings.getLong("elapsedSeconds",0)+Math.max(0,(System.currentTimeMillis()-started)/1000)).putLong("startedAt",0).apply();QueueControl.current="";QueueControl.etaSeconds=-1;Fetcher.publish();}
  }
 }

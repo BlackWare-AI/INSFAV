@@ -25,7 +25,7 @@ final class WebProfilePolicy {
     }
     static ProfileProvider.Failure http(int status, boolean main, String retry) {
         if (status == 429) return new ProfileProvider.Failure("RATE_LIMITED", status, PublicProfileProvider.retryAt(retry, System.currentTimeMillis()), true);
-        if (status == 401) return new ProfileProvider.Failure("COOKIE_INVALID_EXPIRED", status, 0, true);
+        if (status == 401) return new ProfileProvider.Failure(main ? "COOKIE_INVALID_EXPIRED" : "ACCESS_BLOCKED", status, 0, true);
         if (!main) return null;
         if (status == 404) return new ProfileProvider.Failure("PROFILE_NOT_FOUND_OR_UNAVAILABLE", status, 0, false);
         if (status == 403) return new ProfileProvider.Failure("PRIVATE_RESTRICTED", status, 0, true);

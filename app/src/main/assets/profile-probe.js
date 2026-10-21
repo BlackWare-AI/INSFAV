@@ -14,9 +14,9 @@ function (expected, expectedId, preferHigh) {
     }
     const pageText = document.body && typeof document.body.innerText === "string" ? document.body.innerText.slice(0, 24000).toLowerCase() : "";
     if (/please wait a few minutes before you try again|we restrict certain activity/.test(pageText)) return wall("RATE_LIMITED", "TEXT_MATCH");
-    if (/sorry, this page isn.t available|bu sayfa kullanılamıyor/.test(pageText)) return wall("PROFILE_PAGE_UNAVAILABLE", "TEXT_MATCH");
+    const unavailableText = /sorry, this page isn.t available|bu sayfa kullanılamıyor/.test(pageText);
     const structured = new Set();
-    let viewer = false, anonymous = false, routedError = false, visits = 0;
+    let viewer = false, anonymous = false, routedError = false, structuredIdentity = false, visits = 0;
     const normalize = x => typeof x === "string" ? x.trim().replace(/^@/, "").toLowerCase() : "";
     const picture = x => x && (x.profile_pic_url_hd || (x.hd_profile_pic_url_info || {}).url ||
         x.profile_pic_url || (x.profile_pic_url_info || {}).url);
@@ -32,6 +32,7 @@ function (expected, expectedId, preferHigh) {
             if (u && normalize(u.username) && /^[0-9]+$/.test(String(u.id || u.pk || "")) && expectedId && String(u.id || u.pk) === expectedId) viewer = true;
         }
         if (expected && normalize(o.username) === expected && /^[0-9]+$/.test(String(o.id || o.pk || ""))) {
+            structuredIdentity = true;
             if (o.has_anonymous_profile_picture === true || o.has_profile_pic === false) anonymous = true;
             else if ((o.has_anonymous_profile_picture === undefined || o.has_anonymous_profile_picture === false) && typeof picture(o) === "string") structured.add(picture(o));
         }
@@ -48,8 +49,8 @@ function (expected, expectedId, preferHigh) {
     if (result.wall) return wall(result.wall, "COOKIE_OR_LOGIN_GATE");
     result.authenticated = viewer;
     if (!expected) return JSON.stringify(result);
-    if (routedError) return wall("PROFILE_PAGE_UNAVAILABLE", "ROUTED_ERROR");
-    if (anonymous) return wall("PROFILE_DEFAULT_AVATAR");
+    result.unavailableText = unavailableText;
+    result.routedError = routedError;
     const canonical = document.querySelector('link[rel="canonical"]');
     let canonicalUser = "";
     try {
@@ -57,6 +58,7 @@ function (expected, expectedId, preferHigh) {
         if (u.protocol === "https:" && /^(www\.)?instagram\.com$/.test(u.hostname)) canonicalUser = normalize(u.pathname.replace(/^\/|\/$/g, ""));
     } catch (_) {}
     if (canonicalUser !== expected) return JSON.stringify(Object.assign(result, {reason: "CANONICAL_MISMATCH"}));
+    result.identityConfirmed = canonicalUser === expected || structuredIdentity;
     const safe = raw => {
         try {
             const u = new URL(raw);
@@ -76,6 +78,7 @@ function (expected, expectedId, preferHigh) {
     result.searchCompleted = true;
     result.candidateFound = candidates.size > 0 || structured.size > 0;
     result.reason = result.pageReady ? "NO_CANDIDATE" : "PAGE_NOT_READY";
+    if (!result.identityConfirmed && result.candidateFound) return JSON.stringify(Object.assign(result, {reason: "UNKNOWN_RESPONSE"}));
     let url = "", kind = "", img;
     if (preferHigh && structured.size === 1) {
         url = Array.from(structured)[0]; kind = "profile_json";
@@ -111,6 +114,15 @@ function (expected, expectedId, preferHigh) {
         }
         img = window.__insfavImage;
     }
-    if (!url || !img || !img.complete || img.naturalWidth < 32 || img.naturalHeight < 32) return JSON.stringify(result);
+    // Search identity-bound images before treating visible text or routed UI as evidence.
+    // Repeated snapshots of this document do not constitute independent confirmation.
+    if (!url) {
+        if (unavailableText) return wall("PROFILE_PAGE_UNAVAILABLE", "TEXT_MATCH");
+        if (routedError) return wall("PROFILE_PAGE_UNAVAILABLE", "ROUTED_ERROR");
+        if (anonymous && structuredIdentity && result.pageReady) return wall("PROFILE_DEFAULT_AVATAR", "NO_CANDIDATE");
+        return JSON.stringify(result);
+    }
+    if (!img || !img.complete || img.naturalWidth < 32 || img.naturalHeight < 32)
+        return JSON.stringify(Object.assign(result, {reason: "PAGE_NOT_READY"}));
     return JSON.stringify(Object.assign(result, {url, kind, loaded: true, width: img.naturalWidth, height: img.naturalHeight}));
 }

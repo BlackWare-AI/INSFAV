@@ -30,5 +30,6 @@ public class DiagnosticsTest {
         for (String field : new String[]{"code=WEBVIEW_TIMEOUT", "reason=DEADLINE", "http=0", "pageFinished=false", "candidateFound=true", "session=UNKNOWN", "elapsedMs=45000", "timeoutMs=45000", "workers=10", "effectiveWorkers=", "activeAccounts=", "queuedAccounts=", "queue=", "batch=7", "SESSION SHARED_COOKIES_APPLIED 7", "SESSION SESSION_UNKNOWN 7", "reason=UNKNOWN_RESPONSE"}) assertTrue(field, text.contains(field));
         assertFalse(text.contains("SECRET")); assertFalse(text.contains("private.test"));
         assertFalse(text.contains("SESSION SESSION_VERIFIED"));
+        System.out.println("OFFLINE_FIXTURE_DIAGNOSTICS_BEGIN\n" + text + "OFFLINE_FIXTURE_DIAGNOSTICS_END");
     }
 }

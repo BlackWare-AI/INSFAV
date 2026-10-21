@@ -39,7 +39,9 @@ public class WebProfileTest {
     @Test public void ajaxRateLimitAndSessionFailuresPauseButImage404IsNotProfileDeletion() {
         ProfileProvider.Failure rate=WebProfilePolicy.http(429,false,"120");
         assertEquals("RATE_LIMITED",rate.code);assertTrue(rate.pause);assertTrue(rate.retryAt>=System.currentTimeMillis()+119000);
-        assertEquals("COOKIE_INVALID_EXPIRED",WebProfilePolicy.http(401,false,null).code);
+        assertEquals("ACCESS_BLOCKED",WebProfilePolicy.http(401,false,null).code);
+        assertFalse(SessionState.invalid(WebProfilePolicy.http(401,false,null)));
+        assertEquals("COOKIE_INVALID_EXPIRED",WebProfilePolicy.http(401,true,null).code);
         assertNull(WebProfilePolicy.http(404,false,null));
         assertEquals("PROFILE_NOT_FOUND_OR_UNAVAILABLE",WebProfilePolicy.http(404,true,null).code);
         assertFalse(WebProfilePolicy.http(404,true,null).pause);

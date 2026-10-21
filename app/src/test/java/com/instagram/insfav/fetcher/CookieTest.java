@@ -68,4 +68,14 @@ public class CookieTest {
         }, jar);
         provider.fetch("example"); assertEquals(2, requests[0]);
     }
+    @Test public void cookieSetupAndTransferDoNotProveSessionValidity() {
+        assertFalse(SessionState.invalid(new ProfileProvider.Failure("COOKIE_WEBVIEW_REJECTED")));
+        assertFalse(SessionState.invalid(new ProfileProvider.Failure("COOKIE_WEBVIEW_SETUP_TIMEOUT")));
+        assertFalse(SessionState.invalid(new ProfileProvider.Failure("COOKIE_AUTH_UNVERIFIED")));
+        assertTrue(SessionState.invalid(new ProfileProvider.Failure("COOKIE_INVALID_EXPIRED")));
+        android.content.SharedPreferences p = SessionState.prefs(RuntimeEnvironment.getApplication());
+        p.edit().putString("sessionEvidence","INVALID").commit(); assertEquals("UNVERIFIED",SessionState.evidence(p));
+        p.edit().putString("sessionEvidence","UNKNOWN").commit(); new Diagnostics(RuntimeEnvironment.getApplication()).session("SHARED_COOKIES_APPLIED");
+        assertEquals("UNKNOWN",SessionState.evidence(p));
+    }
 }

@@ -56,7 +56,9 @@ final class QueueStore extends SQLiteOpenHelper {
     int attempts(String user) {try(Cursor c=getReadableDatabase().rawQuery("SELECT attempts FROM accounts WHERE username=?",new String[]{user})){return c.moveToFirst()?c.getInt(0):0;}}
     void attempted(String user) {getWritableDatabase().execSQL("UPDATE accounts SET attempts=attempts+1 WHERE username=?",new String[]{user});}
     void retrySkipped(){getWritableDatabase().execSQL("UPDATE accounts SET status='PENDING',phase='PENDING',code='',attempts=0 WHERE status IN ('SKIPPED_UNAVAILABLE','SKIPPED_NO_IMAGE','FAILED','RETRY_LATER')");}
-    void prepareMissing() {getWritableDatabase().execSQL("UPDATE accounts SET status='PENDING',phase='PENDING',code='',attempts=0,eligible=1 WHERE status NOT IN ('SUCCESS','EXISTING','SKIPPED_UNAVAILABLE','SKIPPED_NO_IMAGE')");}
+    // Start Missing does not erase failure history; retry_skipped is an explicit user action.
+    void prepareMissing() {getWritableDatabase().execSQL("UPDATE accounts SET eligible=1 WHERE status='PENDING'");}
+    void deferClaims(String code) {getWritableDatabase().execSQL("UPDATE accounts SET status='RETRY_LATER',phase='PENDING',code=? WHERE phase='DOWNLOADING'", new Object[]{code});}
     String next(){
         for(String condition:new String[]{"status='PENDING'","status='RETRY_LATER' AND attempts<3"})try(Cursor c=getReadableDatabase().rawQuery("SELECT username FROM accounts WHERE "+condition+" ORDER BY position LIMIT 1",null)){if(c.moveToFirst())return c.getString(0);}return null;
     }

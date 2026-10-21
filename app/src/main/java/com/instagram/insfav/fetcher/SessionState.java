@@ -10,8 +10,13 @@ final class SessionState {
         prefs(c).edit().putString("cookieGeneration", UUID.randomUUID().toString()).putString("sessionEvidence", "UNKNOWN").putBoolean("armed", false).putBoolean("userPaused", true).putString("blocked", "").commit();
         WorkScheduler.cancel(c);
     }
+    static boolean invalid(ProfileProvider.Failure e) { return e.code.equals("COOKIE_INVALID_EXPIRED") || e.code.equals("COOKIE_EXPIRED"); }
+    static String pausedText(String code) {
+        return code.equals("COOKIE_INVALID_EXPIRED") || code.equals("COOKIE_EXPIRED") ? "Paused: session not verified" : "Paused: " + code;
+    }
     static String evidence(SharedPreferences p) {
         String value = p.getString("sessionEvidence", "UNKNOWN");
-        return value.equals("VERIFIED") || value.equals("UNVERIFIED") || value.equals("INVALID") ? value : "UNKNOWN";
+        if (value.equals("INVALID")) return "UNVERIFIED";
+        return value.equals("VERIFIED") || value.equals("UNVERIFIED") ? value : "UNKNOWN";
     }
 }
