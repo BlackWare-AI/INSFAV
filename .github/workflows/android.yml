@@ -7,6 +7,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   verify:
+    if: ${{ !startsWith(github.head_ref || github.ref_name, 'package-verified-') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -82,6 +83,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
           name: INSFAV-builds

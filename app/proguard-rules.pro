@@ -1,2 +1,0 @@
--keepclassmembers class com.instagram.insfav.MainActivity$Bridge { @android.webkit.JavascriptInterface <methods>; }
--keepattributes *Annotation*
