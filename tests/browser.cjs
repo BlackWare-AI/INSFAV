@@ -46,6 +46,8 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
   check(await page.locator('.avatar img').first().evaluate(img=>img.loading==='eager'),'virtualized avatars do not add browser lazy-loading delay');
   await page.evaluate(()=>{window.savedAvatar=document.querySelector('.avatar img');nativeEvent('status',{...snapshot,revision:222});});
   check(await page.evaluate(()=>savedAvatar===document.querySelector('.avatar img')),'unrelated index revision keeps the existing avatar element');
+  await page.evaluate(()=>nativeEvent('image-cache-cleared',{}));await page.locator('.avatar img').first().waitFor();
+  check(await page.evaluate(()=>savedAvatar!==document.querySelector('.avatar img')),'explicit cache clear releases retained browser Image entries');
   check(await page.evaluate(()=>thumbnailMetrics().active<=6&&thumbnailMetrics().retained<=64),'browser image work and retained entries are bounded');
   await page.locator('.avatar').first().click();check(await page.locator('#viewer').isVisible(),'viewer opens cached local thumbnail');
   for(let i=0;i<100&&!await page.locator('#full-image').evaluate(el=>el.src.includes('/full/'));i++)await page.waitForTimeout(50);

@@ -165,7 +165,7 @@ final class LocalImages {
             for (String user : users) {
                 JSONObject image = source.optJSONObject(user);
                 if (usable && image != null && image.optBoolean("readable")) {
-                    matched++; if (includeProfiles) profiles.put(user, new JSONObject().put("file", true).put("width", image.optInt("width")).put("height", image.optInt("height")).put("version", fingerprint(image)));
+                    matched++; if (includeProfiles) profiles.put(user, new JSONObject().put("file", true).put("width", image.optInt("width")).put("height", image.optInt("height")).put("version", fingerprint(image)+(image.optLong("modified")>0&&image.optLong("size",-1)>=0?"":":"+store.index.optLong("scannedAt"))));
                 }
             }
             JSONObject out = new JSONObject().put("total", store.total()).put("unique", users.size()).put("matched", matched).put("missing", users.size() - matched).put("unreadable", store.index.optInt("unreadable")).put("duplicates", store.index.optInt("duplicates")).put("folderBytes", store.index.optLong("bytes")).put("unknownSizes", store.index.optInt("unknownSizes")).put("lastScan", store.index.optLong("scannedAt")).put("folder", store.settings.optString("folderLabel", "Not selected")).put("folderStatus", accessible ? "ready" : store.settings.optString("treeUri").isEmpty() ? "not_selected" : "unavailable").put("folderMessage", accessMessage).put("scanState", scanning ? "scanning" : store.settings.optString("scanState", "idle")).put("scan", progress).put("revision", store.index.optLong("revision")).put("cacheBytes", cacheBytes);

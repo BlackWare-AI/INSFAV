@@ -21,6 +21,7 @@ window.nativeEvent=(event,data)=>{
    if(revision!==lastRevision){lastRevision=revision;cacheVersion++;refreshAvatars(oldProfiles);}
    updateSettings();
   }
+  if(event==='image-cache-cleared')clearBrowserImages();
   if(event==='scan-progress'){state.scan=data;state.scanState=data.state;updateSettings();}
   if(event==='cleared'){doc=null;stats.clear++;opened.clear();rebuild();message('Collections cleared. Local photos are unchanged.');request('status');}
   if(event==='cookie-paste'&&!$('fetcher-screen').hidden)$('cookie-text').value=data;
@@ -50,6 +51,12 @@ function notifyImageFailure(){clearTimeout(imageFailureTimer);imageFailureTimer=
 // A bounded pool of browser Image elements, never a native bitmap or disk cache.
 const avatarImages=new Map(),avatarMetrics={hits:0,misses:0,cancelled:0,loaded:0,loadMs:0},rowPool=[];
 let avatarActive=0,scrollTopLast=0,scrollTimeLast=0,scrollVelocity=0;
+function clearBrowserImages(){
+ for(const entry of avatarImages.values()){entry.status='cancelled';entry.img.onload=entry.img.onerror=null;entry.img.removeAttribute('src');}
+ avatarImages.clear();avatarActive=0;
+ for(const node of mounted.values()){const button=node.querySelector('.avatar');if(button)avatarFor(button,button.dataset.user);}
+ prioritizeAvatars(0);
+}
 function avatarVersion(user){return profiles[user]?.version??cacheVersion;}
 function releaseAvatar(button){
  const entry=button._imageEntry;if(entry){entry.buttons.delete(button);button._imageEntry=null;button.replaceChildren();}

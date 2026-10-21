@@ -123,7 +123,7 @@ public final class MainActivity extends Activity {
                         case "view-closed": Fetcher.closeViewer();runOnUiThread(()->{if(web!=null)web.clearCache(true);});break;
                         case "select-folder": selectFolder(); break;
                         case "rescan": if(Fetcher.running())throw new IOException("Pause the fetcher before rescanning.");startScan(); break;
-                        case "clear-cache": runOnUiThread(()->{if(web!=null)web.clearCache(true);}); images.clearCache(); images.clearLegacyCache(); send("status", images.snapshot(true)); send("message", "Image cache cleared. Source photos and collections are unchanged."); break;
+                        case "clear-cache": runOnUiThread(()->{if(web!=null)web.clearCache(true);}); images.clearCache(); images.clearLegacyCache(); send("image-cache-cleared",new JSONObject()); send("status", images.snapshot(true)); send("message", "Image cache cleared. Source photos and collections are unchanged."); break;
                         case "clear-index": if(Fetcher.running())throw new IOException("Pause the fetcher before clearing its image index.");images.clearIndex(); send("status", images.snapshot(true)); send("message", "Thumbnail index cleared. Source photos and collections are unchanged."); break;
                         case "image-failed": send("status", images.snapshot(true)); break;
                         case "import": runOnUiThread(() -> {
