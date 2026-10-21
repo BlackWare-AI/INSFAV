@@ -1,9 +1,9 @@
 {
   "core.js": {
-    "sourceBytes": 2792,
-    "bundleBytes": 2222,
-    "sourceSha256": "16b8441c9fb44b6a50371eb2777ba538cd5c191a3b4b91819da99c2fef1b8fb7",
-    "bundleSha256": "6c935ad60a4a3b0ba562f69272ef257c7ceab2222790ee74eaf2a9c3c313203e"
+    "sourceBytes": 2816,
+    "bundleBytes": 2234,
+    "sourceSha256": "1cbcb5dd0061de6876a24e1c988e2bada3edb788d86a809e2cb6b6c76c094453",
+    "bundleSha256": "b429adacec02c973e0c4884e7e23103234ebf58d29ce031215b5a73e36c30d69"
   },
   "app.js": {
     "sourceBytes": 30531,
