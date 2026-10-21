@@ -52,6 +52,14 @@ class ReleaseGateTests(unittest.TestCase):
         with patch.object(gate, "captured", return_value="Signer #1 certificate SHA-256 digest: " + "AB" * 32):
             self.assertEqual(gate.apk_certificate("apksigner", "app.apk"), "ab" * 32)
 
+    def test_annotated_and_repeated_scheme_labels_keep_one_signer(self):
+        line = "Signer #1 (current signer) certificate SHA-256 digest: " + "ab" * 32
+        with patch.object(gate, "captured", return_value="Number of signers: 1\n" + line + "\n" + line):
+            self.assertEqual(gate.apk_certificate("apksigner", "app.apk"), "ab" * 32)
+        with patch.object(gate, "captured", return_value="Number of signers: 2\n" + line):
+            with self.assertRaises(gate.GateError):
+                gate.apk_certificate("apksigner", "app.apk")
+
     def test_prepare_refuses_to_overwrite_an_existing_key(self):
         with tempfile.TemporaryDirectory() as folder:
             key = Path(folder) / "existing.p12"

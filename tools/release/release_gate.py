@@ -71,10 +71,14 @@ def prepare(env):
 
 def apk_certificate(apksigner, apk):
     output = captured([str(apksigner), "verify", "--verbose", "--print-certs", str(apk)])
-    certificates = re.findall(r"Signer #\d+ certificate SHA-256 digest:\s*([0-9a-fA-F:]+)", output)
-    if len(certificates) != 1:
+    # SDK versions can annotate signer labels or repeat the same certificate
+    # for multiple APK signature schemes. Reject distinct signers/certificates.
+    certificates = {fingerprint(value) for value in re.findall(r"certificate SHA-256 digest:\s*([0-9a-fA-F:]+)", output)}
+    signers = set(re.findall(r"Signer #(\d+)", output))
+    counts = re.findall(r"Number of signers:\s*(\d+)", output)
+    if len(certificates) != 1 or len(signers) > 1 or any(count != '1' for count in counts):
         raise GateError("Exactly one verified APK signer is required.")
-    return fingerprint(certificates[0])
+    return next(iter(certificates))
 
 
 def check_manifest(output):

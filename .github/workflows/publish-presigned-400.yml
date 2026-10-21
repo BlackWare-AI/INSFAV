@@ -61,7 +61,7 @@ jobs:
           Path('candidate/verification.json').write_text(json.dumps(record, indent=2) + '\n')
           note = ('\n## Installation certificate\n\n'
                   'This APK uses the existing BlackWare release key. Its certificate differs from previously supplied CI debug APKs; it cannot update those installations in place. '
-                  'The user explicitly chose to publish this release independently of debug-update compatibility. No new signing key was generated. '
+                  'Update compatibility with earlier CI debug builds is not provided. No new signing key was generated. '
                   'The signed APK was built from commit `1bfdd3842e9df51046f5075b210c6f737d6a3c4d`; application source is identical to the release tag.\n')
           with Path('candidate/RELEASE-NOTES.md').open('a') as output:
               output.write(note)
