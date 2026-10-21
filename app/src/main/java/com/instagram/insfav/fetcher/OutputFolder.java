@@ -10,11 +10,16 @@ import java.util.*;
 /** SAF only. No broad storage permission and no queue files in the output folder. */
 final class OutputFolder {
     private final ContentResolver resolver;
+    private final QueueStore catalog;
+    private final android.content.SharedPreferences preferences;
+    boolean lastWriteCreated;
     private final android.util.AtomicFile journal;
     private final Uri tree, folder;
     private final Map<String, Uri> files = new HashMap<>();
     private static final java.util.concurrent.atomic.AtomicLong CONTENT_REVISION=new java.util.concurrent.atomic.AtomicLong();private long seenRevision;
-    OutputFolder(Context context, String treeValue) throws IOException {
+    OutputFolder(Context context,String treeValue)throws IOException{this(context,treeValue,null,false,()->{});}
+    OutputFolder(Context context,String treeValue,QueueStore catalog,boolean verify,Runnable progress)throws IOException {
+        this.catalog=catalog;preferences=SessionState.prefs(context);
         resolver = context.getContentResolver(); journal=new android.util.AtomicFile(new File(context.getFilesDir(),"fetcher-write-journal.json")); tree = Uri.parse(treeValue);
         boolean permission = false;
         for (UriPermission p : resolver.getPersistedUriPermissions()) if (p.getUri().equals(tree) && p.isReadPermission() && p.isWritePermission()) permission = true;
@@ -24,8 +29,9 @@ final class OutputFolder {
         try(Cursor c=resolver.query(folder,new String[]{DocumentsContract.Document.COLUMN_MIME_TYPE},null,null)){
             if(c==null||!c.moveToFirst()||!DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(0)))throw new IOException("OUTPUT_FOLDER_INVALID");
         }
-        files.putAll(children(folder));
-        synchronized(WRITE_LOCK){if(journal.getBaseFile().exists()){recoverJournal();files.clear();files.putAll(children(folder));}seenRevision=CONTENT_REVISION.get();}
+        if(catalog==null)files.putAll(children(folder));
+        else if(verify||!FetcherCatalog.ready(catalog,treeValue+"\n"+directory))verifyAll(treeValue+"\n"+directory,progress);
+        synchronized(WRITE_LOCK){if(journal.getBaseFile().exists()){files.putAll(children(folder));recoverJournal();files.clear();if(catalog==null)files.putAll(children(folder));else verifyAll(treeValue+"\n"+directory,progress);}seenRevision=CONTENT_REVISION.get();}
     }
     private Map<String, Uri> children(Uri directory) throws IOException {
         Uri child = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getDocumentId(directory));
@@ -55,12 +61,71 @@ final class OutputFolder {
             return bytes.toByteArray();
         }
     }
-    Uri uri(String filename){return files.get(filename);}
+    Uri uri(String filename)throws IOException {return lookup(filename);}
+    private Uri lookup(String filename)throws IOException {
+        if(catalog==null)return files.get(filename);
+        String user=Identity.normalize(filename.substring(0,filename.length()-5));QueueStore.Image image=catalog.image(user);
+        if(image==null)return refreshOne(filename);
+        if(image.needsCheck){
+            if(image.uri.isEmpty())return refreshOne(filename);
+            try{QueueStore.Image checked=inspect(user,image.name,Uri.parse(image.uri),image.size,image.modified);catalog.image(checked);image=checked;}
+            catch(FileNotFoundException missing){image=new QueueStore.Image(user,"",filename,0,0,0,0,false);catalog.image(image);}
+        }else FetcherCatalog.hits.incrementAndGet();
+        return image.uri.isEmpty()?null:Uri.parse(image.uri);
+    }
+    private Uri refreshOne(String filename)throws IOException {
+        String user=Identity.normalize(filename.substring(0,filename.length()-5));Uri found=null;String name=filename;long size=-1,modified=0;
+        Uri child=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getDocumentId(folder));
+        String[] cols={DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME,DocumentsContract.Document.COLUMN_SIZE,DocumentsContract.Document.COLUMN_LAST_MODIFIED,DocumentsContract.Document.COLUMN_MIME_TYPE};
+        try(Cursor c=resolver.query(child,cols,DocumentsContract.Document.COLUMN_DISPLAY_NAME+"=?",new String[]{filename},null)){
+            if(c==null)throw new IOException("OUTPUT_UNAVAILABLE");
+            while(c.moveToNext()){
+                String candidate=c.getString(1);if(DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(4))||candidate==null||!candidate.toLowerCase(Locale.ROOT).endsWith(".webp"))continue;
+                if(!Identity.normalize(candidate.substring(0,candidate.length()-5)).equals(user))continue;
+                name=candidate;found=DocumentsContract.buildDocumentUriUsingTree(tree,c.getString(0));size=c.isNull(2)?-1:c.getLong(2);modified=c.isNull(3)?0:c.getLong(3);
+                QueueStore.Image checked=inspect(user,name,found,size,modified);catalog.image(checked);if(checked.readable)return found;
+            }
+        }
+        if(found==null)catalog.image(new QueueStore.Image(user,"",filename,0,0,0,0,false));return found;
+    }
     boolean valid(String filename) throws IOException {
-        Uri file = files.get(filename); if (file == null) return false;
-        try { return ThumbnailCodec.valid(read(resolver.openInputStream(file))); }
-        catch (FileNotFoundException error) { throw new IOException("OUTPUT_UNAVAILABLE", error); }
-        catch (IOException error) { if ("OUTPUT_SIZE_REJECTED".equals(error.getMessage())) return false; throw error; }
+        Uri file=lookup(filename);if(file==null)return false;
+        if(catalog!=null){QueueStore.Image image=catalog.image(Identity.normalize(filename.substring(0,filename.length()-5)));return image!=null&&image.readable;}
+        try {return ThumbnailCodec.valid(read(resolver.openInputStream(file)));}
+        catch(FileNotFoundException error){throw new IOException("OUTPUT_UNAVAILABLE",error);}
+        catch(IOException error){if("OUTPUT_SIZE_REJECTED".equals(error.getMessage()))return false;throw error;}
+    }
+    private QueueStore.Image inspect(String user,String name,Uri uri,long size,long modified)throws IOException {
+        android.graphics.BitmapFactory.Options bounds=new android.graphics.BitmapFactory.Options();bounds.inJustDecodeBounds=true;
+        try(InputStream in=resolver.openInputStream(uri)){if(in==null)throw new IOException("OUTPUT_UNAVAILABLE");FetcherCatalog.opens.incrementAndGet();FetcherCatalog.decodes.incrementAndGet();android.graphics.BitmapFactory.decodeStream(in,null,bounds);}
+        boolean readable=false;
+        if(bounds.outWidth>0&&bounds.outHeight>0&&(long)bounds.outWidth*bounds.outHeight<=40000000){android.graphics.BitmapFactory.Options o=new android.graphics.BitmapFactory.Options();o.inSampleSize=1;while(Math.max(bounds.outWidth,bounds.outHeight)/o.inSampleSize>256)o.inSampleSize*=2;
+            try(InputStream in=resolver.openInputStream(uri)){if(in==null)throw new IOException("OUTPUT_UNAVAILABLE");FetcherCatalog.opens.incrementAndGet();FetcherCatalog.decodes.incrementAndGet();android.graphics.Bitmap b=android.graphics.BitmapFactory.decodeStream(in,null,o);readable=b!=null;if(b!=null)b.recycle();}}
+        return new QueueStore.Image(user,uri.toString(),name,size,bounds.outWidth,bounds.outHeight,modified,readable);
+    }
+    private void verifyAll(String scope,Runnable progress)throws IOException {
+        android.database.sqlite.SQLiteDatabase db=catalog.getWritableDatabase();db.beginTransaction();Set<String> seen=new HashSet<>();
+        try {
+            if(!scope.equals(catalog.meta("folder")))db.execSQL("UPDATE accounts SET status='PENDING',phase='PENDING',code='',attempts=0 WHERE status IN ('SUCCESS','EXISTING')");
+            Uri children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getDocumentId(folder));FetcherCatalog.listings.incrementAndGet();
+            String[] cols={DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME,DocumentsContract.Document.COLUMN_SIZE,DocumentsContract.Document.COLUMN_LAST_MODIFIED,DocumentsContract.Document.COLUMN_MIME_TYPE};
+            try(Cursor c=resolver.query(children,cols,null,null,null)){
+                if(c==null)throw new IOException("OUTPUT_UNAVAILABLE");int count=0,total=c.getCount();
+                while(c.moveToNext()){
+                    if(Thread.currentThread().isInterrupted()||QueueControl.requested)throw new IOException("INDEX_INTERRUPTED");
+                    String name=c.getString(1);if(name!=null&&!DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(4))&&name.toLowerCase(Locale.ROOT).matches(".*\\.(webp|png|jpe?g)$")){
+                        String user=Identity.normalize(name.substring(0,name.lastIndexOf('.')));if(Identity.valid(user)){
+                            QueueStore.Image value=inspect(user,name,DocumentsContract.buildDocumentUriUsingTree(tree,c.getString(0)),c.isNull(2)?-1:c.getLong(2),c.isNull(3)?0:c.getLong(3));
+                            QueueStore.Image old=catalog.image(user);if(!seen.contains(user)||old==null||!old.readable&&value.readable||old.readable==value.readable&&(long)value.width*value.height>(long)old.width*old.height)catalog.image(value);if(!value.readable)catalog.requeueLost(user);seen.add(user);
+                        }
+                    }
+                    count++;if(count%64==0||count==total){preferences.edit().putInt("indexProcessed",count).putInt("indexTotal",total).apply();progress.run();}
+                }
+            }
+            List<String> removed=new ArrayList<>();try(Cursor c=db.rawQuery("SELECT username FROM fetch_images",null)){while(c.moveToNext())if(!seen.contains(c.getString(0)))removed.add(c.getString(0));}
+            for(String user:removed){catalog.image(new QueueStore.Image(user,"","",0,0,0,0,false));catalog.requeueLost(user);}
+            catalog.meta("folder",scope);catalog.meta("ready","1");catalog.meta("lastIndex",Long.toString(System.currentTimeMillis()));catalog.settleImages();db.setTransactionSuccessful();
+        }finally{db.endTransaction();}
     }
     void recover(String filename) throws IOException {
         Uri partial = files.get(filename + ".part");
@@ -97,10 +162,12 @@ final class OutputFolder {
     Uri commit(String filename,byte[] bytes,boolean replace)throws IOException{
         synchronized(WRITE_LOCK){
             if(!filename.matches("[a-z0-9._]{1,30}\\.webp")||!ThumbnailCodec.valid(bytes))throw new IOException("OUTPUT_INVALID_WEBP");
-            if(seenRevision!=CONTENT_REVISION.get()||journal.getBaseFile().exists()){files.clear();files.putAll(children(folder));recoverJournal();files.clear();files.putAll(children(folder));seenRevision=CONTENT_REVISION.get();}
-            if(valid(filename))return files.get(filename);
+            lastWriteCreated=false;
+            if(catalog!=null){refreshOne(filename);}
+            if(catalog==null&&(seenRevision!=CONTENT_REVISION.get()||journal.getBaseFile().exists())){files.clear();files.putAll(children(folder));recoverJournal();files.clear();files.putAll(children(folder));seenRevision=CONTENT_REVISION.get();}
+            if(valid(filename))return lookup(filename);
             String nonce=java.util.UUID.randomUUID().toString();String pendingName=".insfav-"+nonce+".part",backupName=".insfav-"+nonce+".bak";
-            Uri pending=null,old=files.get(filename),backup=null,committed=null;
+            Uri pending=null,old=lookup(filename),backup=null,committed=null;
             try{
                 pending=DocumentsContract.createDocument(resolver,folder,"application/octet-stream",pendingName);if(pending==null)throw new IOException("OUTPUT_CREATE_FAILED");exactName(pending,pendingName);
                 try(OutputStream output=resolver.openOutputStream(pending,"wt")){if(output==null)throw new IOException("OUTPUT_WRITE_FAILED");output.write(bytes);output.flush();}
@@ -111,7 +178,9 @@ final class OutputFolder {
                 if(!ThumbnailCodec.valid(read(resolver.openInputStream(committed))))throw new IOException("OUTPUT_FINAL_VERIFY_FAILED");
                 // Only a verified new final file may replace the old valid content.
                 if(backup!=null){try{DocumentsContract.deleteDocument(resolver,backup);}catch(Exception ignored){/* Retain backup rather than risk the final file. */}}
-                journal.delete();files.put(filename,committed);seenRevision=CONTENT_REVISION.incrementAndGet();return committed;
+                journal.delete();files.put(filename,committed);lastWriteCreated=true;
+                if(catalog!=null)catalog.image(new QueueStore.Image(Identity.normalize(filename.substring(0,filename.length()-5)),committed.toString(),filename,bytes.length,ThumbnailCodec.TARGET_SIZE,ThumbnailCodec.TARGET_SIZE,System.currentTimeMillis(),true));
+                seenRevision=CONTENT_REVISION.incrementAndGet();return committed;
             }catch(Exception error){
                 if(committed!=null)try{DocumentsContract.deleteDocument(resolver,committed);}catch(Exception ignored){}
                 if(backup!=null)try{DocumentsContract.renameDocument(resolver,backup,filename);}catch(Exception ignored){/* Old bytes stay in the uniquely named backup, never deleted. */}

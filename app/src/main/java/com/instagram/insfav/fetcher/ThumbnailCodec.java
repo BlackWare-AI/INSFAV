@@ -5,6 +5,8 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 
 final class ThumbnailCodec {
+    static final int TARGET_SIZE=256, LEGACY_SIZE=128;
+    static boolean allowed(int width,int height){return height==width&&(width==LEGACY_SIZE||width==TARGET_SIZE);}
     static final int MAX_OUTPUT = 256 * 1024;
     static boolean valid(byte[] bytes) {
         if (bytes == null || bytes.length < 20 || bytes.length > MAX_OUTPUT) return false;
@@ -13,7 +15,7 @@ final class ThumbnailCodec {
         if (riff + 8 != bytes.length) return false;
         BitmapFactory.Options bounds = new BitmapFactory.Options(); bounds.inJustDecodeBounds = true;
         BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
-        if ((bounds.outWidth != 128 && bounds.outWidth != 256) || bounds.outHeight != bounds.outWidth || !"image/webp".equals(bounds.outMimeType)) return false;
+        if (!allowed(bounds.outWidth,bounds.outHeight) || !"image/webp".equals(bounds.outMimeType)) return false;
         Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
         if (bitmap == null) return false; bitmap.recycle(); return true;
     }
@@ -51,9 +53,9 @@ final class ThumbnailCodec {
         if (source == null) throw new IOException("IMAGE_DECODE_FAILED");
         Bitmap result = null;
         try {
-            result = Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888);
+            result = Bitmap.createBitmap(TARGET_SIZE, TARGET_SIZE, Bitmap.Config.ARGB_8888);
             int side = Math.min(source.getWidth(), source.getHeight()), left = (source.getWidth() - side) / 2, top = (source.getHeight() - side) / 2;
-            new Canvas(result).drawBitmap(source, new Rect(left, top, left + side, top + side), new Rect(0, 0, 256, 256), new Paint(Paint.FILTER_BITMAP_FLAG));
+            new Canvas(result).drawBitmap(source, new Rect(left, top, left + side, top + side), new Rect(0, 0, TARGET_SIZE, TARGET_SIZE), new Paint(Paint.FILTER_BITMAP_FLAG));
             ByteArrayOutputStream output = new ByteArrayOutputStream();
             if (!result.compress(Bitmap.CompressFormat.WEBP, 78, output)) throw new IOException("WEBP_ENCODE_FAILED");
             byte[] bytes = output.toByteArray(); if (!valid(bytes)) throw new IOException("WEBP_VERIFY_FAILED"); return bytes;

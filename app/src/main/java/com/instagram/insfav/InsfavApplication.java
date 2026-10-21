@@ -14,6 +14,7 @@ public final class InsfavApplication extends Application implements Fetcher.Host
  public String tree(){synchronized(store){return store.settings.optString("treeUri");}}
  public String directory(){synchronized(store){return store.settings.optString("directoryId");}}
  public long revision(){synchronized(store){return store.index.optLong("revision");}}
+ public JSONObject catalog()throws Exception{synchronized(store){return new JSONObject(store.index.toString());}}
  public boolean hasImage(String user){
   String uri;
   synchronized(store){JSONObject p=store.index.optJSONObject("profiles"),i=p==null?null:p.optJSONObject(user);if(!tree().equals(store.index.optString("treeUri"))||i==null||!i.optBoolean("readable"))return false;uri=i.optString("uri");}

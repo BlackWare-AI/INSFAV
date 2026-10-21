@@ -131,6 +131,8 @@ public final class MainActivity extends Activity {
                             send("bootstrap", result); break;
                         }
                         case "status": send("status", images.snapshot(true)); break;
+                        case "resolution-stats": send("resolution-stats",Fetcher.resolution(-1));break;
+                        case "resolution-details": send("resolution-details",Fetcher.resolution(input.optInt("offset",0)));break;
                         case "fetcher-status": if(!Fetcher.running())Fetcher.sync();send("fetcher-status",Fetcher.snapshot());break;
                         case "fetcher-paste": {
                             android.content.ClipboardManager clipboard=getSystemService(android.content.ClipboardManager.class);

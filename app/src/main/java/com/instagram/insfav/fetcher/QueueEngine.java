@@ -20,21 +20,25 @@ final class QueueEngine {
   QueueControl.completedPerMinute=0;QueueControl.etaSeconds=-1;
   settings.edit().putLong("startedAt",started).apply();broker.beginBatch();
   try(QueueStore queue=new QueueStore(context)){
-   if(action.equals("missing")){queue.prepareMissing();for(String user:queue.completedImages())if(!Fetcher.host().hasImage(user))queue.requeueLost(user);}
+   state("Starting — Loading persistent index");queue.recoverInterrupted();
+   if(action.equals("missing"))queue.prepareMissing();
+   FetcherCatalog.seed(queue);
    if(action.equals("retry_skipped"))queue.retrySkipped();
    int startingTerminal=terminalCount(queue.counts());
-   OutputFolder output=new OutputFolder(context,settings.getString("tree",""));
+   OutputFolder output=new OutputFolder(context,settings.getString("tree",""),queue,action.equals("verify_index"),()->state("Starting — Verifying thumbnail index"));
+   if(action.equals("verify_index")){state("Paused — Fetcher index verified");return;}
+   if("RATE_LIMITED".equals(settings.getString("blocked",""))&&System.currentTimeMillis()>=settings.getLong("retryAt",0))settings.edit().putString("blocked","").commit();
    ArrayDeque<String> targets=new ArrayDeque<>(queue.eligible());
    while(!interrupted()){
     if(generation!=settings.getLong("datasetGeneration",0)){state("Paused: collections or folder changed");return;}
-    if(!settings.getString("blocked","").isEmpty()){for(String user:flights.keySet())queue.mark(user,"RETRY_LATER",settings.getString("blocked",""));state("Paused: "+settings.getString("blocked",""));return;}
+    if(!settings.getString("blocked","").isEmpty()){for(String user:flights.keySet())queue.mark(user,"RETRY_LATER",settings.getString("blocked",""));state("RATE_LIMITED".equals(settings.getString("blocked",""))?"Rate Limited":"Paused: "+settings.getString("blocked",""));return;}
     if(!RunPolicy.read(settings).contains(ZonedDateTime.now()))hoursEnded=true;
     if(bounded&&System.currentTimeMillis()-started>=120000)hoursEnded=true;
     while(!hoursEnded&&!targets.isEmpty()&&flights.size()<broker.capacity()&&!interrupted()){
      if(!RunPolicy.read(settings).contains(ZonedDateTime.now())){hoursEnded=true;break;}
      String user=targets.remove();String filename=Identity.outputFilename(user);boolean validOutput=output.valid(filename);
-     if((Fetcher.host().hasImage(user)||validOutput)){if(validOutput)Fetcher.host().imageWritten(user,output.uri(filename),settings.getString("tree",""));queue.mark(user,"EXISTING","LOCAL_IMAGE");state("Checking existing thumbnails");if(bounded&&++cached>=128&&flights.isEmpty())return;continue;}
-     QueueControl.current=user;flights.put(user,broker.submit(user,false));state("Downloading");
+     if(validOutput){queue.mark(user,"EXISTING","LOCAL_IMAGE");state("Checking existing thumbnails");if(bounded&&++cached>=128&&flights.isEmpty())return;continue;}
+     if(!queue.claim(user))continue;QueueControl.current=user;flights.put(user,broker.submit(user,false));state("Downloading");
     }
     if(flights.isEmpty()){
      if(hoursEnded){state("Paused — Outside Schedule");return;}
@@ -46,16 +50,16 @@ final class QueueEngine {
      try{
       original=f.getValue().get();byte[] thumbnail=ThumbnailCodec.convert(original);if(interrupted())break;
       if(generation!=settings.getLong("datasetGeneration",0)){state("Paused: data changed");return;}
-      android.net.Uri uri=output.commit(Identity.outputFilename(user),thumbnail,false);Fetcher.host().imageWritten(user,uri,settings.getString("tree",""));queue.mark(user,"SUCCESS","VALID_WEBP");new Diagnostics(context).log("PROFILE","SUCCESS",0);
+      android.net.Uri uri=output.commit(Identity.outputFilename(user),thumbnail,false);Fetcher.host().imageWritten(user,uri,settings.getString("tree",""));queue.mark(user,output.lastWriteCreated?"SUCCESS":"EXISTING","VALID_WEBP");new Diagnostics(context).log("PROFILE","SUCCESS",0);
      }catch(ExecutionException e){Throwable cause=e.getCause();ProfileProvider.Failure error=cause instanceof ProfileProvider.Failure?(ProfileProvider.Failure)cause:new ProfileProvider.Failure("PROCESSING_ERROR");
       if(error.code.equals("OUTSIDE_WORKING_HOURS")){hoursEnded=true;}
-      else if(FailurePolicy.pause(error)){queue.mark(user,"RETRY_LATER",error.code);state("Paused: "+error.code);return;}
+      else if(FailurePolicy.pause(error)){queue.mark(user,"RETRY_LATER",error.code);state(error.code.equals("RATE_LIMITED")?"Rate Limited":"Paused: "+error.code);return;}
       else if(FailurePolicy.unavailable(error))queue.mark(user,"SKIPPED_UNAVAILABLE",error.code);
       else if(FailurePolicy.noImage(error))queue.mark(user,"SKIPPED_NO_IMAGE",error.code);
-      else{queue.attempted(user);queue.mark(user,queue.attempts(user)>=3?"FAILED":"RETRY_LATER",error.code);}
+      else{queue.attempted(user);queue.mark(user,"FAILED",error.code);}
       new Diagnostics(context).log("PROFILE",error.code,error.http);
      }catch(CancellationException e){queue.mark(user,"RETRY_LATER","REQUEST_CANCELLED");}
-     catch(IOException e){queue.attempted(user);queue.mark(user,queue.attempts(user)>=3?"FAILED":"RETRY_LATER",Diagnostics.imageCode(e));}
+     catch(IOException e){queue.attempted(user);queue.mark(user,"FAILED",Diagnostics.imageCode(e));}
      finally{if(original!=null)Arrays.fill(original,(byte)0);it.remove();}
      Map<String,Integer> totals=queue.counts();finished=Math.max(0,terminalCount(totals)-startingTerminal);long elapsed=Math.max(1,System.currentTimeMillis()-started);QueueControl.completedPerMinute=finished*60000.0/elapsed;QueueControl.etaSeconds=finished>=3?(long)(Math.max(0,totals.getOrDefault("PENDING",0)+totals.getOrDefault("RETRY_LATER",0))*60.0/QueueControl.completedPerMinute):-1;state("Downloading");
     }
@@ -64,6 +68,6 @@ final class QueueEngine {
    state(QueueControl.requested?QueueControl.requestedState:cancelledState);
   }catch(SecurityException e){settings.edit().putString("blocked","STORAGE_PERMISSION_LOST").commit();state("Paused: folder write permission required");}
   catch(Exception|OutOfMemoryError e){settings.edit().putString("blocked","PROCESSING_ERROR").commit();state("Paused: processing error; queue preserved");}
-  finally{broker.cancelBulk();broker.endBatch();settings.edit().putLong("elapsedSeconds",settings.getLong("elapsedSeconds",0)+Math.max(0,(System.currentTimeMillis()-started)/1000)).putLong("startedAt",0).apply();QueueControl.current="";QueueControl.etaSeconds=-1;Fetcher.publish();}
+  finally{try(QueueStore q=new QueueStore(context)){q.meta("sourceRevision",Long.toString(Fetcher.host().revision()));}catch(Exception ignored){}broker.cancelBulk();broker.endBatch();settings.edit().putLong("elapsedSeconds",settings.getLong("elapsedSeconds",0)+Math.max(0,(System.currentTimeMillis()-started)/1000)).putLong("startedAt",0).apply();QueueControl.current="";QueueControl.etaSeconds=-1;Fetcher.publish();}
  }
 }

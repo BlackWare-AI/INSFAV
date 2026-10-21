@@ -19,8 +19,10 @@ window.nativeEvent=(event,data)=>{
    const oldProfiles=profiles;if(data.profiles)profiles=data.profiles;state=data;
    const revision=[data.revision,data.matched,data.missing,data.unreadable,data.folderStatus].join(':');
    if(revision!==lastRevision){lastRevision=revision;cacheVersion++;refreshAvatars(oldProfiles);}
-   updateSettings();
+   updateSettings();if(!$('settings').hidden)request('resolution-stats');
   }
+  if(event==='resolution-stats'){state.resolution=data;updateSettings();}
+  if(event==='resolution-details')showResolutionDetails(data);
   if(event==='image-cache-cleared')clearBrowserImages();
   if(event==='thumbnail-cleanup'){message(`${data.deleted} deleted · ${data.preserved} preserved · ${data.errors} errors. ${data.state}`);}
   if(event==='scan-progress'){state.scan=data;state.scanState=data.state;updateSettings();}
@@ -157,6 +159,7 @@ function hideScreen(element,done){
  element.animate([{opacity:1},{opacity:0}],{duration:motion.duration,easing:motion.easing}).onfinish=finish;
 }
 function openSettings(){previousFocus=document.activeElement;$('settings').hidden=false;document.body.classList.add('overlay-open');updateSettings();request('status');$('settings-back').focus();}
+function showResolutionDetails(data){const body=document.createElement('div');const expected=document.createElement('p');expected.className='muted';expected.textContent='Expected: '+data.expected+' · '+data.count+' images';body.append(expected);for(const item of data.items||[]){const row=document.createElement('p');row.className='muted';row.textContent=item.name+' · '+item.width+' × '+item.height;body.append(row);}const actions=[{label:'Close'}];if(data.offset+100<data.count)actions.unshift({label:'Next 100',run:()=>request('resolution-details',{offset:data.offset+100})});showDialog('Invalid Resolution Images',body,actions);}
 function closeSettings(){hideScreen($('settings'),()=>{document.body.classList.remove('overlay-open');previousFocus?.focus?.();});}
 const actions=[['Select Thumbnail Folder','select-folder'],['Rescan Thumbnails','rescan'],['Clear Image Cache','clear-cache'],['Clear Thumbnail Index','clear-index']];
 for(const [label,action]of actions){const button=document.createElement('button');button.textContent=label;button.dataset.action=action;$('profile-actions').append(button);}
@@ -164,9 +167,9 @@ function bytes(value){return (Number(value||0)/1048576).toFixed(2)+' MiB';}
 function updateSettings(){
  if($('settings').hidden)return;
  const scan=state.scan||{},busy=state.scanState==='scanning',date=state.lastScan?new Date(state.lastScan).toLocaleString():'Never';
- const values=[['Total Accounts',doc?.total||0],['Unique Accounts',doc?.unique.length||0],['Matched Images',state.matched||0],['Missing Images',state.missing??doc?.unique.length??0],['Unreadable Images',state.unreadable||0],['Duplicate Image Candidates',state.duplicates||0],['Indexed Folder Size',bytes(state.folderBytes)+(state.unknownSizes?' + unknown sizes':'')],['Image Cache Size',bytes(state.cacheBytes)],['Thumbnail Index Size',bytes(state.storage?.thumbnailIndex)],['WebView Storage',bytes(state.storage?.app_webview)],['Deleted Orphan WebP Files',state.cleanup?.deleted||0],['Preserved Listed WebP Files',state.cleanup?.preserved||0],['Cleanup Errors',state.cleanup?.errors||0],['Last Scan Date',date],['Selected Folder',state.folder||'Not selected']];
+ const values=[['Total Accounts',doc?.total||0],['Unique Accounts',doc?.unique.length||0],['Matched Images',state.matched||0],['Missing Images',state.missing??doc?.unique.length??0],['Unreadable Images',state.unreadable||0],['Duplicate Image Candidates',state.duplicates||0],['Indexed Folder Size',bytes(state.folderBytes)+(state.unknownSizes?' + unknown sizes':'')],['Image Cache Size',bytes(state.cacheBytes)],['Thumbnail Index Size',bytes(state.storage?.thumbnailIndex)],['WebView Storage',bytes(state.storage?.app_webview)],['Deleted Orphan WebP Files',state.cleanup?.deleted||0],['Preserved Listed WebP Files',state.cleanup?.preserved||0],['Cleanup Errors',state.cleanup?.errors||0],['Invalid Resolution Images',state.resolution?.count||0],['Last Scan Date',date],['Selected Folder',state.folder||'Not selected']];
  $('metrics').replaceChildren();
- for(const [label,value]of values){const metric=document.createElement('div');metric.className='metric';const detail=document.createElement('b');detail.textContent=value;const name=document.createElement('span');name.textContent=label;metric.append(detail,name);$('metrics').append(metric);}
+ for(const [label,value]of values){const metric=document.createElement('div');metric.className='metric';const detail=document.createElement('b');detail.textContent=value;const name=document.createElement('span');name.textContent=label;metric.append(detail,name);if(label==='Invalid Resolution Images'){metric.role='button';metric.tabIndex=0;metric.setAttribute('aria-label','Invalid Resolution Images: '+value);metric.onclick=()=>request('resolution-details',{offset:0});metric.onkeydown=e=>{if(e.key==='Enter'||e.key===' ')metric.click();};}$('metrics').append(metric);}
  $('scan-state').textContent=(state.scanState||'idle').replaceAll('_',' ').replace(/^./,value=>value.toUpperCase());
  $('progress').max=busy?Math.max(1,scan.total||1):1;$('progress').value=busy?(scan.processed||0):state.scanState==='completed'?1:0;
  $('progress-detail').textContent=scan.message||(busy?`${scan.processed||0} / ${scan.total||0} folder entries checked`:'Photos stay in the selected folder. Image Cache Size counts legacy app image copies; WebView Storage includes browser-managed assets and data. Rescan after external changes.');
@@ -188,7 +191,7 @@ function closeFetcher(){clearInterval(fetcherPoll);fetcherPoll=0;$('cookie-text'
 function updateFetcher(){
  const f=fetcherState;if($('fetcher-screen').hidden)return;
  $('cookie-state').textContent=f.cookiesSaved?'Cookies saved · session checked during retrieval':'Not configured';
- $('fetcher-state').textContent=(f.scheduleStatus||'')+' · '+(f.state||'Idle');$('fetcher-folder').textContent=(f.folder||'Not selected')+(f.writable?' · Write access granted':' · Read only');$('fetcher-write').hidden=!!f.writable;
+ $('fetcher-state').textContent=(f.scheduleStatus||'')+' · '+(f.state||'Idle')+(f.blocked==='RATE_LIMITED'?' · '+(f.blockedHttp===429?'HTTP 429':'Instagram restriction')+(f.retryAt?' · Cooldown until '+new Date(f.retryAt).toLocaleTimeString():'')+(f.automaticResume?' · Automatic resume scheduled':' · Manual resume'):'');$('fetcher-folder').textContent=(f.folder||'Not selected')+(f.writable?' · Write access granted':' · Read only');$('fetcher-write').hidden=!!f.writable;
  for(const [id,value] of [['fetcher-concurrency',f.requestedViews],['fetcher-min',f.minimum],['fetcher-max',f.maximum],['fetcher-start',f.start],['fetcher-end',f.end]]){const input=$(id);if(value!==undefined&&document.activeElement!==input&&!input.dataset.edited)input.value=value;}
  if(!$('fetcher-background').dataset.edited)$('fetcher-background').checked=!!f.background;
  $('fetcher-capacity').textContent='Requested WebViews: '+(f.requestedViews||1)+' · Effective WebViews: '+(f.effectiveViews||1)+' · Active WebViews: '+(f.activeViews||0)+(f.effectiveViews<f.requestedViews?' · Reduced by the memory budget':'');
@@ -196,7 +199,7 @@ function updateFetcher(){
  $('fetcher-metrics').replaceChildren();for(const [label,value]of values){const row=document.createElement('div');row.className='metric';const name=document.createElement('span'),count=document.createElement('b');name.textContent=label;count.textContent=value;row.append(count,name);$('fetcher-metrics').append(row);}
  $('fetcher-progress').max=Math.max(1,f.total||0);$('fetcher-progress').value=f.processed||0;
  $('fetcher-current').textContent=(f.current?'@'+f.current+' · ':'')+'Elapsed '+(f.elapsedSeconds||0)+' s'+(f.etaSeconds>=0?' · ETA '+f.etaSeconds+' s':'');
- $('fetcher-missing').disabled=!!f.running;$('fetcher-resume').disabled=!!f.running;$('fetcher-retry-skipped').disabled=!!f.running;
+ $('fetcher-verify').disabled=!!f.running;$('fetcher-missing').disabled=!!f.running;$('fetcher-resume').disabled=!!f.running;$('fetcher-retry-skipped').disabled=!!f.running;
 }
 $('fetcher-menu').onclick=openFetcher;$('fetcher-back').onclick=closeFetcher;
 for(const input of $('fetcher-screen').querySelectorAll('input'))input.addEventListener('input',()=>input.dataset.edited='true');
@@ -206,6 +209,7 @@ $('cookie-remove').onclick=()=>{$('cookie-text').value='';confirmAction('Remove 
 $('fetcher-save').onclick=()=>{request('fetcher-config',{minimum:Number($('fetcher-min').value),maximum:Number($('fetcher-max').value),start:$('fetcher-start').value,end:$('fetcher-end').value,background:$('fetcher-background').checked,concurrentWebViews:Number($('fetcher-concurrency').value)});for(const input of $('fetcher-screen').querySelectorAll('input'))delete input.dataset.edited;};
 $('fetcher-write').onclick=()=>request('fetcher-write-access');
 for(const [id,action]of [['fetcher-missing','missing'],['fetcher-pause','pause'],['fetcher-resume','resume'],['fetcher-stop','stop'],['fetcher-retry-skipped','retry_skipped']])$(id).onclick=()=>request('fetcher-action',{action});
+$('fetcher-verify').onclick=()=>confirmAction('Verify Fetcher Index?','Explicitly validate the selected folder and repair Fetcher metadata. Photos, normal INSFAV indexing and collections are unchanged.',()=>request('fetcher-action',{action:'verify_index'}));
 $('fetcher-diagnostics').onclick=()=>request('fetcher-logs');
 let scale=1,tx=0,ty=0,pointers=new Map(),gesture=null,lastTap=0,lastTapX=0,lastTapY=0;
 function applyTransform(){const img=$('full-image'),stage=$('image-stage');const mx=Math.max(0,(img.offsetWidth*scale-stage.clientWidth)/2),my=Math.max(0,(img.offsetHeight*scale-stage.clientHeight)/2);tx=Math.min(mx,Math.max(-mx,tx));ty=Math.min(my,Math.max(-my,ty));img.style.transform=`translate(${tx}px,${ty}px) scale(${scale})`;}

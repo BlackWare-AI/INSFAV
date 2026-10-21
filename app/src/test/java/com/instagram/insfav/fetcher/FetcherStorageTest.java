@@ -58,7 +58,7 @@ public class FetcherStorageTest {
         try{new OutputFolder(context,tree.toString());fail();}catch(SecurityException expected){}assertEquals(0,provider.writes);
     }
     public static class Fixture extends DocumentsProvider {
-        File root; int writes; boolean rejectRename;
+        File root; int writes,opens,childQueries; boolean rejectRename;
         static final String[] DEFAULT = {DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE};
         File file(String id) { return id.equals("root") ? root : new File(root, id.substring(5)); }
         String id(File file) { String rel = root.toPath().relativize(file.toPath()).toString(); return rel.isEmpty() ? "root" : "root/" + rel; }
@@ -66,7 +66,7 @@ public class FetcherStorageTest {
         @Override public Cursor queryRoots(String[] projection) { return new MatrixCursor(projection == null ? new String[]{DocumentsContract.Root.COLUMN_ROOT_ID} : projection); }
         @Override public Cursor queryDocument(String id, String[] projection) { MatrixCursor c = new MatrixCursor(projection == null ? DEFAULT : projection); row(c, file(id)); return c; }
         @Override public Cursor queryChildDocuments(String parent, String[] projection, String sort) {
-            MatrixCursor c = new MatrixCursor(projection == null ? DEFAULT : projection); File[] files = file(parent).listFiles(); if (files != null) for (File f : files) row(c, f); return c;
+            childQueries++;MatrixCursor c = new MatrixCursor(projection == null ? DEFAULT : projection); File[] files = file(parent).listFiles(); if (files != null) for (File f : files) row(c, f); return c;
         }
         void row(MatrixCursor cursor, File f) {
             Object[] data = new Object[cursor.getColumnCount()]; String[] columns = cursor.getColumnNames();
@@ -78,7 +78,7 @@ public class FetcherStorageTest {
             cursor.addRow(data);
         }
         @Override public ParcelFileDescriptor openDocument(String id, String mode, CancellationSignal signal) throws FileNotFoundException {
-            if (!mode.equals("r")) writes++;
+            if (!mode.equals("r")) writes++;else opens++;
             return ParcelFileDescriptor.open(file(id), ParcelFileDescriptor.parseMode(mode));
         }
         @Override public String createDocument(String parent, String mime, String name) throws FileNotFoundException {

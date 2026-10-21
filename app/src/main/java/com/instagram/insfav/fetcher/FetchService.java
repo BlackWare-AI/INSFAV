@@ -16,7 +16,7 @@ public final class FetchService extends Service {
         if (intent == null && !WorkScheduler.enabled(SessionState.prefs(this))) {stopSelf(id);return START_NOT_STICKY;}
         String action = intent == null ? "resume" : intent.getAction();
         if ("pause".equals(action) || "stop".equals(action)) { QueueControl.pause(this, "stop".equals(action)); if (!owns) stopSelf(id); return START_NOT_STICKY; }
-        if (!("missing".equals(action) || "resume".equals(action) || "retry_skipped".equals(action))) { stopSelf(id); return START_NOT_STICKY; }
+        if (!("missing".equals(action) || "resume".equals(action) || "verify_index".equals(action) || "retry_skipped".equals(action))) { stopSelf(id); return START_NOT_STICKY; }
         if (owns || !QueueControl.lock.compareAndSet(false, true)) { if (!owns) stopSelf(id); return START_NOT_STICKY; }
         owns = true; running = true; QueueControl.requested = false;
         try {

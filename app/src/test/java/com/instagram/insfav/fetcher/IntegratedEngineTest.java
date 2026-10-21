@@ -38,10 +38,10 @@ public class IntegratedEngineTest{
   FetcherStorageTest.Fixture provider=Robolectric.buildContentProvider(FetcherStorageTest.Fixture.class).create(info).get();provider.root=Files.createTempDirectory("integration-engine").toFile();new File(provider.root,".thumbnails").mkdir();Uri tree=Uri.parse("content://fetcher.test/tree/root");c.getContentResolver().takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
 
   List<String> names=new ArrayList<>();for(int i=0;i<1000;i++)names.add("cached"+i);
-  Fetcher.initialize(c,new Fetcher.Host(){public Collection<String> users(){return names;}public String tree(){return tree.toString();}public String directory(){return "root/.thumbnails";}public long revision(){return 0;}public boolean hasImage(String u){return true;}public void imageWritten(String u,Uri uri,String t){}});
+  Fetcher.initialize(c,new Fetcher.Host(){public Collection<String> users(){return names;}public String tree(){return tree.toString();}public String directory(){return "root/.thumbnails";}public long revision(){return 0;}public org.json.JSONObject catalog()throws Exception{org.json.JSONObject images=new org.json.JSONObject();for(String u:names)images.put(u,new org.json.JSONObject().put("uri","content://fetcher.test/tree/root/document/root%2F.thumbnails%2F"+u+".webp").put("name",u+".webp").put("width",256).put("height",256).put("readable",true));return new org.json.JSONObject().put("treeUri",tree.toString()).put("profiles",images);}public boolean hasImage(String u){throw new AssertionError("No per-account host validation on warm start");}public void imageWritten(String u,Uri uri,String t){}});
   try(QueueStore q=new QueueStore(c)){q.sync(names);}
   java.util.concurrent.atomic.AtomicInteger notices=new java.util.concurrent.atomic.AtomicInteger();new QueueEngine(c,state->notices.incrementAndGet(),()->false).run("scheduled",true);
-  try(QueueStore q=new QueueStore(c)){assertEquals(Integer.valueOf(128),q.counts().get("EXISTING"));assertEquals(872,q.pending().size());assertEquals("cached128",q.next());}assertTrue(notices.get()<=3);
+  try(QueueStore q=new QueueStore(c)){assertEquals(Integer.valueOf(1000),q.counts().get("EXISTING"));assertTrue(q.pending().isEmpty());assertNull(q.next());}assertTrue(notices.get()<=5);
  }
 
  @Test(timeout=30000) public void coordinatorRunsFiveDistinctAccountsInParallelAndCommitsEachOnce()throws Exception{
