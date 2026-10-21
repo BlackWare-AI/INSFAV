@@ -65,7 +65,7 @@ public final class MainActivity extends Activity {
                     String name = "/".equals(path) ? "index.html" : path.substring(1);
                     if (!name.matches("[a-zA-Z0-9._-]+")) return response("text/plain", new byte[0]);
                     String mime = name.endsWith(".woff2") ? "font/woff2" : name.endsWith(".webp") ? "image/webp" : name.endsWith(".js") ? "application/javascript" : name.endsWith(".css") ? "text/css" : "text/html";
-                    return new WebResourceResponse(mime, "UTF-8", getAssets().open(name));
+                    return new WebResourceResponse(mime,"UTF-8",200,"OK",java.util.Collections.singletonMap("Cache-Control","no-store"),getAssets().open(name));
                 } catch (Exception error) {store.log("local_resource", "READ_ERROR"); return response("text/plain", new byte[0]);}
             }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {return true;}
@@ -80,7 +80,7 @@ public final class MainActivity extends Activity {
         super.onResume();foreground=true;
         io.execute(() -> {images.checkAccess(); try {send("status", images.snapshot(true));} catch (Exception error) {error(error);}});
     }
-    private WebResourceResponse response(String mime, byte[] bytes) {return new WebResourceResponse(mime, null, new ByteArrayInputStream(bytes));}
+    private WebResourceResponse response(String mime, byte[] bytes) {return new WebResourceResponse(mime,null,200,"OK",java.util.Collections.singletonMap("Cache-Control","no-store"),new ByteArrayInputStream(bytes));}
     private void send(String event, Object data) {
         runOnUiThread(() -> {
             if (web == null || isDestroyed()) return;

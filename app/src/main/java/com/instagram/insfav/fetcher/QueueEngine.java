@@ -56,7 +56,7 @@ final class QueueEngine {
      }catch(CancellationException e){queue.mark(user,"RETRY_LATER","REQUEST_CANCELLED");}
      catch(IOException e){queue.attempted(user);queue.mark(user,queue.attempts(user)>=3?"FAILED":"RETRY_LATER",Diagnostics.imageCode(e));}
      finally{if(original!=null)Arrays.fill(original,(byte)0);it.remove();}
-     finished=Math.max(0,terminalCount(queue.counts())-startingTerminal);long elapsed=Math.max(1,System.currentTimeMillis()-started);QueueControl.completedPerMinute=finished*60000.0/elapsed;QueueControl.etaSeconds=finished>=3?(long)(Math.max(0,queue.pending().size())*60.0/QueueControl.completedPerMinute):-1;state("Downloading");
+     Map<String,Integer> totals=queue.counts();finished=Math.max(0,terminalCount(totals)-startingTerminal);long elapsed=Math.max(1,System.currentTimeMillis()-started);QueueControl.completedPerMinute=finished*60000.0/elapsed;QueueControl.etaSeconds=finished>=3?(long)(Math.max(0,totals.getOrDefault("PENDING",0)+totals.getOrDefault("RETRY_LATER",0))*60.0/QueueControl.completedPerMinute):-1;state("Downloading");
     }
     if(!completed){if(android.os.SystemClock.elapsedRealtime()-lastSignal>=1000)state(QueueControl.activeAccounts==0?"Waiting for worker delay":"Downloading");Thread.sleep(25);}
    }
