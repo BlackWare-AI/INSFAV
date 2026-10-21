@@ -1,0 +1,12 @@
+{
+  "version": "4.0.0",
+  "build": 7,
+  "sourceCommit": "1bfdd3842e9df51046f5075b210c6f737d6a3c4d",
+  "buildRun": 39547301428,
+  "testRun": 39547301450,
+  "apkSha256": "fa8f63dbf1b773bac113144c3730d0ceee1e48a3789c960e282043a8c4167b78",
+  "certificateSha256": "a3058fab8d03c1549abb04ae4660ff2256296967e6291bd7a751ecb9b32e82c2",
+  "previousDebugUpdateCompatible": false,
+  "bytes": 698661,
+  "gitBlob": "e181f6a99bda4ad8d73114e1e2f9ad5653942a26"
+}
