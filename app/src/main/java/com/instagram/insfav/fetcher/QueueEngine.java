@@ -7,6 +7,7 @@ import java.util.concurrent.*;
 import java.util.function.BooleanSupplier;
 /** Coordinator alone owns queue and SAF commits. Independent broker operations overlap. */
 final class QueueEngine {
+ static int terminalCount(Map<String,Integer> counts){return counts.getOrDefault("SUCCESS",0)+counts.getOrDefault("FAILED",0)+counts.getOrDefault("SKIPPED_UNAVAILABLE",0)+counts.getOrDefault("SKIPPED_NO_IMAGE",0);}
  interface Reporter{void update(String state);}
  final Context context;final SharedPreferences settings;final Reporter reporter;final BooleanSupplier stopped;
  private long lastSignal;private String lastState="";volatile boolean cancelled;volatile String cancelledState="Interrupted; queue preserved";
@@ -21,6 +22,7 @@ final class QueueEngine {
   try(QueueStore queue=new QueueStore(context)){
    if(action.equals("missing")){queue.prepareMissing();for(String user:queue.completedImages())if(!Fetcher.host().hasImage(user))queue.requeueLost(user);}
    if(action.equals("retry_skipped"))queue.retrySkipped();if(action.equals("refresh_legacy"))queue.refreshLegacy();
+   int startingTerminal=terminalCount(queue.counts());
    OutputFolder output=new OutputFolder(context,settings.getString("tree",""));
    ArrayDeque<String> targets=new ArrayDeque<>(queue.eligible());
    while(!interrupted()){
@@ -54,7 +56,7 @@ final class QueueEngine {
      }catch(CancellationException e){queue.mark(user,"RETRY_LATER","REQUEST_CANCELLED");}
      catch(IOException e){queue.attempted(user);queue.mark(user,queue.attempts(user)>=3?"FAILED":"RETRY_LATER",Diagnostics.imageCode(e));}
      finally{if(original!=null)Arrays.fill(original,(byte)0);it.remove();}
-     finished++;long elapsed=Math.max(1,System.currentTimeMillis()-started);QueueControl.completedPerMinute=finished*60000.0/elapsed;QueueControl.etaSeconds=finished>=3?(long)(Math.max(0,queue.pending().size())*60.0/QueueControl.completedPerMinute):-1;state("Downloading");
+     finished=Math.max(0,terminalCount(queue.counts())-startingTerminal);long elapsed=Math.max(1,System.currentTimeMillis()-started);QueueControl.completedPerMinute=finished*60000.0/elapsed;QueueControl.etaSeconds=finished>=3?(long)(Math.max(0,queue.pending().size())*60.0/QueueControl.completedPerMinute):-1;state("Downloading");
     }
     if(!completed){if(android.os.SystemClock.elapsedRealtime()-lastSignal>=1000)state(QueueControl.activeAccounts==0?"Waiting for worker delay":"Downloading");Thread.sleep(25);}
    }

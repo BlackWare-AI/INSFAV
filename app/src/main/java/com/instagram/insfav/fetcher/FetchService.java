@@ -20,6 +20,7 @@ public final class FetchService extends Service {
         if (owns || !QueueControl.lock.compareAndSet(false, true)) { if (!owns) stopSelf(id); return START_NOT_STICKY; }
         owns = true; running = true; QueueControl.requested = false;
         try {
+            getSystemService(NotificationManager.class).cancel(3);
             Notification notification = DownloadNotification.create(this, "Preparing");
             if (Build.VERSION.SDK_INT >= 29) startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC); else startForeground(1, notification);
         } catch (RuntimeException error) { running = false; owns = false; QueueControl.lock.set(false); SessionState.prefs(this).edit().putString("blocked", "SYSTEM_RESTRICTED").putString("state", "Paused: foreground service unavailable").commit(); stopSelf(); return START_NOT_STICKY; }

@@ -15,6 +15,7 @@ public final class DownloadWorker extends Worker {
         if (!QueueControl.lock.compareAndSet(false, true)) return Result.success();
         QueueControl.requested = false;
         try {
+            c.getSystemService(android.app.NotificationManager.class).cancel(3);
             setForegroundAsync(getForegroundInfo()).get();
             engine = new QueueEngine(c, state -> { if (!isStopped()) DownloadNotification.publish(c,2,state); }, this::isStopped);
             engine.run("scheduled", true);
