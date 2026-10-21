@@ -92,7 +92,7 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
   check(await page.evaluate(value=>stats.load===JSON.parse(value).load+1&&stats.usage===JSON.parse(value).usage&&doc.total===10001,preservedCounters),'import completion preserves the existing single load increment and JSON memberships');
   await page.locator('#import-btn').click();await page.locator('#info-btn').click();check(await page.evaluate(()=>doc.total===10001&&stats.load===2),'reopening About after picker cancellation preserves collections and counters');
   await page.locator('#clear-btn').click();
-  check(await page.locator('#dialog-title').innerText()==='Reset collections?'&&await page.locator('#dialog-title').isVisible(),'Delete List opens the original titled confirmation');
+  check(await page.locator('#dialog-title').textContent()==='Reset collections?'&&await page.locator('#dialog-title').isVisible(),'Delete List opens the original titled confirmation');
   const beforeCancel=await page.evaluate(()=>commands.length);await page.getByRole('button',{name:'Cancel',exact:true}).click();
   check(await page.evaluate(n=>commands.length===n,beforeCancel),'cancel never dispatches a deletion');
   await page.locator('#info-btn').click();await page.locator('#clear-btn').click();await page.getByRole('button',{name:'Confirm',exact:true}).click();
