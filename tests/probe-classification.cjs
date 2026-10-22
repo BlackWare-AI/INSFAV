@@ -38,6 +38,24 @@ const {chromium} = require('playwright');
   for(let i=0;i<20&&!data.url;i++){await page.waitForTimeout(25);data=await probe();}
   assert.equal(data.url,image); assert.equal(data.identityConfirmed,true); // Existing structured identity is retained.
   data=await load('<link rel="canonical" href="https://www.instagram.com/other/">'+avatar);assert.equal(data.url,undefined);assert.equal(data.reason,'CANONICAL_MISMATCH');
+  for(const asset of ['profile-probe.js','profile-probe-hd.js']) {
+   const script=fs.readFileSync('app/src/main/assets/'+asset,'utf8');
+   const run=async()=>JSON.parse(await page.evaluate(s=>eval('('+s+')')('example','123',false),script));
+   for(const phrase of ["Sorry, this page isn't available",'bu sayfa kullanılamıyor','bu sayfaya ulaşılamıyor','sayfa kaldırılmış','bağlantı bozuk olabilir']) {
+    // A contradictory canonical and incomplete DOM must not delay a text-only page.
+    await load('<link rel="canonical" href="https://www.instagram.com/other/"><p>'+phrase+'</p>');
+    await page.evaluate(()=>Object.defineProperty(document,'readyState',{configurable:true,get:()=> 'loading'}));
+    const data=await run();assert.equal(data.wall,'PROFILE_PAGE_UNAVAILABLE',asset+' '+phrase);assert.equal(data.reason,'TEXT_MATCH');assert.equal(data.unavailableText,true);assert.equal(data.pageReady,true);assert.equal(data.searchCompleted,true);assert.equal(data.candidateFound,false);
+   }
+   await load(canonical+"<p>Sorry, this page isn't available</p>"+routed+avatar);
+   let data=await run();assert.equal(data.wall,undefined,asset);assert.equal(data.url,image);assert.equal(data.candidateFound,true);
+   await load(canonical+"<p>bu sayfa kullanılamıyor</p><script type='application/json'>{\"username\":\"example\",\"id\":\"9\",\"profile_pic_url\":\""+image+"\"}</script>");
+   data=await run();assert.notEqual(data.wall,'PROFILE_PAGE_UNAVAILABLE');assert.equal(data.candidateFound,true);
+   for(const gate of ["<form id='loginForm'><input></form>","<script type='application/json'>{\"login_required\":true}</script>","<form action='/challenge/'><input></form>"]) {
+    await load(gate+'<p>bu sayfa kullanılamıyor</p>');data=await run();assert.ok(['COOKIE_INVALID_EXPIRED','CHALLENGE_REQUIRED'].includes(data.wall),asset);
+   }
+  }
+  data=await load("<p>please wait a few minutes before you try again</p><p>bu sayfa kullanılamıyor</p>");assert.equal(data.wall,'RATE_LIMITED');
   assert.equal(escaped,0);
   console.log('PASS '+checks+' offline DOM cases: routed/text errors with valid avatars, missing profiles, login, delayed profile, 200/404 errors, canonical identity; all requests intercepted');
  } finally { await browser.close(); }

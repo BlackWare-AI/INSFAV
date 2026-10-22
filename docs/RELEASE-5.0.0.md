@@ -11,3 +11,7 @@
 Local photos, JSON, cookies, normal Rescan optimizations, counters, scheduling and RAM-only HD viewing are retained. The previously published APKs and release tags are not replaced. Version 5.0.0 uses build 8 and the existing release certificate.
 
 SQLite metadata is replaceable; the account queue is not silently discarded. If SQLite itself cannot be opened, retrieval stops with preserved database files rather than automatically deleting progress. Android Force Stop prevents automatic work until the app is opened again. Physical-device/OEM acceptance results are reported separately from synthetic, JVM and emulator measurements.
+
+## Build 9 — Fetcher fast skip
+
+Version name remains 5.0.0; build is increased from 8 to 9. Explicit unavailable-page text without a current profile image candidate now produces an immediate skip. See [build 9 evidence and limitations](FETCHER-BUILD9.md). The earlier build-8 artifact and release tag are preserved. The new release must be signed with the same original certificate.

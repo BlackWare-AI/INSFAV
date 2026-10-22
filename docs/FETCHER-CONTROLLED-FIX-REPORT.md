@@ -1,5 +1,9 @@
 # Thumbnail Fetcher: kontrollü tanılama ve düzeltme
 
+> Bu rapor build 8 yerel paketlerinin tarihsel kaydıdır. Build 9 için kullanıcının
+> istediği metin temelli hızlı atlama politikası bazı karar/test koşullarını değiştirir.
+> Güncel değişiklik ve kanıt için [Build 9 raporuna](FETCHER-BUILD9.md) bakın.
+
 Kaynak: BlackWare-AI/INSFAV `main`, `4d442c5cd52f5edcdfdc35e7bb2701912c5afda2`.
 Kapsam: ilk iki çalışma paketi (0–6). Normal görüntüleme, SAF genel indeksi,
 Rescan Thumbnails, JSON formatı ve favori klasörleri kapsam dışındadır.

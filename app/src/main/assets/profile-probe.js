@@ -12,9 +12,10 @@ function (expected, expectedId, preferHigh) {
         if (action.includes("/challenge") || action.includes("/checkpoint")) return wall("CHALLENGE_REQUIRED", "COOKIE_OR_LOGIN_GATE");
         if (f.id === "loginForm" || action.includes("/accounts/login")) return wall("COOKIE_INVALID_EXPIRED", "COOKIE_OR_LOGIN_GATE");
     }
-    const pageText = document.body && typeof document.body.innerText === "string" ? document.body.innerText.slice(0, 24000).toLowerCase() : "";
+    const pageText = document.body && typeof document.body.innerText === "string" ? document.body.innerText.slice(0, 24000).toLowerCase().replace(/[’‘]/g, "'") : "";
+    const unavailableText = /sorry, this page isn't available|bu sayfa kullanılamıyor|bu sayfaya ulaşılamıyor|sayfa kaldırılmış|bağlantı bozuk olabilir/.test(pageText);
+    // Preserve the existing rate-limit barrier even when unavailable text also appears.
     if (/please wait a few minutes before you try again|we restrict certain activity/.test(pageText)) return wall("RATE_LIMITED", "TEXT_MATCH");
-    const unavailableText = /sorry, this page isn.t available|bu sayfa kullanılamıyor/.test(pageText);
     const structured = new Set();
     let viewer = false, anonymous = false, routedError = false, structuredIdentity = false, visits = 0;
     const normalize = x => typeof x === "string" ? x.trim().replace(/^@/, "").toLowerCase() : "";
@@ -51,14 +52,6 @@ function (expected, expectedId, preferHigh) {
     if (!expected) return JSON.stringify(result);
     result.unavailableText = unavailableText;
     result.routedError = routedError;
-    const canonical = document.querySelector('link[rel="canonical"]');
-    let canonicalUser = "";
-    try {
-        const u = new URL(canonical ? canonical.href : location.href);
-        if (u.protocol === "https:" && /^(www\.)?instagram\.com$/.test(u.hostname)) canonicalUser = normalize(u.pathname.replace(/^\/|\/$/g, ""));
-    } catch (_) {}
-    if (canonicalUser !== expected) return JSON.stringify(Object.assign(result, {reason: "CANONICAL_MISMATCH"}));
-    result.identityConfirmed = canonicalUser === expected || structuredIdentity;
     const safe = raw => {
         try {
             const u = new URL(raw);
@@ -75,6 +68,21 @@ function (expected, expectedId, preferHigh) {
         const bound = alt.startsWith(expected) && !/[a-z0-9_.]/.test(alt.charAt(expected.length)) && /profile picture|profile photo|profil/.test(alt);
         if (bound && img.closest("header,main") && safe(img.currentSrc || img.src)) candidates.set(img.currentSrc || img.src, img);
     }
+    // Explicit text is the requested fast-skip policy; a current image candidate vetoes it.
+    result.candidateFound = candidates.size > 0 || Array.from(structured).some(safe);
+    if (unavailableText && !result.candidateFound) {
+        result.pageReady = true;
+        result.searchCompleted = true;
+        return wall("PROFILE_PAGE_UNAVAILABLE", "TEXT_MATCH");
+    }
+    const canonical = document.querySelector('link[rel="canonical"]');
+    let canonicalUser = "";
+    try {
+        const u = new URL(canonical ? canonical.href : location.href);
+        if (u.protocol === "https:" && /^(www\.)?instagram\.com$/.test(u.hostname)) canonicalUser = normalize(u.pathname.replace(/^\/|\/$/g, ""));
+    } catch (_) {}
+    if (canonicalUser !== expected) return JSON.stringify(Object.assign(result, {reason: "CANONICAL_MISMATCH"}));
+    result.identityConfirmed = canonicalUser === expected || structuredIdentity;
     result.searchCompleted = true;
     result.candidateFound = candidates.size > 0 || structured.size > 0;
     result.reason = result.pageReady ? "NO_CANDIDATE" : "PAGE_NOT_READY";
@@ -117,7 +125,6 @@ function (expected, expectedId, preferHigh) {
     // Search identity-bound images before treating visible text or routed UI as evidence.
     // Repeated snapshots of this document do not constitute independent confirmation.
     if (!url) {
-        if (unavailableText) return wall("PROFILE_PAGE_UNAVAILABLE", "TEXT_MATCH");
         if (routedError) return wall("PROFILE_PAGE_UNAVAILABLE", "ROUTED_ERROR");
         if (anonymous && structuredIdentity && result.pageReady) return wall("PROFILE_DEFAULT_AVATAR", "NO_CANDIDATE");
         return JSON.stringify(result);

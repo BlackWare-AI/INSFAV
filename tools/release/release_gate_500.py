@@ -83,7 +83,7 @@ def apk_certificate(apksigner, apk):
 
 def check_manifest(output):
     match = re.search(r"package: name='([^']+)' versionCode='([^']+)' versionName='([^']+)'", output)
-    if not match or match.groups() != ("com.instagram.insfav", "8", "5.0.0"):
+    if not match or match.groups() != ("com.instagram.insfav", "9", "5.0.0"):
         raise GateError("Release package, version name or build number is incorrect.")
     if "application-debuggable" in output:
         raise GateError("A debuggable APK cannot be published as the release.")
@@ -106,7 +106,7 @@ def verify(apk, output, env):
     digest = hashlib.sha256(target.read_bytes()).hexdigest()
     (output / "SHA256SUMS").write_text(digest + "  " + target.name + "\n")
     (output / "signing-certificate.txt").write_text("Signing certificate SHA-256: " + actual + "\n")
-    record = {"version": "5.0.0", "build": 8, "sourceCommit": env["GITHUB_SHA"],
+    record = {"version": "5.0.0", "build": 9, "sourceCommit": env["GITHUB_SHA"],
               "apkSha256": digest, "certificateSha256": actual,
               "previousApkCertificateComparison": "Not Verified"}
     (output / "verification.json").write_text(json.dumps(record, indent=2) + "\n")

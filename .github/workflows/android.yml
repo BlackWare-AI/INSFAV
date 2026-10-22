@@ -52,6 +52,7 @@ jobs:
           BASELINE_ASSETS=/tmp/insfav-thumbnail-baseline node tests/thumbnail-performance.cjs > measurements/browser-before-after.json
           cp app/build/test-results/testDebugUnitTest/TEST-com.instagram.insfav.ThumbnailPipelineBenchmarkTest.xml measurements/native-after.xml
           node tests/probe-browser.cjs | tee probe-results.txt
+          node tests/probe-classification.cjs | tee classification-results.txt
           mkdir -p /tmp/insfav-baseline
           for name in index.html app.js core.js style.css fonts.css; do git show e6c7e688617cc056dbb6dfc216c089060c51c86e:app/src/main/assets/$name > /tmp/insfav-baseline/$name; done
           BASELINE_ASSETS=/tmp/insfav-baseline BASELINE_REF=e6c7e688617cc056dbb6dfc216c089060c51c86e node tests/about-counters.cjs | tee counter-results.txt
@@ -70,6 +71,7 @@ jobs:
             measurements/
             browser-results.txt
             probe-results.txt
+            classification-results.txt
             counter-results.txt
             app/build/outputs/apk/
             app/build/outputs/mapping/release/

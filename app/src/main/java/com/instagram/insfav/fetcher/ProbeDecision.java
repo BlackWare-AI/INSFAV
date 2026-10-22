@@ -12,11 +12,9 @@ final class ProbeDecision {
         if (wall.isEmpty()) return null;
         switch (wall) {
             case "PROFILE_PAGE_UNAVAILABLE":
-                // Independent transport status + explicit visible absence, after a completed search.
-                // ErrorRoot and repeated reads of a 200 page never establish permanent absence.
-                boolean confirmed = !user.isEmpty() && verified && http == 404 && data.optBoolean("pageReady")
-                    && data.optBoolean("searchCompleted") && data.optBoolean("unavailableText")
-                    && !everCandidate && !data.optBoolean("candidateFound");
+                if (data.optBoolean("candidateFound")) return null;
+                // User-selected fast-skip policy: explicit text is sufficient, including HTTP 200/unknown.
+                boolean confirmed = !user.isEmpty() && data.optBoolean("unavailableText");
                 return new ProfileProvider.Failure(wall, http, 0, false, confirmed);
             case "PROFILE_DEFAULT_AVATAR":
                 return data.optBoolean("identityConfirmed") && data.optBoolean("searchCompleted") && data.optBoolean("pageReady")

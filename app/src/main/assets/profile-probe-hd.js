@@ -1,7 +1,7 @@
 function (expected, expectedId) {
     "use strict";
-    const result = {page: location.href, username: expected};
-    const wall = code => JSON.stringify(Object.assign(result, {wall: code}));
+    const result = {page: location.href, username: expected, pageReady: document.readyState === "complete", candidateFound: false, searchCompleted: false};
+    const wall = (code, reason = "UNKNOWN_RESPONSE") => JSON.stringify(Object.assign(result, {wall: code, reason}));
     const path = location.pathname.toLowerCase();
     if (/\/(challenge|checkpoint|captcha)(\/|$)/.test(path)) return wall("CHALLENGE_REQUIRED");
     if (path.startsWith("/accounts/login")) return wall("COOKIE_INVALID_EXPIRED");
@@ -12,6 +12,8 @@ function (expected, expectedId) {
         if (action.includes("/challenge") || action.includes("/checkpoint")) return wall("CHALLENGE_REQUIRED");
         if (f.id === "loginForm" || action.includes("/accounts/login")) return wall("COOKIE_INVALID_EXPIRED");
     }
+    const pageText = document.body && typeof document.body.innerText === "string" ? document.body.innerText.slice(0, 24000).toLowerCase().replace(/[’‘]/g, "'") : "";
+    const unavailableText = /sorry, this page isn't available|bu sayfa kullanılamıyor|bu sayfaya ulaşılamıyor|sayfa kaldırılmış|bağlantı bozuk olabilir/.test(pageText);
     const structured = new Set();
     let viewer = false, anonymous = false, routedError = false, visits = 0;
     const normalize = x => typeof x === "string" ? x.trim().replace(/^@/, "").toLowerCase() : "";
@@ -45,15 +47,7 @@ function (expected, expectedId) {
     if (result.wall) return JSON.stringify(result);
     result.authenticated = viewer;
     if (!expected) return JSON.stringify(result);
-    if (routedError) return wall("PROFILE_PAGE_UNAVAILABLE");
-    if (anonymous) return wall("PROFILE_DEFAULT_AVATAR");
-    const canonical = document.querySelector('link[rel="canonical"]');
-    let canonicalUser = "";
-    try {
-        const u = new URL(canonical ? canonical.href : location.href);
-        if (u.protocol === "https:" && /^(www\.)?instagram\.com$/.test(u.hostname)) canonicalUser = normalize(u.pathname.replace(/^\/|\/$/g, ""));
-    } catch (_) {}
-    if (canonicalUser !== expected) return JSON.stringify(result);
+    result.unavailableText = unavailableText;
     const safe = raw => {
         try {
             const u = new URL(raw);
@@ -70,6 +64,22 @@ function (expected, expectedId) {
         const bound = alt.startsWith(expected) && !/[a-z0-9_.]/.test(alt.charAt(expected.length)) && /profile picture|profile photo|profil/.test(alt);
         if (bound && img.closest("header,main") && safe(img.currentSrc || img.src)) candidates.set(img.currentSrc || img.src, img);
     }
+    // Explicit text is the requested fast-skip policy; a current image candidate vetoes it.
+    result.candidateFound = candidates.size > 0 || Array.from(structured).some(safe);
+    if (unavailableText && !result.candidateFound) {
+        result.pageReady = true;
+        result.searchCompleted = true;
+        return wall("PROFILE_PAGE_UNAVAILABLE", "TEXT_MATCH");
+    }
+    if (routedError && !result.candidateFound) return wall("PROFILE_PAGE_UNAVAILABLE", "ROUTED_ERROR");
+    if (anonymous) return wall("PROFILE_DEFAULT_AVATAR");
+    const canonical = document.querySelector('link[rel="canonical"]');
+    let canonicalUser = "";
+    try {
+        const u = new URL(canonical ? canonical.href : location.href);
+        if (u.protocol === "https:" && /^(www\.)?instagram\.com$/.test(u.hostname)) canonicalUser = normalize(u.pathname.replace(/^\/|\/$/g, ""));
+    } catch (_) {}
+    if (canonicalUser !== expected) return JSON.stringify(result);
     if(candidates.size>1)return wall("PROFILE_DATA_AMBIGUOUS");
     const pool=[];
     for(const [url,img] of candidates)pool.push({url,img,kind:"profile_header"});

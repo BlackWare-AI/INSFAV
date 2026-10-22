@@ -28,9 +28,9 @@ class ReleaseGateTests(unittest.TestCase):
         self.assertEqual(gate.configuration(env), "ab" * 32)
 
     def test_only_expected_non_debug_version_can_be_released(self):
-        valid = "package: name='com.instagram.insfav' versionCode='8' versionName='5.0.0'"
+        valid = "package: name='com.instagram.insfav' versionCode='9' versionName='5.0.0'"
         gate.check_manifest(valid)
-        for value in [valid + "\napplication-debuggable", valid.replace("5.0.0", "5.0.0-debug"), valid.replace("'8'", "'7'"), valid.replace("com.instagram.insfav", "other.app")]:
+        for value in [valid + "\napplication-debuggable", valid.replace("5.0.0", "5.0.0-debug"), valid.replace("'9'", "'8'"), valid.replace("com.instagram.insfav", "other.app")]:
             with self.assertRaises(gate.GateError):
                 gate.check_manifest(value)
 
