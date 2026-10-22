@@ -26,6 +26,14 @@ final class FetchBroker {
  void beginBatch(){authenticationRequired=true;prefs.edit().putString("sessionEvidence","UNKNOWN").putLong("diagnosticBatch",prefs.getLong("diagnosticBatch",0)+1).commit();new Diagnostics(context).log("BATCH","STARTED",prefs.getLong("diagnosticBatch",0));batch=true;limit=admission.applyAsInt(prefs.getInt("concurrentWebViews",1));QueueControl.effectiveViews=limit;QueueControl.peakAccounts=0;QueueControl.memoryPressure=false;Diagnostics d=new Diagnostics(context);d.log("POOL","REQUESTED_LIMIT",prefs.getInt("concurrentWebViews",1));d.log("POOL","EFFECTIVE_LIMIT",limit);}
  void endBatch(){batch=false;}
  int capacity(){return limit;}
+ // Dispatch waits are visible without changing the user's delay or worker setting.
+ long nextDispatchAt(){
+  if(tasks.isEmpty()||authenticating!=null||active.size()>=limit)return 0;
+  boolean[] busy=new boolean[30];for(Request a:active)if(a.slot>=0)busy[a.slot]=true;
+  long earliest=Long.MAX_VALUE;for(int i=0;i<limit;i++)if(!busy[i])earliest=Math.min(earliest,WorkerPacing.ready(prefs,i));
+  long gate=Math.max(prefs.getLong("nextRequestAt",0),prefs.getLong("retryAt",0));
+  return earliest==Long.MAX_VALUE?0:Math.max(gate,earliest);
+ }
  CompletableFuture<byte[]> submit(String user,boolean full){Request r=new Request(user,full,sequence.incrementAndGet());tasks.add(r);QueueControl.queuedAccounts=tasks.size();return r.result;}
  void cancelBulk(){cancel(false);}void cancelViewer(){cancel(true);}void cancelAll(){cancel(false);cancel(true);}
  private void cancel(boolean full){Request auth=authenticating;if(auth!=null&&auth.full==full){poisoned=true;cancel(auth,false);ProfileProvider p=provider;if(p!=null)p.cancel();}for(Request r:tasks)if(r.full==full){tasks.remove(r);r.result.cancel(false);}for(Request r:active)if(r.full==full)cancel(r,false);}

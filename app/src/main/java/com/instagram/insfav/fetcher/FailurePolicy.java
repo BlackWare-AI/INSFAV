@@ -1,5 +1,5 @@
 package com.instagram.insfav.fetcher;
-/** Absence requires evidence; uncertainty is durable, bounded retry work. */
+/** Absence requires evidence; uncertainty stays durable until explicit Retry. */
 final class FailurePolicy {
  static boolean unavailable(ProfileProvider.Failure e){return e.confirmedUnavailable&&(e.code.equals("PROFILE_NOT_FOUND_OR_UNAVAILABLE")||e.code.equals("PROFILE_PAGE_UNAVAILABLE"));}
  static boolean noImage(ProfileProvider.Failure e){return e.code.equals("PROFILE_DEFAULT_AVATAR");}

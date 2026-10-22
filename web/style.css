@@ -12,3 +12,5 @@
 #fetcher-concurrency{width:76px;min-width:0;background:#050505;color:#ddd;border:1px solid #222;border-radius:12px;padding:10px;font:13px Inter,sans-serif;color-scheme:dark}
 
 .about-action{padding-top:0;padding-bottom:0;min-height:44px}.about-action .nav-btn{width:44px;height:44px;border-radius:0;background:none;border:0;margin-right:-11px}.about-action .nav-btn svg{width:22px;height:22px}.about-action #import-btn{color:#fff}.about-action .nav-btn:active{background:none}
+
+.fetcher-process{margin:12px 0;display:flex;flex-direction:column;gap:8px;overflow-wrap:anywhere}.fetcher-process>b{font-size:14px!important;line-height:1.5}.fetcher-process>span{letter-spacing:1px;text-transform:uppercase}.fetcher-process progress{margin:2px 0}

@@ -49,4 +49,14 @@ public class BrokerTest{
   FetchBroker b=new FetchBroker(c,full->{boolean wait=opened.incrementAndGet()==1;return new ProfileProvider(){public void authenticate()throws Failure{if(wait){authenticating.countDown();try{new CountDownLatch(1).await();}catch(InterruptedException e){throw new Failure("REQUEST_CANCELLED");}}}public byte[] fetch(String u){profiles.incrementAndGet();return new byte[]{1};}public void cancel(){}};},new TestTime());
   b.beginBatch();CompletableFuture<byte[]> first=b.submit("first",false);assertTrue(authenticating.await(3,TimeUnit.SECONDS));b.cancelBulk();assertTrue(first.isCancelled());long end=System.nanoTime()+TimeUnit.SECONDS.toNanos(2);while(b.authenticating!=null&&System.nanoTime()<end)Thread.yield();assertEquals(0,profiles.get());b.beginBatch();assertArrayEquals(new byte[]{1},b.submit("next",false).get(3,TimeUnit.SECONDS));assertEquals(2,opened.get());assertEquals(1,profiles.get());b.endBatch();
  }
+
+ @Test(timeout=10000) public void fiveWorkersExposeAndFinishTheirConfiguredWaitWithoutAnAttemptLimit()throws Exception{
+  long began=System.currentTimeMillis();AtomicLong now=new AtomicLong(began);SharedPreferences p=SessionState.prefs(c);
+  p.edit().putInt("minimum",25).putInt("maximum",25).commit();for(int slot=0;slot<5;slot++)WorkerPacing.reserve(p,slot,began,RunPolicy.read(p));
+  CountDownLatch five=new CountDownLatch(5),release=new CountDownLatch(1);AtomicInteger calls=new AtomicInteger();
+  FetchBroker b=new FetchBroker(c,full->new ProfileProvider(){public byte[] fetch(String u)throws Failure{calls.incrementAndGet();five.countDown();try{release.await(3,TimeUnit.SECONDS);}catch(InterruptedException e){throw new Failure("REQUEST_CANCELLED");}return new byte[]{1};}public void cancel(){}},new FetchBroker.Time(){public long now(){return now.get();}public void sleep(long m)throws InterruptedException{Thread.sleep(5);}});b.limit=5;
+  java.util.List<CompletableFuture<byte[]>>fs=new ArrayList<>();for(int i=0;i<5;i++)fs.add(b.submit("wait"+i,false));
+  assertEquals(began+25000,b.nextDispatchAt());assertEquals(0,calls.get());now.set(began+25000);assertTrue(five.await(3,TimeUnit.SECONDS));assertEquals(5,calls.get());assertEquals(0,b.nextDispatchAt());release.countDown();for(CompletableFuture<byte[]> f:fs)f.get(3,TimeUnit.SECONDS);
+  CompletableFuture<byte[]> sixth=b.submit("sixth",false);long end=System.nanoTime()+TimeUnit.SECONDS.toNanos(2);while(b.active.size()>0&&System.nanoTime()<end)Thread.yield();assertEquals(began+50000,b.nextDispatchAt());now.set(began+50000);sixth.get(3,TimeUnit.SECONDS);assertEquals(6,calls.get());b.cancelAll();
+ }
 }

@@ -15,8 +15,8 @@ public class IntegratedEngineTest{
   org.robolectric.util.ReflectionHelpers.setStaticField(FetchBroker.class,"instance",broker);
   try(QueueStore q=new QueueStore(c)){q.sync(Arrays.asList("gone","ambiguous","good"));}
   new QueueEngine(c,state->{},()->false).run("missing",false);
-  assertEquals(Arrays.asList("gone","ambiguous","good","ambiguous","ambiguous"),requests);assertEquals(Collections.singleton("good"),written);
-  try(QueueStore q=new QueueStore(c)){assertEquals(Integer.valueOf(1),q.counts().get("SUCCESS"));assertEquals(Integer.valueOf(1),q.counts().get("SKIPPED_UNAVAILABLE"));assertNull(q.counts().get("SKIPPED_NO_IMAGE"));assertEquals(Integer.valueOf(1),q.counts().get("RETRY_LATER"));assertEquals(3,q.attempts("ambiguous"));assertTrue(q.pending().isEmpty());}
+  assertEquals(Arrays.asList("gone","ambiguous","good"),requests);assertEquals(Collections.singleton("good"),written);
+  try(QueueStore q=new QueueStore(c)){assertEquals(Integer.valueOf(1),q.counts().get("SUCCESS"));assertEquals(Integer.valueOf(1),q.counts().get("SKIPPED_UNAVAILABLE"));assertNull(q.counts().get("SKIPPED_NO_IMAGE"));assertEquals(Integer.valueOf(1),q.counts().get("RETRY_LATER"));assertEquals(1,q.attempts("ambiguous"));assertTrue(q.pending().isEmpty());}
   assertTrue(ThumbnailCodec.valid(Files.readAllBytes(new File(provider.root,".thumbnails/good.webp").toPath())));
  }
  @Test(timeout=30000) public void globalRateLimitPausesWithoutConsumingTheAccountRetryBudget()throws Exception{

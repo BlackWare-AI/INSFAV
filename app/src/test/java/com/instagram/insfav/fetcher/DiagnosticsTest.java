@@ -32,4 +32,10 @@ public class DiagnosticsTest {
         assertFalse(text.contains("SESSION SESSION_VERIFIED"));
         System.out.println("OFFLINE_FIXTURE_DIAGNOSTICS_BEGIN\n" + text + "OFFLINE_FIXTURE_DIAGNOSTICS_END");
     }
+    @Test public void privateOutcomeLedgerExportsOnlyCountsAndCodes()throws Exception {
+        Context c=RuntimeEnvironment.getApplication();c.deleteDatabase("fetcher-queue.db");
+        try(QueueStore q=new QueueStore(c)){q.sync(java.util.Arrays.asList("private.fixture","private.timeout"));q.mark("private.fixture","SKIPPED_UNAVAILABLE","PROFILE_PAGE_UNAVAILABLE");q.attempted("private.timeout");q.mark("private.timeout","RETRY_LATER","WEBVIEW_TIMEOUT");}
+        ByteArrayOutputStream out=new ByteArrayOutputStream();new Diagnostics(c).export(out);String text=out.toString(StandardCharsets.UTF_8);
+        assertTrue(text.contains("Saved profile outcomes (private ledger): 2"));assertTrue(text.contains("Deferred profiles awaiting explicit Retry: 1"));assertFalse(text.contains("private.fixture"));assertFalse(text.contains("private.timeout"));
+    }
 }

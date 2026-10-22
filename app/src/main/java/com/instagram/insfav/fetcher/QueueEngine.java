@@ -17,14 +17,14 @@ final class QueueEngine {
  void state(String value){long now=android.os.SystemClock.elapsedRealtime();if(value.equals(lastState)&&now-lastSignal<250)return;lastState=value;lastSignal=now;QueueControl.phase=value;settings.edit().putString("state",value).apply();reporter.update(value);Fetcher.publish();}
  void run(String action,boolean bounded){
   long started=System.currentTimeMillis(),generation=settings.getLong("datasetGeneration",0);int finished=0,cached=0;FetchBroker broker=FetchBroker.get(context);Map<String,CompletableFuture<byte[]>> flights=new LinkedHashMap<>();boolean hoursEnded=false;
-  QueueControl.completedPerMinute=0;QueueControl.etaSeconds=-1;
+  QueueControl.completedPerMinute=0;QueueControl.runProcessed=0;QueueControl.lastResult="";QueueControl.etaSeconds=-1;
   settings.edit().putLong("startedAt",started).apply();broker.beginBatch();
   try(QueueStore queue=new QueueStore(context)){
    state("Starting — Loading persistent index");queue.recoverInterrupted();
    if(action.equals("missing"))queue.prepareMissing();
    FetcherCatalog.seed(queue);
    if(action.equals("retry_skipped"))queue.retrySkipped();
-   int startingTerminal=terminalCount(queue.counts());
+
    OutputFolder output=new OutputFolder(context,settings.getString("tree",""),queue,action.equals("verify_index"),()->state("Starting — Verifying thumbnail index"));
    if(action.equals("verify_index")){state("Paused — Fetcher index verified");return;}
    if("RATE_LIMITED".equals(settings.getString("blocked",""))&&System.currentTimeMillis()>=settings.getLong("retryAt",0))settings.edit().putString("blocked","").commit();
@@ -42,7 +42,7 @@ final class QueueEngine {
     }
     if(flights.isEmpty()){
      if(hoursEnded){state("Paused — Outside Schedule");return;}
-     if(targets.isEmpty()){targets.addAll(queue.eligible());if(targets.isEmpty()){if(queue.counts().getOrDefault("RETRY_LATER",0)>0){state("Paused: retry limit reached; queue preserved");return;}settings.edit().putBoolean("armed",false).commit();state("Completed");return;}}
+     if(targets.isEmpty()){targets.addAll(queue.eligible());if(targets.isEmpty()){if(queue.counts().getOrDefault("RETRY_LATER",0)>0){state("Finished: previous failures saved; use Retry to try again");return;}settings.edit().putBoolean("armed",false).commit();state("Completed");return;}}
      continue;
     }
     boolean completed=false;
@@ -50,8 +50,8 @@ final class QueueEngine {
      try{
       original=f.getValue().get();byte[] thumbnail=ThumbnailCodec.convert(original);if(interrupted())break;
       if(generation!=settings.getLong("datasetGeneration",0)){state("Paused: data changed");return;}
-      committing=true;android.net.Uri uri=output.commit(Identity.outputFilename(user),thumbnail,false);Fetcher.host().imageWritten(user,uri,settings.getString("tree",""));queue.mark(user,output.lastWriteCreated?"SUCCESS":"EXISTING","VALID_WEBP");new Diagnostics(context).log("PROFILE","SUCCESS",0);
-     }catch(ExecutionException e){Throwable cause=e.getCause();ProfileProvider.Failure error=cause instanceof ProfileProvider.Failure?(ProfileProvider.Failure)cause:new ProfileProvider.Failure("PROFILE_PROCESSING_ERROR");
+      committing=true;android.net.Uri uri=output.commit(Identity.outputFilename(user),thumbnail,false);Fetcher.host().imageWritten(user,uri,settings.getString("tree",""));queue.mark(user,output.lastWriteCreated?"SUCCESS":"EXISTING","VALID_WEBP");QueueControl.lastResult=output.lastWriteCreated?"SUCCESS":"EXISTING";new Diagnostics(context).log("PROFILE","SUCCESS",0);
+     }catch(ExecutionException e){Throwable cause=e.getCause();ProfileProvider.Failure error=cause instanceof ProfileProvider.Failure?(ProfileProvider.Failure)cause:new ProfileProvider.Failure("PROFILE_PROCESSING_ERROR");QueueControl.lastResult=error.code;
       if(error.code.equals("OUTSIDE_WORKING_HOURS")){hoursEnded=true;}
       else if(FailurePolicy.sessionTransient(error)){queue.mark(user,"RETRY_LATER",error.code);state("Waiting: session verification retry");return;}
       else if(FailurePolicy.pause(error)){queue.mark(user,"RETRY_LATER",error.code);state(error.code.equals("RATE_LIMITED")?"Rate Limited":SessionState.pausedText(error.code));return;}
@@ -59,15 +59,15 @@ final class QueueEngine {
       else if(FailurePolicy.noImage(error))queue.mark(user,"SKIPPED_NO_IMAGE",error.code);
       else if(FailurePolicy.retry(error)){queue.attempted(user);queue.mark(user,"RETRY_LATER",error.code);}
       else{queue.attempted(user);queue.mark(user,"FAILED",error.code);}
-      new Diagnostics(context).log("PROFILE",error.code,error.http);
+      QueueControl.lastResult=error.code;new Diagnostics(context).log("PROFILE",error.code,error.http);
      }catch(CancellationException e){queue.mark(user,"RETRY_LATER","REQUEST_CANCELLED");}
-     catch(IOException e){if(committing)throw e;queue.attempted(user);queue.mark(user,"FAILED",Diagnostics.imageCode(e));}
+     catch(IOException e){if(committing)throw e;queue.attempted(user);QueueControl.lastResult=Diagnostics.imageCode(e);queue.mark(user,"FAILED",QueueControl.lastResult);}
      catch(SecurityException|android.database.sqlite.SQLiteException e){throw e;}
-     catch(RuntimeException e){queue.attempted(user);queue.mark(user,"FAILED","PROFILE_PROCESSING_ERROR");new Diagnostics(context).log("PROFILE","PROFILE_PROCESSING_ERROR",0);}
+     catch(RuntimeException e){QueueControl.lastResult="PROFILE_PROCESSING_ERROR";queue.attempted(user);queue.mark(user,"FAILED","PROFILE_PROCESSING_ERROR");new Diagnostics(context).log("PROFILE","PROFILE_PROCESSING_ERROR",0);}
      finally{if(original!=null)Arrays.fill(original,(byte)0);it.remove();}
-     Map<String,Integer> totals=queue.counts();finished=Math.max(0,terminalCount(totals)-startingTerminal);long elapsed=Math.max(1,System.currentTimeMillis()-started);QueueControl.completedPerMinute=finished*60000.0/elapsed;QueueControl.etaSeconds=finished>=3?(long)(Math.max(0,totals.getOrDefault("PENDING",0)+totals.getOrDefault("RETRY_LATER",0))*60.0/QueueControl.completedPerMinute):-1;state("Downloading");
+     Map<String,Integer> totals=queue.counts();finished=++QueueControl.runProcessed;long elapsed=Math.max(1,System.currentTimeMillis()-started);QueueControl.completedPerMinute=finished*60000.0/elapsed;QueueControl.etaSeconds=finished>=3?(long)(Math.max(0,totals.getOrDefault("PENDING",0)+totals.getOrDefault("RETRY_LATER",0)-queue.held())*60.0/QueueControl.completedPerMinute):-1;state("Downloading");
     }
-    if(!completed){if(android.os.SystemClock.elapsedRealtime()-lastSignal>=1000)state(QueueControl.activeAccounts==0?"Waiting for worker delay":"Downloading");Thread.sleep(25);}
+    if(!completed){if(android.os.SystemClock.elapsedRealtime()-lastSignal>=1000)state(broker.authenticating!=null?"Verifying session":QueueControl.activeAccounts==0?"Waiting for worker delay":"Downloading");Thread.sleep(25);}
    }
    state(QueueControl.requested?QueueControl.requestedState:cancelledState);
   }catch(SecurityException e){settings.edit().putString("blocked","STORAGE_PERMISSION_LOST").commit();state("Paused: folder write permission required");}
