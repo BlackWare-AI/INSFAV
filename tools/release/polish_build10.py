@@ -12,6 +12,7 @@ CERTIFICATE='705e090084a4e50c47a8eb122d1605963276e5bb76f873d6f185b965c01e8641'
 PREVIOUS_APK='1918ee03378597605f3a00c6132ac53e5478d79f37be615a3b2ac61b3b2fbf5d'
 TAG='v5.0.0-build.10-ui'
 CI_RUN=39816872755
+DRAFT_ID=420985124
 
 
 def validate_record(record):
@@ -26,7 +27,7 @@ def validate_record(record):
 
 
 def validate_draft(record,names):
-    if (record.get('draft') is not True or record.get('tag_name')!=TAG or record.get('target_commitish')!=SOURCE
+    if (record.get('id')!=DRAFT_ID or record.get('draft') is not True or record.get('tag_name')!=TAG or record.get('target_commitish')!=SOURCE
             or any(asset['name'] not in names for asset in record.get('assets',[]))):
         raise ValueError('Refusing an unrelated or already public release')
 

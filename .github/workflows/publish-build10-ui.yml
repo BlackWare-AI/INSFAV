@@ -69,13 +69,7 @@ jobs:
           if gh api "repos/$GH_REPO/git/ref/tags/v5.0.0-build.10-ui" > tag.json 2>/dev/null; then
             test "$(python3 -c 'import json; print(json.load(open("tag.json"))["object"]["sha"])')" = b066f5a9af27bf711d084ae1e3ffb076c8b04ced
           fi
-          release_id=$(gh api "repos/$GH_REPO/releases" --jq '.[] | select(.tag_name == "v5.0.0-build.10-ui") | .id')
-          if [ -z "$release_id" ]; then
-            gh release create v5.0.0-build.10-ui --draft --target b066f5a9af27bf711d084ae1e3ffb076c8b04ced --title 'INSFAV 5.0.0 — Build 10 · UI & Audit Update' --notes-file candidate/RELEASE-NOTES.md
-          fi
-          release_id=$(gh api "repos/$GH_REPO/releases" --jq '.[] | select(.tag_name == "v5.0.0-build.10-ui") | .id')
-          test -n "$release_id"
-          gh api "repos/$GH_REPO/releases/$release_id" > draft.json
+          gh api "repos/$GH_REPO/releases/420985124" > draft.json
           python3 - <<'PY'
           import json,sys
           from pathlib import Path

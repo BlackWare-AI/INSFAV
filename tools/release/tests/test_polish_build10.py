@@ -21,8 +21,8 @@ class PolishGateTest(unittest.TestCase):
   for change in (dict(build=11),dict(version='5.0.1'),dict(sourceCommit='wrong'),dict(certificateSha256='wrong'),dict(nativeBridgeClipboardVerified=False),dict(strictResolutionDeviceCount=0),dict(liveInstagramTested=True),dict(ciConclusion='failure')):
    with self.assertRaises(ValueError):gate.validate_record({**self.record(),**change})
  def test_cannot_modify_published_or_unrelated_draft(self):
-  draft=dict(draft=True,tag_name=gate.TAG,target_commitish=gate.SOURCE,assets=[]);gate.validate_draft(draft,{'app.apk'})
-  for change in (dict(draft=False),dict(tag_name='previous'),dict(target_commitish='other'),dict(assets=[dict(name='extra.apk')])):
+  draft=dict(id=gate.DRAFT_ID,draft=True,tag_name=gate.TAG,target_commitish=gate.SOURCE,assets=[]);gate.validate_draft(draft,{'app.apk'})
+  for change in (dict(id=0),dict(draft=False),dict(tag_name='previous'),dict(target_commitish='other'),dict(assets=[dict(name='extra.apk')])):
    with self.assertRaises(ValueError):gate.validate_draft({**draft,**change},{'app.apk'})
  def test_full_source_appendix_and_embedded_zip_are_verified(self):
   out=io.BytesIO()
