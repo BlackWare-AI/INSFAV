@@ -4,6 +4,8 @@ const {chromium}=require('playwright');
 const root=path.resolve(__dirname,'../app/src/main/assets');
 const fixture=[{name:'SAVED',items:Array.from({length:10000},(_,i)=>({pageId:i===0?'test.user':'user'+i,name:i===0?'Test User':'Account '+i}))},{name:'SECOND',items:[{pageId:'test.user',name:'Test User'}]}];
 let checks=0;function check(value,label){assert.ok(value,label);console.log('PASS '+label);checks++;}
+// Poll from the test process: Playwright 1.51 waitForFunction eval conflicts with the app CSP.
+async function waitForValue(page,predicate){const deadline=Date.now()+10000;while(Date.now()<deadline){if(await page.evaluate(predicate))return;await page.waitForTimeout(25);}assert.fail('Timed out waiting for the actual UI/native event');}
 (async()=>{
  const server=http.createServer((req,res)=>{
   if(req.url.startsWith('/thumb/')||req.url.startsWith('/full/')||req.url.startsWith('/remote-full/')){res.setHeader('Content-Type','image/svg+xml');res.end('<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><rect width="512" height="512" fill="#777"/></svg>');return;}
@@ -85,17 +87,17 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
   check(await page.locator('#clear-btn').evaluate(el=>getComputedStyle(el).color)==='rgb(181, 116, 120)','Delete List retains its existing red tone');
   check(await page.locator('#dialog .about-action .nav-btn').evaluateAll(nodes=>nodes.every(el=>el.offsetHeight>=44&&getComputedStyle(el).borderTopWidth==='0px'&&getComputedStyle(el).backgroundColor==='rgba(0, 0, 0, 0)'&&el.querySelector('svg').getBoundingClientRect().width===22)),'moved icons keep borderless 22px artwork and 44px touch targets');
   const preservedCounters=await page.evaluate(()=>JSON.stringify(stats));
-  await page.locator('#import-btn').click();await page.waitForFunction(()=>commands.at(-1).command==='import');
+  await page.locator('#import-btn').click();await waitForValue(page,()=>commands.at(-1).command==='import');
   check(await page.locator('#dialog').isHidden()&&await page.evaluate(()=>commands.at(-1).command==='import'),'Add List closes the overlay and dispatches the existing picker command');
   await page.evaluate(fixture=>nativeEvent('imported',{profiles:snapshot.profiles,raw:JSON.stringify({favorite_page_pref:JSON.stringify(fixture)})}),fixture);
   await page.locator('#info-btn').click();
   check(await page.evaluate(value=>stats.load===JSON.parse(value).load+1&&stats.usage===JSON.parse(value).usage&&doc.total===10001,preservedCounters),'import completion preserves the existing single load increment and JSON memberships');
   await page.locator('#import-btn').click();await page.locator('#info-btn').click();check(await page.evaluate(()=>doc.total===10001&&stats.load===2),'reopening About after picker cancellation preserves collections and counters');
-  await page.locator('#clear-btn').click();await page.waitForFunction(()=>document.getElementById('dialog-title').textContent==='Reset collections?');
+  await page.locator('#clear-btn').click();await waitForValue(page,()=>document.getElementById('dialog-title').textContent==='Reset collections?');
   check(await page.locator('#dialog-title').textContent()==='Reset collections?'&&await page.locator('#dialog-title').isVisible(),'Delete List opens the original titled confirmation');
   const beforeCancel=await page.evaluate(()=>commands.length);await page.getByRole('button',{name:'Cancel',exact:true}).click();
   check(await page.evaluate(n=>commands.length===n,beforeCancel),'cancel never dispatches a deletion');
-  await page.locator('#info-btn').click();await page.locator('#clear-btn').click();await page.getByRole('button',{name:'Confirm',exact:true}).click();await page.waitForFunction(()=>commands.at(-1).command==='clear-data');
+  await page.locator('#info-btn').click();await page.locator('#clear-btn').click();await page.getByRole('button',{name:'Confirm',exact:true}).click();await waitForValue(page,()=>commands.at(-1).command==='clear-data');
   check(await page.evaluate(()=>commands.at(-1).command==='clear-data')&&await page.locator('#dialog').isHidden(),'confirm dispatches the unchanged deletion and dismisses its overlay');
   await page.evaluate(()=>nativeEvent('cleared',''));
   check(await page.evaluate(()=>doc===null&&stats.clear===1&&stats.load===2),'delete completion preserves the existing reset count and leaves load count unchanged');
@@ -147,8 +149,8 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
   check(await page.getByRole('button',{name:'Select Thumbnail Folder',exact:true}).isDisabled(),'folder replacement is blocked during scan');
   await page.evaluate(()=>nativeEvent('status',structuredClone(snapshot)));
   await page.getByRole('button',{name:'Clear Image Cache',exact:true}).click();check(await page.locator('#dialog').isVisible(),'cache deletion requires confirmation');
-  await page.getByRole('button',{name:'Confirm',exact:true}).click();await page.waitForFunction(()=>commands.at(-1).command==='clear-cache');check(await page.evaluate(()=>commands.at(-1).command==='clear-cache'),'cache clear is separate from source data');
-  await page.getByRole('button',{name:'Clear Thumbnail Index',exact:true}).click();await page.getByRole('button',{name:'Confirm',exact:true}).click();await page.waitForFunction(()=>commands.at(-1).command==='clear-index');
+  await page.getByRole('button',{name:'Confirm',exact:true}).click();await waitForValue(page,()=>commands.at(-1).command==='clear-cache');check(await page.evaluate(()=>commands.at(-1).command==='clear-cache'),'cache clear is separate from source data');
+  await page.getByRole('button',{name:'Clear Thumbnail Index',exact:true}).click();await page.getByRole('button',{name:'Confirm',exact:true}).click();await waitForValue(page,()=>commands.at(-1).command==='clear-index');
   check(await page.evaluate(()=>doc.total===10001),'index clearing preserves collection memberships');check(await page.locator('#progress').evaluate(el=>el.value===0),'index clearing resets scan progress display');
   check((await page.locator('#metrics').innerText()).includes('Missing Images'),'matched and missing metrics are separately named');
   await page.evaluate(()=>nativeEvent('status',{...snapshot,folderMessage:'Folder permission was lost.',folderStatus:'unavailable'}));
@@ -178,7 +180,7 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
   for(const [id,action] of [['fetcher-missing','missing'],['fetcher-pause','pause'],['fetcher-resume','resume'],['fetcher-stop','stop'],['fetcher-retry-skipped','retry_skipped']]){await page.locator('#'+id).click();check(await page.evaluate(action=>commands.at(-1).command==='fetcher-action'&&commands.at(-1).action===action,action),'fetcher dispatches '+action);}
   await page.locator('#fetcher-verify').click();
   check(await page.locator('#dialog-title').textContent()==='Verify Fetcher Index?','full Fetcher verification is explicit and confirmed');
-  await page.getByRole('button',{name:'Confirm',exact:true}).click();await page.waitForFunction(()=>commands.at(-1).action==='verify_index');
+  await page.getByRole('button',{name:'Confirm',exact:true}).click();await waitForValue(page,()=>commands.at(-1).action==='verify_index');
   check(await page.evaluate(()=>commands.at(-1).command==='fetcher-action'&&commands.at(-1).action==='verify_index'),'explicit verification uses its separate Fetcher action');
   await page.locator('#fetcher-diagnostics').click();check(await page.evaluate(()=>commands.at(-1).command==='fetcher-logs'),'fetcher diagnostics has a separate redacted export');
   check(await page.evaluate(before=>JSON.stringify(stats)===before,countersBeforeFetcher),'fetcher controls never alter collection usage/load/reset counters');
