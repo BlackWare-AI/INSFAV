@@ -19,6 +19,10 @@ background = json.loads((proof / "background-fixture.json").read_text())
 assert background["validFiles"] == background["notificationDownloaded"] == background["completed"] == 8
 assert background["completionNotificationRemoved"]
 assert background["screenWasOff"] and background["screenOffAfter"] > background["screenOffBefore"]
+rescan = json.loads((proof / "rescan-15000.json").read_text())
+assert rescan["coldOpens"] == 15000 and rescan["warmOpens"] == rescan["sourceWrites"] == 0
+assert rescan["sourceBytesAndDatesUnchanged"] and not rescan["restartRelistedFolder"]
+rescan_comparison = json.loads((build / "measurements/rescan-before-after.json").read_text())
 browser = (build / "browser-results.txt").read_text()
 ui = int(re.search(r"(\d+) UI checks passed", browser).group(1))
 lint = ET.parse(build / "app/build/reports/lint-results-debug.xml").getroot()
@@ -26,18 +30,40 @@ assert not any(item.get("severity") in ("Error", "Fatal") for item in lint)
 shutil.copytree(build / "delivery", target, dirs_exist_ok=True)
 shutil.copytree(build / "app/build/test-results", target / "verification/native", dirs_exist_ok=True)
 shutil.copytree(proof, target / "verification/android-14", dirs_exist_ok=True)
+shutil.copytree(build / "measurements", target / "verification/measurements", dirs_exist_ok=True)
 for name in ("browser-results.txt", "probe-results.txt", "counter-results.txt"):
     shutil.copyfile(build / name, target / "verification" / name)
 shutil.copyfile(build / "app/build/reports/lint-results-debug.txt", target / "verification/lint-results-debug.txt")
 record = dict(version=versions["VERSION_NAME"], build=int(versions["VERSION_CODE"]), sourceCommit=os.environ["SOURCE_COMMIT"],
               nativeTests=tests, browserChecks=ui, fetcher13500=benchmark, android14OfflineFixture=rows,
-              backgroundFixture=background, physicalDeviceTested=False, liveInstagramTested=False)
+              backgroundFixture=background, thumbnailRescan=rescan, rescanComparison=rescan_comparison,
+              physicalDeviceTested=False, liveInstagramTested=False)
 for name, p in (("debug", target / "INSFAV-debug.apk"), ("unsignedRelease", build / "app/build/outputs/apk/release/app-release-unsigned.apk")):
     record[name] = dict(bytes=p.stat().st_size, sha256=hashlib.sha256(p.read_bytes()).hexdigest())
 (target / "Verification.json").write_text(json.dumps(record, indent=2) + "\n")
 report = f"""# INSFAV {versions["VERSION_NAME"]} — Geliştirme ve test raporu
 
-Fetcher için ayrı SQLite metadata indeksi ve kalıcı işlem durumları eklendi. Normal LocalImages, Store, ImageCodec, sanal liste çekirdeği ve CSS değiştirilmedi. HD edinme ve RAM görüntüleme zinciri korunmuştur.
+Fetcher için ayrı SQLite metadata indeksi ve kalıcı işlem durumları korunur. LocalImages taraması ve ImageCodec doğrulaması salt okunur, kontrol noktalı Rescan için optimize edildi. Store JSON biçimi, thumbnail görüntüleme, sanal liste çekirdeği ve CSS korunur. HD edinme ve RAM görüntüleme zinciri korunmuştur.
+
+## Normal Rescan — 15.000 sentetik gerçek WebP dosyası
+
+JVM/Robolectric deneyi aynı harness'i önceki ba7812f ve yeni kodla çalıştırır;
+her SAF açılışında 1 ms yapay gecikme vardır. Fiziksel telefon ölçümü değildir.
+
+| Ölçüm | Önce | Sonra |
+|---|---:|---:|
+| İlk tarama (ms) | {rescan_comparison["before"]["coldMs"]} | {rescan_comparison["after"]["coldMs"]} |
+| Sıcak tarama (ms) | {rescan_comparison["before"]["warmMs"]} | {rescan_comparison["after"]["warmMs"]} |
+| İlk açma sayısı | 30000 | 15000 |
+| Sıcak açma sayısı | 0 | 0 |
+
+Android 14 emülatöründe gerçek SAF/Binder ile, yapay gecikmesiz ayrı deney:
+ilk {rescan["coldMs"]} ms, sıcak {rescan["warmMs"]} ms. İki worker kullanıldı.
+Sıcak tarama dosya açmadı; yeniden açılış klasörü listelemedi. Kaynak içerikleri
+ve lastModified değerleri değişmedi; kaynak yazma/silme girişimi yok.
+PSS anlık önce/sonra: {rescan["pssBeforeKiB"]} / {rescan["pssAfterKiB"]} KiB;
+bu değerler peak bellek ölçümü değildir. Ayrıntılar docs/RESCAN-PERFORMANCE.md
+ve verification/measurements/ içindedir.
 
 ## Ölçüm — 13.500 sentetik gerçek WebP dosyası
 

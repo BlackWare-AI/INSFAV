@@ -47,7 +47,7 @@ jobs:
       - run: gradle :app:assembleDebug :app:assembleRelease :app:lintDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest
       - name: Compare rescan evidence
         run: |
-          python3 -m unittest discover -s tools/tests -p 'test_rescan_report.py'
+          python3 -m unittest discover -s tools/tests -p 'test_*.py'
           python3 tools/rescan-report.py --before measurements/rescan-before.xml --after app/build/test-results/testDebugUnitTest/TEST-com.instagram.insfav.RescanBenchmarkTest.xml --concurrency app/build/test-results/testDebugUnitTest/TEST-com.instagram.insfav.RescanConcurrencyTest.xml --output measurements/rescan-before-after.json
       - name: Web UI and counter regressions
         shell: bash
