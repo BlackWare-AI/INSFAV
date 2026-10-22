@@ -29,6 +29,7 @@ public final class RescanDeviceBenchmark {
         android.os.Debug.MemoryInfo memory=new android.os.Debug.MemoryInfo();android.os.Debug.getMemoryInfo(memory);int beforePss=memory.getTotalPss();
         long started=SystemClock.elapsedRealtime();images.scan((e,v)->{},false);long cold=SystemClock.elapsedRealtime()-started;
         require("completed".equals(store.settings.optString("scanState")),"Cold scan failed");require(images.snapshot(false).getInt("matched")==15000,"Cold matched count");
+        JSONObject audit=images.snapshot(false).getJSONObject("resolution");require(audit.getBoolean("complete")&&audit.getInt("count")==7500,"Strict 256 target must include every 128 image");
         Bundle afterCold=stats(target);long revision=store.index.optLong("revision");JSONObject coldIo=images.snapshot(false).getJSONObject("scan").getJSONObject("io");
         started=SystemClock.elapsedRealtime();images.scan((e,v)->{},false);long warm=SystemClock.elapsedRealtime()-started;
         require("completed".equals(store.settings.optString("scanState")),"Warm scan failed");require(revision==store.index.optLong("revision"),"Unchanged revision");
@@ -45,7 +46,7 @@ public final class RescanDeviceBenchmark {
             .put("sdk",Build.VERSION.SDK_INT).put("coldMs",cold).put("warmMs",warm).put("coldOpens",afterCold.getInt("opens")-before.getInt("opens"))
             .put("warmOpens",0).put("coldQueries",afterCold.getInt("queries")-before.getInt("queries")).put("warmQueries",afterWarm.getInt("queries")-afterCold.getInt("queries"))
             .put("pssBeforeKiB",beforePss).put("pssAfterKiB",memory.getTotalPss()).put("coldIo",coldIo).put("warmIo",images.snapshot(false).getJSONObject("scan").getJSONObject("io"))
-            .put("sourceBytesAndDatesUnchanged",true).put("sourceWrites",0).put("restartRelistedFolder",false).put("liveInstagramTested",false).put("physicalDeviceTested",false);
+            .put("non256Images",audit.getInt("count")).put("sourceBytesAndDatesUnchanged",true).put("sourceWrites",0).put("restartRelistedFolder",false).put("liveInstagramTested",false).put("physicalDeviceTested",false);
         try(FileOutputStream out=target.openFileOutput("rescan-15000.json",Context.MODE_PRIVATE)){out.write(report.toString(2).getBytes(StandardCharsets.UTF_8));}
         Bundle status=new Bundle();status.putString("stream","RESCAN_DEVICE_OK "+report+"\n");instrumentation.sendStatus(0,status);
     }

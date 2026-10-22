@@ -126,4 +126,23 @@ public class ThumbnailScannerTest {
         catch(android.os.OperationCanceledException expected){}
         assertEquals(before,provider.opens);
     }
+    @Test public void allFileResolutionCountsPersistAcrossWarmScan()throws Exception {
+        populate(600);images.scan((e,v)->{});assertEquals("completed",store.settings.optString("scanState"));
+        assertTrue(metrics().getInt("peakValidations")<=2);
+        assertTrue(images.snapshot(false).getJSONObject("resolution").getBoolean("complete"));
+        provider.add("root/fixture_0.png","fixture_0.png",128,128);provider.add("root/unmatched.png","unmatched name.png",512,512);int opened=provider.opens;
+        images.scan((e,v)->{});assertEquals(opened+2,provider.opens);assertEquals(2,images.snapshot(false).getJSONObject("resolution").getInt("count"));
+        assertEquals(602,store.index.getInt("files"));assertEquals(600,store.index.getJSONObject("profiles").length());
+        int before=provider.opens;images=new LocalImages(context,new Store(context));images.checkAccess();
+        assertEquals(2,images.snapshot(false).getJSONObject("resolution").getInt("count"));images.scan((e,v)->{});assertEquals(before,provider.opens);assertEquals(0,metrics().getInt("inspected"));
+        assertEquals(2,images.snapshot(false).getJSONObject("resolution").getInt("count"));assertEquals(0,provider.deletes);assertEquals(0,provider.writes);
+    }
+    @Test public void legacyCompletedCheckpointProvidesAllFileAuditWithoutSourceReads()throws Exception {
+        provider.add("root/Example.webp","Example.webp",256,256);provider.add("root/strange.png","no username space.png",512,512);images.scan((e,v)->{});
+        int expected=images.snapshot(false).getJSONObject("resolution").getInt("count");assertTrue(expected>=3);
+        store.index.remove("resolutionAudit");store.replaceIndex(store.index);int opened=provider.opens;
+        images=new LocalImages(context,new Store(context));images.checkAccess();int checkedQueries=provider.childQueries;
+        JSONObject restored=images.snapshot(false).getJSONObject("resolution");assertEquals(expected,restored.getInt("count"));assertTrue(restored.getBoolean("complete"));
+        images.snapshot(false);assertEquals(opened,provider.opens);assertEquals(checkedQueries,provider.childQueries);
+    }
 }

@@ -79,6 +79,13 @@ final class ThumbnailScanIndex extends SQLiteOpenHelper {
         return out;
     }
     /** Only after the complete listing AND atomic public JSON snapshot succeeded. */
+    org.json.JSONObject resolution(String scope)throws org.json.JSONException {
+        // One SQLite snapshot: never combine a completed flag with a newer partial batch.
+        try(Cursor c=getReadableDatabase().rawQuery("SELECT SUM(CASE WHEN width>0 AND height>0 AND (width!=256 OR height!=256) THEN 1 ELSE 0 END),SUM(CASE WHEN width<=0 OR height<=0 THEN 1 ELSE 0 END) FROM state LEFT JOIN entries ON 1=1 WHERE state.id=1 AND scope=? AND completed=1 GROUP BY state.id",new String[]{scope})) {
+            return c.moveToFirst()?ResolutionAudit.result(c.getInt(0),c.getInt(1),true):null;
+        }
+    }
+
     void complete() {
         SQLiteDatabase db=getWritableDatabase();db.beginTransaction();
         try(SQLiteStatement delete=db.compileStatement("DELETE FROM entries WHERE rowid=?")) {

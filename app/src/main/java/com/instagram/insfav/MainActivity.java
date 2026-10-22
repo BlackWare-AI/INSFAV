@@ -130,6 +130,11 @@ public final class MainActivity extends Activity {
                             send("bootstrap", result); break;
                         }
                         case "status": send("status", images.snapshot(true)); break;
+                        case "copy-missing-users": {
+                            String text=images.missingUsernames();
+                            runOnUiThread(()->{try{int count=MissingProfiles.copy(MainActivity.this,text);send("message",count==0?"No missing usernames.":count+" usernames copied.");}catch(RuntimeException e){send("error","Clipboard unavailable. Try again while INSFAV is open.");}});
+                            break;
+                        }
                         case "resolution-stats": send("resolution-stats",Fetcher.resolution(-1));break;
                         case "resolution-details": send("resolution-details",Fetcher.resolution(input.optInt("offset",0)));break;
                         case "fetcher-status": if(!Fetcher.running())Fetcher.sync();send("fetcher-status",Fetcher.snapshot());break;

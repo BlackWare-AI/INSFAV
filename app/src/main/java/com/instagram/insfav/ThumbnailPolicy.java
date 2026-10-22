@@ -39,11 +39,14 @@ final class ThumbnailPolicy {
     static final class Catalog {
         final Map<String, Candidate> best = new HashMap<>();
         final Map<String, Integer> counts = new HashMap<>();
-        int unreadable, duplicates, files, unknownSizes;
+        int unreadable, duplicates, files, unknownSizes, nonTargetResolution, unknownResolution;
         long bytes;
         void add(Candidate candidate) {
             files++; if (candidate.size >= 0) bytes += candidate.size; else unknownSizes++;
             if (!candidate.readable) unreadable++;
+            if (candidate.width > 0 && candidate.height > 0) {
+                if (candidate.width != 256 || candidate.height != 256) nonTargetResolution++;
+            } else unknownResolution++;
             if (candidate.user.isEmpty()) return;
             int count = counts.getOrDefault(candidate.user, 0) + 1;
             counts.put(candidate.user, count); if (count > 1) duplicates++;

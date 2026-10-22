@@ -20,6 +20,8 @@ final class LocalImages {
     private final File dataRoot;
     private long storageMeasuredAt;
     private JSONObject storage = new JSONObject();
+    private String resolutionKey="";
+    private JSONObject savedResolution;
     private final File cache;
     private final Object cacheLock = new Object();
     private volatile boolean accessible, scanning;
@@ -122,7 +124,8 @@ final class LocalImages {
             JSONObject cleanup=new JSONObject().put("deleted",0).put("preserved",0).put("errors",0).put("state","Read-only indexing — source files unchanged");
             JSONObject next=new JSONObject().put("schema",1).put("treeUri",treeValue).put("revision",revision).put("scannedAt",now)
                 .put("profiles",profiles).put("unreadable",catalog.unreadable).put("duplicates",catalog.duplicates)
-                .put("files",catalog.files).put("bytes",catalog.bytes).put("unknownSizes",catalog.unknownSizes).put("cleanup",cleanup);
+                .put("files",catalog.files).put("bytes",catalog.bytes).put("unknownSizes",catalog.unknownSizes).put("cleanup",cleanup)
+                .put("resolutionAudit",ResolutionAudit.result(catalog.nonTargetResolution,catalog.unknownResolution,true));
             synchronized(store) {
                 if(!treeValue.equals(store.settings.optString("treeUri")) || !directoryId.equals(store.settings.optString("directoryId")))
                     throw new IOException("Folder changed during scan.");
@@ -190,10 +193,33 @@ final class LocalImages {
                 }
             }
             JSONObject out = new JSONObject().put("total", store.total()).put("unique", users.size()).put("matched", matched).put("missing", users.size() - matched).put("unreadable", store.index.optInt("unreadable")).put("duplicates", store.index.optInt("duplicates")).put("folderBytes", store.index.optLong("bytes")).put("unknownSizes", store.index.optInt("unknownSizes")).put("lastScan", store.index.optLong("scannedAt")).put("folder", store.settings.optString("folderLabel", "Not selected")).put("folderStatus", accessible ? "ready" : store.settings.optString("treeUri").isEmpty() ? "not_selected" : "unavailable").put("folderMessage", accessMessage).put("scanState", scanning ? "scanning" : store.settings.optString("scanState", "idle")).put("scan", progress).put("revision", store.index.optLong("revision")).put("cacheBytes", cacheBytes).put("cleanup",store.index.optJSONObject("cleanup"));
-            out.put("storage",storage);
+            out.put("storage",storage).put("resolution",resolution());
             out.put("imageIO", new JSONObject().put("sourceReads",sourceReads.get()).put("coalescedReads",joinedReads.get()).put("readNanos",readNanos.get()).put("sourceBytes",sourceBytes.get()).put("inflight",reads.size()).put("nativeBitmapCacheBytes",0).put("derivedDiskCacheBytes",cacheBytes));
             if (includeProfiles) out.put("profiles", profiles); return out;
         }
+    }
+    String missingUsernames() throws JSONException {
+        synchronized(store) {
+            boolean usable=accessible && store.settings.optString("treeUri").equals(store.index.optString("treeUri","invalid"));
+            return MissingProfiles.text(store.users(),store.index.optJSONObject("profiles"),usable);
+        }
+    }
+    private JSONObject resolution()throws JSONException {
+        JSONObject audit=store.index.optJSONObject("resolutionAudit");
+        if(audit!=null)return ResolutionAudit.snapshot(store.index);
+        String scope=store.settings.optString("treeUri")+"\n"+store.settings.optString("directoryId");
+        String key=scope+"\n"+store.index.optLong("scannedAt")+"\n"+store.settings.optString("scanState");
+        if(!key.equals(resolutionKey)||savedResolution==null) {
+            savedResolution=null;
+            // Reuse the existing completed all-file checkpoint on older installations.
+            // This is a private aggregate query, never a SAF listing or an image open.
+            if(new File(store.root,"thumbnail-scan.db").isFile())try(ThumbnailScanIndex checkpoints=new ThumbnailScanIndex(context,store.root)) {
+                savedResolution=checkpoints.resolution(scope);
+            }catch(android.database.sqlite.SQLiteException unavailable){store.log("resolution_audit","CHECKPOINT_UNAVAILABLE");}
+            if(savedResolution==null)savedResolution=ResolutionAudit.snapshot(store.index);
+            resolutionKey=key;
+        }
+        return new JSONObject(savedResolution.toString());
     }
     private static String fingerprint(JSONObject image) {
         return image.optString("modified")+":"+image.optString("size")+":"+image.optString("uri").hashCode();
