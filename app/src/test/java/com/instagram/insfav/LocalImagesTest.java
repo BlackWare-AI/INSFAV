@@ -57,9 +57,8 @@ public class LocalImagesTest {
         long revision = store.index.getLong("revision");
         String original = store.original();
         images.scan((event, value) -> {});
-        // The readable winner is reused. The duplicate candidate and broken
-        // image are still revalidated to preserve duplicate selection safety.
-        assertEquals(before + 3, provider.opens);
+        // The checkpoint stores all candidates, including duplicates and proven invalid files.
+        assertEquals(before, provider.opens);
         assertEquals(revision, store.index.getLong("revision"));
         assertEquals(original, store.original());
         assertEquals(1, images.snapshot(true).getInt("matched"));
@@ -166,12 +165,12 @@ public class LocalImagesTest {
         File derived=new File(dir,Store.key("legacy")+".webp"),unknown=new File(dir,"unrelated.txt");Files.write(derived.toPath(),new byte[]{1,2,3});Files.write(unknown.toPath(),new byte[]{4});
         LocalImages upgraded=new LocalImages(context,store);assertFalse(derived.exists());assertTrue(unknown.exists());assertEquals(indexSize,new File(store.root,"thumbnail-index.json").length());assertEquals(original,store.original());assertEquals(0,provider.writes);
     }
-    @Test public void rescanDeletesOnlyDirectOrphanWebpAndKeepsCurrentLegacyBytes() throws Exception {
+    @Test public void rescanIsReadOnlyEvenForOrphanWebpWithWritePermission() throws Exception {
         provider.add("root/@EXAMPLE.WebP","@EXAMPLE.WebP",128,128);provider.add("root/removed.webp","removed.webp",256,256);
         provider.add("root/other.jpg","other.jpg",32,32);byte[] before=Files.readAllBytes(provider.files.get("root/@EXAMPLE.WebP").toPath());
         images.select(root,Intent.FLAG_GRANT_READ_URI_PERMISSION);context.getContentResolver().takePersistableUriPermission(root,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-        images.scan((e,v)->{});assertFalse(provider.files.containsKey("root/removed.webp"));assertTrue(provider.files.containsKey("root/other.jpg"));assertArrayEquals(before,Files.readAllBytes(provider.files.get("root/@EXAMPLE.WebP").toPath()));
-        assertEquals(1,store.index.getJSONObject("cleanup").getInt("deleted"));assertEquals(1,store.index.getJSONObject("cleanup").getInt("preserved"));assertEquals(RAW,store.original());
+        images.scan((e,v)->{});assertTrue(provider.files.containsKey("root/removed.webp"));assertTrue(provider.files.containsKey("root/other.jpg"));assertArrayEquals(before,Files.readAllBytes(provider.files.get("root/@EXAMPLE.WebP").toPath()));
+        assertEquals(0,store.index.getJSONObject("cleanup").getInt("deleted"));assertEquals(0,provider.deletes);assertEquals(0,provider.writes);assertEquals(RAW,store.original());
     }
     @Test public void initialFolderIndexingNeverPrunesFiles()throws Exception {
         provider.add("root/orphan.webp","orphan.webp",128,128);images.select(root,Intent.FLAG_GRANT_READ_URI_PERMISSION);context.getContentResolver().takePersistableUriPermission(root,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
@@ -192,12 +191,20 @@ public class LocalImagesTest {
     public static final class FixtureProvider extends ContentProvider {
         volatile long delayMs; File directory; final Map<String,File> files = new LinkedHashMap<>(); final Map<String,String> names = new HashMap<>();
         int childQueries, opens, writes, deletes; boolean available = true, parentHasThumbnailChild;
+        int failMoveAt=-1; boolean loading, unknownMetadata; String failOnceId="", memoryFailureId="";
         void add(String id,String name,int w,int h) throws Exception {File file = new File(directory, name); Bitmap image = Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888); try(FileOutputStream output = new FileOutputStream(file)){if(!image.compress(name.toLowerCase(Locale.ROOT).endsWith(".webp") ? Bitmap.CompressFormat.WEBP : name.toLowerCase(Locale.ROOT).matches(".*\\.jpe?g$") ? Bitmap.CompressFormat.JPEG : Bitmap.CompressFormat.PNG,100,output))throw new IOException("Fixture encoding failed");}finally{image.recycle();} files.put(id,file); names.put(id,name);}
         void addBroken(String id,String name) throws Exception {File file = new File(directory,name); Files.write(file.toPath(), new byte[]{1,2,3}); files.put(id,file); names.put(id,name);}
         Map<String,byte[]> contents() throws Exception {Map<String,byte[]> out=new HashMap<>(); for(String id:files.keySet())out.put(id,Files.readAllBytes(files.get(id).toPath()));return out;}
         @Override public boolean onCreate(){return true;}
         @Override public Cursor query(Uri uri,String[] projection,String selection,String[] args,String sort) {
-            MatrixCursor cursor = new MatrixCursor(projection); if(!available)return cursor;
+            MatrixCursor cursor = new MatrixCursor(projection) {
+                @Override public boolean onMove(int oldPosition,int newPosition) {
+                    if(failMoveAt>=0 && newPosition>=failMoveAt)throw new IllegalStateException("Injected interrupted listing");
+                    return super.onMove(oldPosition,newPosition);
+                }
+            };
+            if(loading){android.os.Bundle extras=new android.os.Bundle();extras.putBoolean(DocumentsContract.EXTRA_LOADING,true);cursor.setExtras(extras);}
+            if(!available)return cursor;
             String id=DocumentsContract.getDocumentId(uri);
             if(uri.getLastPathSegment().equals("children")) {
                 childQueries++;
@@ -212,15 +219,18 @@ public class LocalImagesTest {
                 case DocumentsContract.Document.COLUMN_DOCUMENT_ID:values[i]=id;break;
                 case DocumentsContract.Document.COLUMN_DISPLAY_NAME:values[i]=name;break;
                 case DocumentsContract.Document.COLUMN_MIME_TYPE:values[i]=dir?DocumentsContract.Document.MIME_TYPE_DIR:"image/png";break;
-                case DocumentsContract.Document.COLUMN_SIZE:values[i]=file==null?0:file.length();break;
-                case DocumentsContract.Document.COLUMN_LAST_MODIFIED:values[i]=1;break;
+                case DocumentsContract.Document.COLUMN_SIZE:values[i]=unknownMetadata?null:file==null?0:file.length();break;
+                case DocumentsContract.Document.COLUMN_LAST_MODIFIED:values[i]=unknownMetadata?null:1;break;
             }
             cursor.addRow(values);
         }
         @Override public ParcelFileDescriptor openFile(Uri uri,String mode) throws FileNotFoundException {
             if(delayMs>0)try{Thread.sleep(delayMs);}catch(InterruptedException e){Thread.currentThread().interrupt();}
-            if(!"r".equals(mode)){writes++;throw new FileNotFoundException("Read only");}opens++;
-            File file=files.get(DocumentsContract.getDocumentId(uri));if(file==null||!available)throw new FileNotFoundException();
+            if(!"r".equals(mode)){writes++;throw new FileNotFoundException("Read only");}synchronized(this){opens++;}
+            String id=DocumentsContract.getDocumentId(uri);
+            synchronized(this){if(id.equals(failOnceId)){failOnceId="";throw new FileNotFoundException("Injected temporary provider failure");}}
+            if(id.equals(memoryFailureId))throw new OutOfMemoryError("Injected scanner memory pressure");
+            File file=files.get(id);if(file==null||!available)throw new FileNotFoundException();
             return ParcelFileDescriptor.open(file,ParcelFileDescriptor.MODE_READ_ONLY);
         }
         @Override public android.os.Bundle call(String method,String arg,android.os.Bundle extras){
