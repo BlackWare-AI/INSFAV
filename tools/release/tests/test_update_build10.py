@@ -38,5 +38,11 @@ class Build10GateTest(unittest.TestCase):
             path = Path(directory) / 'changed.apk';path.write_bytes(b'changed artifact')
             with self.assertRaises(ValueError):gate.verify_hash(path, gate.APK_SHA256)
 
+    def test_draft_identity_does_not_depend_on_a_published_tag(self):
+        draft=dict(draft=True, tag_name='v5.0.0-build.10', target_commitish=gate.SOURCE, assets=[])
+        gate.validate_draft(draft, {'INSFAV-5.0.0.apk'})
+        for change in (dict(draft=False),dict(tag_name='v5.0.0-build.9'),dict(target_commitish='other'),dict(assets=[dict(name='unexpected.apk')])):
+            with self.assertRaises(ValueError):gate.validate_draft({**draft, **change}, {'INSFAV-5.0.0.apk'})
+
 
 if __name__ == '__main__':unittest.main()

@@ -31,3 +31,10 @@ def validate_manifest(output):
 def verify_hash(path, expected):
     if hashlib.sha256(Path(path).read_bytes()).hexdigest() != expected:
         raise ValueError('Artifact digest mismatch')
+
+
+def validate_draft(record, asset_names):
+    if (record.get('draft') is not True or record.get('tag_name') != 'v5.0.0-build.10'
+            or record.get('target_commitish') != SOURCE
+            or any(a['name'] not in asset_names for a in record.get('assets', []))):
+        raise ValueError('Refusing to modify an unrelated or already published release')

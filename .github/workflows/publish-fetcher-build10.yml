@@ -67,16 +67,19 @@ jobs:
           if gh api "repos/$GH_REPO/git/ref/tags/v5.0.0-build.10" > tag.json 2>/dev/null; then
             test "$(python3 -c 'import json; print(json.load(open("tag.json"))["object"]["sha"])')" = 6fcaf3f61304b0e573c634cb80d6627c11cfdb97
           fi
-          if ! gh release view v5.0.0-build.10 >/dev/null 2>&1; then
+          release_id=$(gh api "repos/$GH_REPO/releases" --jq '.[] | select(.tag_name == "v5.0.0-build.10") | .id')
+          if [ -z "$release_id" ]; then
             gh release create v5.0.0-build.10 --draft --target 6fcaf3f61304b0e573c634cb80d6627c11cfdb97 --title 'INSFAV 5.0.0 — Build 10' --notes-file candidate/RELEASE-NOTES.md
           fi
-          gh api "repos/$GH_REPO/releases/tags/v5.0.0-build.10" > draft.json
+          release_id=$(gh api "repos/$GH_REPO/releases" --jq '.[] | select(.tag_name == "v5.0.0-build.10") | .id')
+          test -n "$release_id"
+          gh api "repos/$GH_REPO/releases/$release_id" > draft.json
           python3 - <<'PY'
-          import json
+          import json,sys
           from pathlib import Path
-          r=json.load(open('draft.json'))
-          assert r['draft'] and r['target_commitish']=='6fcaf3f61304b0e573c634cb80d6627c11cfdb97'
-          assert all(a['name'] in {p.name for p in Path('candidate').iterdir()} for a in r['assets'])
+          sys.path.insert(0,'tools/release')
+          import update_build10 as gate
+          gate.validate_draft(json.load(open('draft.json')),{p.name for p in Path('candidate').iterdir()})
           PY
           gh release upload v5.0.0-build.10 candidate/* --clobber
           verify_dir=$(mktemp -d "$RUNNER_TEMP/insfav-build10-download.XXXXXX")
