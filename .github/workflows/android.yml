@@ -38,7 +38,17 @@ jobs:
           gradle -p /tmp/insfav-native-baseline :app:testDebugUnitTest --tests com.instagram.insfav.ThumbnailPipelineBenchmarkTest
           mkdir -p measurements
           cp /tmp/insfav-native-baseline/app/build/test-results/testDebugUnitTest/TEST-com.instagram.insfav.ThumbnailPipelineBenchmarkTest.xml measurements/native-before.xml
+      - name: Baseline read-only rescan on 15000 synthetic files
+        run: |
+          git worktree add --detach /tmp/insfav-rescan-baseline ba7812fc38e7e35834b909d72740c2873b7e05e7
+          cp app/src/test/java/com/instagram/insfav/RescanBenchmarkTest.java /tmp/insfav-rescan-baseline/app/src/test/java/com/instagram/insfav/
+          gradle -p /tmp/insfav-rescan-baseline :app:testDebugUnitTest --tests com.instagram.insfav.RescanBenchmarkTest
+          cp /tmp/insfav-rescan-baseline/app/build/test-results/testDebugUnitTest/TEST-com.instagram.insfav.RescanBenchmarkTest.xml measurements/rescan-before.xml
       - run: gradle :app:assembleDebug :app:assembleRelease :app:lintDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest
+      - name: Compare rescan evidence
+        run: |
+          python3 -m unittest discover -s tools/tests -p 'test_rescan_report.py'
+          python3 tools/rescan-report.py --before measurements/rescan-before.xml --after app/build/test-results/testDebugUnitTest/TEST-com.instagram.insfav.RescanBenchmarkTest.xml --concurrency app/build/test-results/testDebugUnitTest/TEST-com.instagram.insfav.RescanConcurrencyTest.xml --output measurements/rescan-before-after.json
       - name: Web UI and counter regressions
         shell: bash
         run: |

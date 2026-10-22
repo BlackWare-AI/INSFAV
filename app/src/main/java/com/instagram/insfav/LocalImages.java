@@ -2,7 +2,6 @@ package com.instagram.insfav;
 
 import android.content.*;
 import android.database.Cursor;
-import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.CancellationSignal;
 import android.provider.DocumentsContract;
@@ -12,9 +11,10 @@ import org.json.*;
 import java.io.*;
 import java.util.*;
 
-/** SAF catalog. Explicit rescans may prune direct orphan WebP files; scrolling is read-only. */
+/** Read-only SAF catalog. Rescans never alter source files; SQLite checkpoints survive interruption. */
 final class LocalImages {
     interface Listener {void event(String event, JSONObject value);}
+    private final Context context;
     private final ContentResolver resolver;
     private final Store store;
     private final File dataRoot;
@@ -32,6 +32,7 @@ final class LocalImages {
     private final Semaphore readSlots = new Semaphore(4, true);
     private final AtomicLong sourceReads = new AtomicLong(), joinedReads = new AtomicLong(), readNanos = new AtomicLong(), sourceBytes = new AtomicLong();
     LocalImages(Context context, Store store) {
+        this.context = context.getApplicationContext();
         this.resolver = context.getContentResolver(); this.store = store; dataRoot=context.getDataDir();
         cache = new File(context.getCacheDir(), "local-thumbnails"); cacheBytes = size(cache); try {clearCache();} catch (IOException error) {store.log("image_cache_migration", "INCOMPLETE");}
     }
@@ -84,117 +85,67 @@ final class LocalImages {
         checkAccess(); if (!accessible) throw new IOException(accessMessage); store.log("folder_select", "success");
     }
     void cancelScan() {CancellationSignal signal = cancellation; if (signal != null) signal.cancel();}
-    void scan(Listener listener) {scan(listener,true);}
+    void scan(Listener listener) {scan(listener,false);}
+    // Retained for existing callers. Rescan is always read-only, even with write permission.
     void scan(Listener listener,boolean cleanupRequested) {
         synchronized (this) {if (scanning) return; scanning = true;} cancellation = new CancellationSignal();
         String treeValue; synchronized (store) {treeValue = store.settings.optString("treeUri");}
-        long started = android.os.SystemClock.elapsedRealtime();
-        try {
+        long started = android.os.SystemClock.elapsedRealtime(); lastProgressAt=0;
+        try (ThumbnailScanner scanner=new ThumbnailScanner(context,store.root)) {
             checkAccess(); if (!accessible) throw new IOException(accessMessage.isEmpty() ? "Select a thumbnail folder first." : accessMessage);
-            synchronized (store) {store.settings.put("scanState", "scanning"); store.saveSettings();}
-            String directoryId; synchronized (store) {directoryId = store.settings.optString("directoryId", DocumentsContract.getTreeDocumentId(Uri.parse(treeValue)));}
-            Uri tree = Uri.parse(treeValue), children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, directoryId);
-            String[] columns = {DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_SIZE, DocumentsContract.Document.COLUMN_LAST_MODIFIED, DocumentsContract.Document.COLUMN_MIME_TYPE};
-            // Reuse validated entries only when the provider supplies a usable, unchanged
-            // size and modification timestamp. Missing metadata requires validation.
-            JSONObject previousProfiles;
+            String directoryId; JSONObject previousProfiles;
             synchronized (store) {
-                previousProfiles = treeValue.equals(store.index.optString("treeUri")) ? store.index.optJSONObject("profiles") : null;
+                store.settings.put("scanState", "scanning"); store.saveSettings();
+                directoryId=store.settings.optString("directoryId", DocumentsContract.getTreeDocumentId(Uri.parse(treeValue)));
+                previousProfiles=treeValue.equals(store.index.optString("treeUri"))?store.index.optJSONObject("profiles"):null;
             }
-            ThumbnailPolicy.Catalog catalog = new ThumbnailPolicy.Catalog(); int folderEntries;
-            List<ThumbnailPolicy.Candidate> candidates = new ArrayList<>();
-            try (Cursor cursor = resolver.query(children, columns, null, null, null, cancellation)) {
-                if (cursor == null) throw new IOException("Folder could not be read.");
-                int total = cursor.getCount(), processed = 0; folderEntries = total;
-                publish(listener, "scanning", 0, total, started);
-                while (cursor.moveToNext()) {
-                    if (Thread.currentThread().isInterrupted() || cancellation.isCanceled()) throw new InterruptedException();
-                    String name = cursor.getString(1);
-                    if (!DocumentsContract.Document.MIME_TYPE_DIR.equals(cursor.getString(4)) && ThumbnailPolicy.supported(name)) {
-                        Uri uri = DocumentsContract.buildDocumentUriUsingTree(tree, cursor.getString(0));
-                        long bytes = cursor.isNull(2) ? -1 : cursor.getLong(2), modified = cursor.isNull(3) ? 0 : cursor.getLong(3);
-                        int w = 0, h = 0; boolean readable = false;
-                        String user = ThumbnailPolicy.username(name);
-                        JSONObject previous = previousProfiles == null || user.isEmpty() ? null : previousProfiles.optJSONObject(user);
-                        boolean reuse = previous != null && previous.optBoolean("readable")
-                            && bytes >= 0 && modified > 0
-                            && name.equals(previous.optString("name"))
-                            && uri.toString().equals(previous.optString("uri"))
-                            && bytes == previous.optLong("size", -1)
-                            && modified == previous.optLong("modified", 0);
-                        if (reuse) {
-                            w = previous.optInt("width"); h = previous.optInt("height");
-                            readable = w > 0 && h > 0;
-                            reuse = readable;
-                        }
-                        if (!reuse) try {
-                            if (bytes > 64L * 1024 * 1024) throw new IOException("Image size limit");
-                            BitmapFactory.Options bounds = ImageCodec.bounds(resolver, uri); w = bounds.outWidth; h = bounds.outHeight;
-                            readable = ImageCodec.validate(resolver, uri, bounds);
-                        } catch (SecurityException error) {throw error;}
-                        catch (IOException | RuntimeException | OutOfMemoryError error) {store.log("image_validation", "UNREADABLE");}
-                        candidates.add(new ThumbnailPolicy.Candidate(name, uri.toString(), w, h, bytes, modified, readable));
-                    }
-                    processed++; if (processed % 16 == 0 || processed == total) publish(listener, "scanning", processed, total, started);
-                }
+            ThumbnailPolicy.Catalog catalog;
+            try {
+                catalog=scanner.scan(Uri.parse(treeValue),directoryId,previousProfiles,cancellation,
+                    (processed,total)->publish(listener,"scanning",processed,total,started));
+            } finally {progress.put("io",scanner.metrics());}
+            cancellation.throwIfCanceled();
+            JSONObject profiles=new JSONObject();
+            for(Map.Entry<String,ThumbnailPolicy.Candidate> entry:catalog.best.entrySet()) {
+                ThumbnailPolicy.Candidate c=entry.getValue();
+                profiles.put(entry.getKey(),new JSONObject().put("uri",c.uri).put("name",c.name).put("readable",c.readable)
+                    .put("width",c.width).put("height",c.height).put("size",c.size).put("modified",c.modified));
             }
-            if (cancellation.isCanceled()) throw new InterruptedException();
-            int deleted=0, preserved=0, deleteErrors=0;
-            String cleanupState=cleanupRequested?"Skipped — no validated nonempty Favorites list":"Not requested — indexing only";
+            long now=System.currentTimeMillis(),revision;
             synchronized(store) {
-                Set<String> current=cleanupRequested?store.cleanupUsers():null; boolean writable=false, managed=false;
-                for(UriPermission grant:resolver.getPersistedUriPermissions())
-                    if(grant.getUri().equals(tree)&&grant.isReadPermission()&&grant.isWritePermission())writable=true;
-                try(Cursor folder=resolver.query(DocumentsContract.buildDocumentUriUsingTree(tree,directoryId),new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME},null,null,null)) {
-                    managed=folder!=null&&folder.moveToFirst()&&".thumbnails".equals(folder.getString(0));
-                }
-                if(current!=null)cleanupState=!managed?"Skipped — select the .thumbnails folder":!writable?"Skipped — folder write permission required":"Completed";
-                for(Iterator<ThumbnailPolicy.Candidate> it=candidates.iterator();it.hasNext();) {
-                    ThumbnailPolicy.Candidate c=it.next();
-                    if(!c.name.toLowerCase(Locale.ROOT).endsWith(".webp")||c.user.isEmpty())continue;
-                    if(current!=null&&current.contains(c.user)){preserved++;continue;}
-                    if(current==null||!writable||!managed||!treeValue.equals(store.settings.optString("treeUri")))continue;
-                    if(cancellation.isCanceled())throw new InterruptedException();
-                    try {
-                        if(!DocumentsContract.deleteDocument(resolver,Uri.parse(c.uri)))throw new IOException("Delete rejected");
-                        it.remove();deleted++;
-                    } catch(Exception error) {deleteErrors++;store.log("thumbnail_cleanup_delete",error.getClass().getSimpleName());}
-                }
+                boolean unchanged=treeValue.equals(store.index.optString("treeUri")) && sameProfileCatalog(previousProfiles,profiles)
+                    && catalog.unreadable==store.index.optInt("unreadable") && catalog.duplicates==store.index.optInt("duplicates")
+                    && catalog.files==store.index.optInt("files") && catalog.bytes==store.index.optLong("bytes")
+                    && catalog.unknownSizes==store.index.optInt("unknownSizes");
+                revision=unchanged?store.index.optLong("revision"):Math.max(now,store.index.optLong("revision")+1);
             }
-            for(ThumbnailPolicy.Candidate candidate:candidates)catalog.add(candidate);
-            JSONObject cleanup=new JSONObject().put("deleted",deleted).put("preserved",preserved).put("errors",deleteErrors).put("state",cleanupState);
-            listener.event("thumbnail-cleanup",cleanup);
-            JSONObject profiles = new JSONObject();
-            for (Map.Entry<String, ThumbnailPolicy.Candidate> entry : catalog.best.entrySet()) {
-                ThumbnailPolicy.Candidate c = entry.getValue();
-                profiles.put(entry.getKey(), new JSONObject().put("uri", c.uri).put("name", c.name).put("readable", c.readable).put("width", c.width).put("height", c.height).put("size", c.size).put("modified", c.modified));
+            JSONObject cleanup=new JSONObject().put("deleted",0).put("preserved",0).put("errors",0).put("state","Read-only indexing — source files unchanged");
+            JSONObject next=new JSONObject().put("schema",1).put("treeUri",treeValue).put("revision",revision).put("scannedAt",now)
+                .put("profiles",profiles).put("unreadable",catalog.unreadable).put("duplicates",catalog.duplicates)
+                .put("files",catalog.files).put("bytes",catalog.bytes).put("unknownSizes",catalog.unknownSizes).put("cleanup",cleanup);
+            synchronized(store) {
+                if(!treeValue.equals(store.settings.optString("treeUri")) || !directoryId.equals(store.settings.optString("directoryId")))
+                    throw new IOException("Folder changed during scan.");
+                // Atomic public snapshot first. A crash before complete() only retains extra private checkpoints.
+                store.replaceIndex(next);scanner.index.complete();
+                store.settings.put("scanState","completed");store.saveSettings();
             }
-            long now = System.currentTimeMillis(), revision;
-            synchronized (store) {
-                boolean unchanged = treeValue.equals(store.index.optString("treeUri"))
-                    && sameProfileCatalog(previousProfiles, profiles)
-                    && catalog.unreadable == store.index.optInt("unreadable")
-                    && catalog.duplicates == store.index.optInt("duplicates")
-                    && catalog.files == store.index.optInt("files")
-                    && catalog.bytes == store.index.optLong("bytes")
-                    && catalog.unknownSizes == store.index.optInt("unknownSizes");
-                revision = unchanged ? store.index.optLong("revision")
-                    : Math.max(now, store.index.optLong("revision") + 1);
-            }
-            JSONObject next = new JSONObject().put("schema", 1).put("treeUri", treeValue).put("revision", revision).put("scannedAt", now).put("profiles", profiles).put("unreadable", catalog.unreadable).put("duplicates", catalog.duplicates).put("files", catalog.files).put("bytes", catalog.bytes).put("unknownSizes", catalog.unknownSizes).put("cleanup",cleanup);
-            synchronized (store) {
-                if (!treeValue.equals(store.settings.optString("treeUri"))) throw new IOException("Folder changed during scan.");
-                store.replaceIndex(next); store.settings.put("scanState", "completed"); store.saveSettings();
-            }
-            clearCache(); store.log("thumbnail_scan", "success");
-            publish(listener, "completed", folderEntries, folderEntries, started);
-        } catch (Exception error) {
-            String state = error instanceof InterruptedException || cancellation.isCanceled() ? "interrupted" : "failed";
-            try {synchronized (store) {store.settings.put("scanState", state); store.saveSettings();}} catch (Exception ignored) { }
-            if (error instanceof SecurityException) {accessible = false; accessMessage = "Folder permission was lost. Select the folder again.";}
-            try {JSONObject value = new JSONObject().put("state", state).put("message", error instanceof InterruptedException ? "Scan interrupted. The last completed index is preserved." : error.getMessage()); progress = value; listener.event("scan-progress", value);} catch (Exception ignored) { }
-            store.log("thumbnail_scan", state);
-        } finally {scanning = false; try {listener.event("status", snapshot(true));} catch (Exception ignored) { }}
+            store.log("thumbnail_scan","success");publish(listener,"completed",scanner.total,scanner.total,started);
+            progress.put("io",scanner.metrics());
+        } catch(Exception | OutOfMemoryError error) {
+            String state=error instanceof InterruptedException || cancellation.isCanceled() || error instanceof OutOfMemoryError?"interrupted":"failed";
+            try {synchronized(store){store.settings.put("scanState",state);store.saveSettings();}}catch(Exception ignored){}
+            if(error instanceof SecurityException){accessible=false;accessMessage="Folder permission was lost. Select the folder again.";}
+            try {
+                String message=error instanceof OutOfMemoryError?"Scan paused: low memory. Saved checkpoints and the last completed index are preserved."
+                    :"interrupted".equals(state)?"Scan interrupted. Saved checkpoints and the last completed index are preserved.":"Scan failed. Saved checkpoints are preserved; retry to resume.";
+                JSONObject value=new JSONObject().put("state",state).put("message",message).put("io",progress.optJSONObject("io"));
+                progress=value;listener.event("scan-progress",value);
+            }catch(Exception ignored){}
+            store.log("thumbnail_scan",state);
+            store.log("thumbnail_scan_error",error.getClass().getSimpleName());
+            if(error instanceof InterruptedException)Thread.currentThread().interrupt();
+        } finally {scanning=false;try {listener.event("status",snapshot(true));}catch(Exception ignored){}}
     }
     private static boolean sameProfileCatalog(JSONObject oldProfiles, JSONObject next) {
         if (oldProfiles == null || oldProfiles.length() != next.length()) return false;
@@ -209,7 +160,7 @@ final class LocalImages {
     }
     private void publish(Listener listener, String state, int processed, int total, long started) throws JSONException {
         long now = android.os.SystemClock.elapsedRealtime();
-        if ("scanning".equals(state) && processed > 0 && processed < total && now - lastProgressAt < 100) return;
+        if ("scanning".equals(state) && processed > 0 && processed < total && now - lastProgressAt < 250) return;
         lastProgressAt = now;
         JSONObject value = new JSONObject().put("state", state).put("processed", processed).put("total", total).put("elapsedMs", android.os.SystemClock.elapsedRealtime() - started);
         progress = value; listener.event("scan-progress", value);
@@ -221,7 +172,9 @@ final class LocalImages {
     JSONObject storageAudit() throws JSONException {
         JSONObject result=new JSONObject();
         for(String name:new String[]{"files","cache","databases","shared_prefs","app_webview","code_cache"})result.put(name,treeBytes(new File(dataRoot,name)));
-        return result.put("thumbnailIndex",new File(store.root,"thumbnail-index.json").length()).put("derivedImages",size(cache)).put("nativeBitmapCache",0);
+        long checkpointBytes=0;
+        for(String suffix:new String[]{"","-wal","-shm"})checkpointBytes+=new File(store.root,"thumbnail-scan.db"+suffix).length();
+        return result.put("thumbnailIndex",new File(store.root,"thumbnail-index.json").length()).put("thumbnailCheckpoint",checkpointBytes).put("derivedImages",size(cache)).put("nativeBitmapCache",0);
     }
     JSONObject snapshot(boolean includeProfiles) throws Exception {
         long now=android.os.SystemClock.elapsedRealtime();if(storageMeasuredAt==0||now-storageMeasuredAt>30000){storage=storageAudit();storageMeasuredAt=now;}
@@ -307,6 +260,7 @@ final class LocalImages {
     }
     void clearIndex() throws Exception {
         if (scanning) throw new IOException("Wait for the scan to finish.");
+        try (ThumbnailScanIndex checkpoints=new ThumbnailScanIndex(context,store.root)) {checkpoints.clear();}
         synchronized (store) {store.replaceIndex(new JSONObject()); store.settings.put("scanState", "not_scanned"); store.saveSettings();}
         clearCache(); store.log("thumbnail_index_clear", "success");
     }

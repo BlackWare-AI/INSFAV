@@ -21,9 +21,9 @@ INSFAV is a local Android viewer and organizer for the Instagram profiles saved 
 5. **Optional — Thumb Fetcher:** Grant the chosen folder write access, configure Instagram cookies and concurrent WebViews in Fetcher settings, then start the missing-images queue. Observe progress in the application or Android notifications. Instagram authentication, restrictions and connectivity may limit retrieval.
 6. Export your collection JSON as a backup whenever needed.
 
-### Thumbnail rescan in 4.0.0
+### Read-only thumbnail rescan
 
-Rescan checks the selected folder for added, modified and removed files, while reusing verified indexed metadata for unchanged images when the SAF provider reports reliable file size and modification time. Existing images are not needlessly decoded again in that case. If provider metadata is missing, images are validated again for safety. Malformed images are retried; duplicate candidates are rechecked so the best image is selected. Rescan does **not** change your Favorites JSON or delete original photos. A provider that returns incorrect, unchanged metadata cannot guarantee detection of an overwritten image; choose an updated file timestamp or reselect the folder if necessary.
+Rescan enumerates the folder once to discover added, changed and removed entries. A private SQLite checkpoint stores every candidate, including duplicates and validated unreadable images. Reliable, unchanged size and modification time allow reuse without opening or decoding images. Missing provider metadata requires validation again. Small thumbnails are opened once for bounded header and pixel validation; at most two validation workers run concurrently. Completed 256-file batches survive interruption; retry re-enumerates metadata and reuses saved work. The existing JSON index remains available until a full scan finishes. Rescan never writes, renames or deletes source files, even with write permission. See [rescan measurements and limitations](docs/RESCAN-PERFORMANCE.md).
 
 ## Requirements and privacy
 

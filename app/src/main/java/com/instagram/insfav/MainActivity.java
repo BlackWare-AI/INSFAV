@@ -26,7 +26,6 @@ public final class MainActivity extends Activity {
     private final ExecutorService scans = Executors.newSingleThreadExecutor();
     private String pendingExport;
     private SettingsBackupUi settingsBackup;
-    private boolean rescanAfterWriteGrant;
     private final DoubleBackExit exitBack = new DoubleBackExit();
     private final java.util.concurrent.atomic.AtomicBoolean scanPending = new java.util.concurrent.atomic.AtomicBoolean();
     private static final int IMPORT = 20, EXPORT = 21, FOLDER = 22, WRITE_FOLDER = 23;
@@ -150,7 +149,7 @@ public final class MainActivity extends Activity {
                         case "view-closed": Fetcher.closeViewer();runOnUiThread(()->{if(web!=null)web.clearCache(true);});break;
                         case "select-folder": selectFolder(); break;
                         case "rescan": if(Fetcher.running())throw new IOException("Pause the fetcher before rescanning.");
-                            if(store.cleanupUsers()!=null&&!Fetcher.writable()&&!store.settings.optString("treeUri").isEmpty()){rescanAfterWriteGrant=true;grantFetcherWrite();}else startScan();break;
+                            startScan(false);break;
                         case "clear-cache": runOnUiThread(()->{if(web!=null)web.clearCache(true);}); images.clearCache(); images.clearLegacyCache(); send("image-cache-cleared",new JSONObject()); send("status", images.snapshot(true)); send("message", "Image cache cleared. Source photos and collections are unchanged."); break;
                         case "clear-index": if(Fetcher.running())throw new IOException("Pause the fetcher before clearing its image index.");images.clearIndex(); send("status", images.snapshot(true)); send("message", "Thumbnail index cleared. Source photos and collections are unchanged."); break;
                         case "image-failed": send("status", images.snapshot(true)); break;
@@ -161,7 +160,11 @@ public final class MainActivity extends Activity {
                         case "export": if (store.original().isEmpty()) throw new IOException("No collections to export"); export(store.original(), "INSFAV-backup.json", "application/json"); break;
                         case "settings-export": settingsBackup.start(true); break;
                         case "settings-import": settingsBackup.start(false); break;
-                        case "logs": export(store.logs()+"\nStorage bytes: "+images.storageAudit().toString()+"\nImage I/O: "+images.snapshot(false).optJSONObject("imageIO"), "INSFAV-diagnostics.txt", "text/plain"); break;
+                        case "logs": {
+                            JSONObject diagnostic=images.snapshot(false);
+                            export(store.logs()+"\nStorage bytes: "+images.storageAudit()+"\nImage I/O: "+diagnostic.optJSONObject("imageIO")
+                                +"\nScan I/O: "+diagnostic.getJSONObject("scan").optJSONObject("io"),"INSFAV-diagnostics.txt","text/plain");break;
+                        }
                         case "frontend-error": store.log("web_error", input.optString("code", "script")); break;
                         case "clear-data": if(images.scanning()||scanPending.get())throw new IOException("Wait for the scan to finish.");if(Fetcher.running())throw new IOException("Pause the fetcher before clearing collections.");store.clearDocument(); getPreferences(0).edit().putInt("clear", getPreferences(0).getInt("clear", 0) + 1).apply(); send("cleared", ""); break;
                         case "open": openInstagram(input.getString("user")); break;
@@ -190,7 +193,6 @@ public final class MainActivity extends Activity {
             intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI,Uri.parse(current));startActivityForResult(intent,WRITE_FOLDER);
         });
     }
-    private void startScan() {startScan(true);}
     private void startScan(boolean cleanupRequested) {
         if (!scanPending.compareAndSet(false, true)) {send("message", "A scan is already in progress."); return;}
         scans.execute(() -> {try {images.scan((event, result) -> send(event, result),cleanupRequested);} finally {scanPending.set(false);}});
@@ -214,7 +216,7 @@ public final class MainActivity extends Activity {
     @Override protected void onActivityResult(int request, int result, Intent intent) {
         super.onActivityResult(request, result, intent);
         if(settingsBackup.result(request,result,intent))return;
-        if (result != RESULT_OK || intent == null || intent.getData() == null) {if(request==WRITE_FOLDER&&rescanAfterWriteGrant){rescanAfterWriteGrant=false;startScan();}if (request == EXPORT) pendingExport = null; return;}
+        if (result != RESULT_OK || intent == null || intent.getData() == null) {if (request == EXPORT) pendingExport = null; return;}
         Uri uri = intent.getData(); int flags = intent.getFlags();
         io.execute(() -> {
             try {
@@ -223,7 +225,7 @@ public final class MainActivity extends Activity {
                     if(!uri.toString().equals(current))throw new IOException("Select the same INSFAV thumbnail folder. The existing folder and index were preserved.");
                     int grant=flags&(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
                     if(grant!=(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION))throw new IOException("Folder read/write access was not granted.");
-                    getContentResolver().takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);Fetcher.sync();send("fetcher-status",Fetcher.snapshot());if(rescanAfterWriteGrant){rescanAfterWriteGrant=false;startScan();}
+                    getContentResolver().takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);Fetcher.sync();send("fetcher-status",Fetcher.snapshot());
                 }else if (request == FOLDER) {images.select(uri, flags); send("status", images.snapshot(true)); startScan(false);}
                 else if (request == IMPORT) {
                     String raw;
@@ -239,7 +241,7 @@ public final class MainActivity extends Activity {
                     try (OutputStream output = getContentResolver().openOutputStream(uri, "wt")) {if (output == null) throw new IOException("Destination cannot be opened"); output.write(pendingExport.getBytes(StandardCharsets.UTF_8));}
                     pendingExport = null; store.log("export", "success"); send("message", "Export complete.");
                 }
-            } catch (Exception error) {if(request==WRITE_FOLDER)rescanAfterWriteGrant=false;if (request == EXPORT) pendingExport = null; error(error);}
+            } catch (Exception error) {if (request == EXPORT) pendingExport = null; error(error);}
         });
     }
     @Override public void onBackPressed() {if (web == null) {requestExit(); return;} web.evaluateJavascript("window.handleBack&&window.handleBack()", value -> {if ("true".equals(value)) exitBack.reset(); else requestExit();});}

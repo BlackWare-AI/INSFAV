@@ -18,7 +18,7 @@ The existing INSFAV HD probe is byte-identical. Local-first display, real dimens
 
 SQLite schema/persistence and main collection JSON remain compatible. Missing-image results become SKIPPED_NO_IMAGE without claiming account deletion. Explicit unavailable/404 becomes SKIPPED_UNAVAILABLE. Timeout/network/processing errors receive up to three attempts, with untried profiles first. Global 429/login/challenge/access barriers pause the pool without consuming per-account attempts. Retry Skipped / Failed Profiles explicitly requeues those account-local outcomes. Source 0.4.0's broad skip-every-network-error policy is not imported.
 
-New output is square center-cropped 256x256 WebP quality 78. Existing 128x128 WebP remains valid and is not automatically deleted/refetched. Legacy refresh was removed after 4.0.0. Valid existing thumbnails are preserved; explicit Rescan may prune orphan WebP files using the current validated Favorites list. See SETTINGS-THUMBNAIL-SAFETY.md. File names and external folder selection do not change. Existing safe rename/readback/journal/index updates are retained rather than replaced with the helper's separate output-folder manager.
+New output is square center-cropped 256x256 WebP quality 78. Existing 128x128 WebP remains valid and is not automatically deleted/refetched. Legacy refresh was removed after 4.0.0. Valid existing thumbnails are preserved; Rescan is now read-only and does not prune orphan WebP files. See SETTINGS-THUMBNAIL-SAFETY.md. File names and external folder selection do not change. Existing safe rename/readback/journal/index updates are retained rather than replaced with the helper's separate output-folder manager.
 
 ## Background
 

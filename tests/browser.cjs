@@ -127,6 +127,8 @@ let checks=0;function check(value,label){assert.ok(value,label);console.log('PAS
   await page.getByRole('button',{name:'Settings',exact:true}).click();check(await page.locator('#settings').isVisible(),'Settings remains accessible');check(await page.locator('#progress').evaluate(el=>el.value===el.max),'completed persisted scan shows a full progress bar');
   check(await page.locator('#profile-actions button').count()===4,'download controls replaced with four local image controls');
   check(!(await page.locator('#settings').innerText()).includes('Retry Failed'),'obsolete retry controls removed');
+  check(!(await page.locator('#metrics').innerText()).includes('Deleted Orphan WebP Files'),'read-only rescan does not advertise source deletion');
+  check((await page.locator('#metrics').innerText()).includes('Scan Checkpoint Index Size'),'durable scan metadata storage is shown');
   await page.evaluate(()=>nativeEvent('resolution-stats',{count:101,expected:'128×128 or 256×256'}));
   check(await page.locator('#metrics .metric').evaluateAll(nodes=>nodes.findIndex(n=>n.textContent.includes('Invalid Resolution Images'))+1===nodes.findIndex(n=>n.textContent.includes('Last Scan Date'))),'resolution audit is immediately before Last Scan Date');
   await page.getByRole('button',{name:'Invalid Resolution Images: 101',exact:true}).click();
