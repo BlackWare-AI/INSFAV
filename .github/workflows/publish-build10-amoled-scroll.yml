@@ -1,0 +1,105 @@
+name: Publish same-version build 10 AMOLED main-list and scroll controls
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: insfav-amoled-scroll-publication
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'BlackWare-AI/INSFAV' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify source, signed artifact and unchanged build
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GH_REPO/actions/runs/39956070667" --jq .conclusion)" = success
+          test "$(gh api "repos/$GH_REPO/actions/runs/39956070667" --jq .head_sha)" = ef43bd407816fac523a84efbc152d9f9b69ec459
+          git diff --exit-code ef43bd407816fac523a84efbc152d9f9b69ec459 HEAD -- app web tests version.properties build.gradle settings.gradle gradle gradlew gradlew.bat package.json package-lock.json tools/minify.cjs tools/web-bundle.json
+          git show f01a87c249cf5b6ad3aa40c59a71ac6c9d06c73b > public-candidate.zip
+          echo 'c60b48b7e6478e819cf3d43e89d8b41e7999c75ef7ceabe12a5f608292d3a5b3  public-candidate.zip' | sha256sum --check
+          unzip -q public-candidate.zip -d candidate
+          (cd candidate && sha256sum --check SHA256SUMS)
+          mkdir previous
+          gh release download v5.0.0-build.10-avatar675 --pattern INSFAV-5.0.0.apk --dir previous
+          gh run download 39956070667 --name INSFAV-builds --dir ci
+          gh run download 39956070667 --name INSFAV-emulator-pool --dir emulator
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess,sys,zipfile
+          from pathlib import Path
+          sys.path.insert(0,'tools/release')
+          import release_gate_500 as signing
+          import update_build10 as manifest
+          source='ef43bd407816fac523a84efbc152d9f9b69ec459'
+          cert='705e090084a4e50c47a8eb122d1605963276e5bb76f873d6f185b965c01e8641'
+          record=json.loads(Path('candidate/verification.json').read_text())
+          expected=dict(sourceCommit=source,version='5.0.0',build=10,apkSha256='cca1a6d6c082e176cca4f36b5fd4271330ac3d998045dac0efa41c9f1a91ecc8',certificateSha256=cert,nativeTests=dict(tests=222,failures=0,errors=0,skipped=0),coreTests=16,browserChecks=134,scrollChecks=53,deviceScrollChecks=True,ciRun=39956070667,ciConclusion='success',emulatorConclusion='success',physicalDeviceTested=False,liveInstagramTested=False,debuggable=False,lintErrors=0)
+          assert all(type(record.get(k)) is type(v) and record[k]==v for k,v in expected.items()),'Unverified evidence'
+          sdk=Path(os.environ.get('ANDROID_HOME') or os.environ['ANDROID_SDK_ROOT']);tools=sorted(sdk.glob('build-tools/*/apksigner'))[-1].parent
+          for path,digest in [(Path('candidate/INSFAV-5.0.0.apk'),'cca1a6d6c082e176cca4f36b5fd4271330ac3d998045dac0efa41c9f1a91ecc8'),(Path('previous/INSFAV-5.0.0.apk'),'f7857f37fa021df8072192f8c487c1f05f503b99f18277690e8387520d8136d2')]:
+              manifest.verify_hash(path,digest)
+              assert signing.apk_certificate(tools/'apksigner',path)==cert
+              manifest.validate_manifest(signing.captured([str(tools/'aapt'),'dump','badging',str(path)]))
+          signing.captured([str(tools/'zipalign'),'-c','-P','16','4','candidate/INSFAV-5.0.0.apk'])
+          assert Path('candidate/INSFAV-Android-Studio-Project.zip').read_bytes()==subprocess.check_output(['git','archive','--format=zip',source])
+          def payload(path):
+              with zipfile.ZipFile(path) as z:
+                  return {n:z.read(n) for n in z.namelist() if not n.endswith('/') and not (n.startswith('META-INF/') and (n.endswith(('.SF','.RSA','.DSA','.EC')) or n=='META-INF/MANIFEST.MF'))}
+          assert payload('candidate/INSFAV-5.0.0.apk')==payload('ci/app/build/outputs/apk/release/app-release-unsigned.apk'),'Signed APK differs from verified CI payload'
+          current=payload('candidate/INSFAV-5.0.0.apk');previous=payload('previous/INSFAV-5.0.0.apk')
+          changed={name for name in set(current)|set(previous) if current.get(name)!=previous.get(name)}
+          assert changed=={'assets/app.js','assets/core.js','assets/style.css','META-INF/version-control-info.textproto'},changed
+          assert Path('ci/scroll-results.txt').read_text().splitlines()[-1]=='53 scroll and AMOLED checks passed'
+          assert Path('candidate/scroll-ui.json').read_bytes()==Path('emulator/scroll-ui.json').read_bytes()
+          assert Path('candidate/scroll-device-150.png').read_bytes()==Path('emulator/scroll-device-150.png').read_bytes()
+          proof=json.loads(Path('candidate/scroll-ui.json').read_text())
+          assert proof['fixture'] is True and proof['physicalDevice'] is False and proof['accounts']==4000 and proof['sdk']==34
+          assert len(proof['results'])==3
+          for result,scale in zip(proof['results'],[1,1.3,1.5]):
+              assert abs(result['systemFontScale']-scale)<.01 and result['realTouchHoldAndDrag'] is True and result['globalStartEnd'] is True
+              layout=result['layout']
+              assert layout['rowHeight']==68 and layout['avatarSize']==67.5 and layout['avatarRadius']=='14px' and layout['folderRadius']=='26px'
+              assert layout['noTextOverlap'] is True and layout['horizontalOverflow'] is False
+          PY
+      - name: Upload verified draft and publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)" = "$GITHUB_SHA"
+          if gh api "repos/$GH_REPO/git/ref/tags/v5.0.0-build.10-amoled-scroll" > tag.json 2>/dev/null; then
+            test "$(python3 -c 'import json; print(json.load(open("tag.json"))["object"]["sha"])')" = ef43bd407816fac523a84efbc152d9f9b69ec459
+          fi
+          gh api "repos/$GH_REPO/releases/421836721" > draft.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.load(open('draft.json'))
+          assert d['id']==421836721 and d['draft'] is True and d['tag_name']=='v5.0.0-build.10-amoled-scroll' and d['target_commitish']=='ef43bd407816fac523a84efbc152d9f9b69ec459'
+          assert all(a['name'] in {p.name for p in Path('candidate').iterdir()} for a in d['assets'])
+          PY
+          gh release upload v5.0.0-build.10-amoled-scroll candidate/* --clobber
+          verify_dir=$(mktemp -d "$RUNNER_TEMP/insfav-amoled-scroll.XXXXXX")
+          trap 'rm -rf "$verify_dir"' EXIT
+          gh release download v5.0.0-build.10-amoled-scroll --dir "$verify_dir"
+          (cd "$verify_dir" && sha256sum --check SHA256SUMS)
+          test "$(gh api "repos/$GH_REPO/releases/tags/v5.0.0-build.10-avatar675" --jq '.assets[] | select(.name == "INSFAV-5.0.0.apk") | .digest')" = 'sha256:f7857f37fa021df8072192f8c487c1f05f503b99f18277690e8387520d8136d2'
+          test "$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)" = "$GITHUB_SHA"
+          gh release edit v5.0.0-build.10-amoled-scroll --draft=false --latest
+          gh release view v5.0.0-build.10-amoled-scroll --json url --jq .url
