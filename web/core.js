@@ -15,7 +15,7 @@ function parseDocument(text){
 }
 function filterCollections(doc,q){q=String(q).normalize('NFKC').toLocaleLowerCase('en').trim();return !q?doc.indexed:doc.indexed.map(c=>({...c,items:c.items.filter(i=>i.search.includes(q))})).filter(c=>c.items.length);}
 function rowsFor(groups,open,search,view={}){
- const rows=[],columns=[2,3,4].includes(view.columns)?view.columns:0;
+ const rows=[],columns=[2,3,4,5].includes(view.columns)?view.columns:0;
  const cell=columns?Math.max(1,((view.width||300)-18-8*(columns-1))/columns):0;
  for(const c of groups){const expanded=search||open.has(c.key);rows.push({type:'folder',key:'f'+c.key,group:c,height:expanded?68:82});
   if(expanded){

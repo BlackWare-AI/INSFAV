@@ -11,7 +11,7 @@ public final class UiPreferences {
     public static String language(Context c){return prefs(c).getString("language","en");}
     public static void save(Context c,JSONObject value)throws Exception{
         int columns=value.getInt("columns");String language=value.getString("language");
-        if((columns!=0&&columns!=2&&columns!=3&&columns!=4)||(!language.equals("en")&&!language.equals("tr")))throw new IllegalArgumentException("Invalid display preference");
+        if((columns!=0&&columns!=2&&columns!=3&&columns!=4&&columns!=5)||(!language.equals("en")&&!language.equals("tr")))throw new IllegalArgumentException("Invalid display preference");
         if(!prefs(c).edit().putInt("columns",columns).putString("language",language).commit())throw new java.io.IOException("Could not save display preferences");
     }
 }

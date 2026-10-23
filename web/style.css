@@ -36,7 +36,7 @@ html.main-scroll-visible{scrollbar-color:transparent transparent}html.main-scrol
 
 /* Floating controls overlay the edge only while in use; list geometry stays unchanged. */
 #main-scroll{width:26px;gap:8px;transition:opacity 180ms ease}
-#main-scroll.idle{opacity:0}#main-scroll.idle button{pointer-events:none}
+#main-scroll.idle{opacity:0}#main-scroll.idle button{pointer-events:auto}
 #main-scroll button{width:26px;height:34px;background:#080808e8;color:#aaa}
 #main-scroll svg{width:16px;height:16px}.scroll-track{width:26px;margin-top:0}.scroll-track::before{left:18px}
 #scroll-thumb{left:11px;width:15px;min-height:42px}#scroll-thumb::before{inset:0 1px}
@@ -48,3 +48,15 @@ html.main-scroll-visible{scrollbar-color:transparent transparent}html.main-scrol
 .matrix-row{display:grid;grid-template-columns:repeat(var(--columns),minmax(0,1fr));gap:8px;padding:8px;border-left:1px solid #111;border-right:1px solid #111;background:#000;overflow:hidden}
 .matrix-row.last{border-bottom:1px solid #111;border-radius:0 0 26px 26px}.matrix-cell{min-width:0;display:flex;flex-direction:column;gap:6px}.matrix-cell .avatar{width:100%;height:var(--cell);flex:none;border-radius:14px}.matrix-user{flex-shrink:0;display:block;width:100%;min-width:0;padding:0;background:none;border:0;color:#aaa;font:12px/20px Inter,sans-serif;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media(prefers-reduced-motion:reduce){#main-scroll{transition:none}}
+
+/* Compact floating handle; no native/custom rail is painted behind it. */
+#scroll-thumb{left:18.5px;width:7.5px}#scroll-thumb.holding::before{transition:background-color 100ms linear}
+.scroll-track::before{display:none}#main-scroll button{background:transparent;transition:opacity 160ms ease,transform 160ms ease,background-color 120ms}
+#main-scroll button:active{background:transparent}#main-scroll.idle button{transform:translateX(8px)}
+#main-scroll{transition:opacity 160ms ease}#list.matrix-mode .folder-wrap.open{border-bottom:0}
+#display-settings{margin-top:0;margin-bottom:24px}#preference-picker{z-index:40}.preference-modal{width:100%;max-width:380px;background:#000;border:1px solid #111;border-radius:26px;padding:8px;color:#fff}
+.preference-modal h2{font-size:16px;padding:16px 12px;overflow-wrap:anywhere}.preference-modal .action-list{margin:0;border-color:#111;border-radius:18px}.preference-modal .action-list button{position:relative;padding:16px 38px 16px 16px;font-size:14px;text-align:left;background:#000}.preference-modal [aria-selected="true"]::after{content:"✓";position:absolute;right:16px;color:#aaa}.preference-modal .btn{margin-top:8px;width:100%;background:#000;border-color:#111;border-radius:18px}
+.copy-missing svg{width:18px;height:26px}
+
+.person-placeholder{width:27.6px;height:27.6px;background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%20fill%3D%22none%22%20stroke%3D%22%23888%22%20stroke-width%3D%221.7%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%222.5%22%20y%3D%222.5%22%20width%3D%2227%22%20height%3D%2227%22%20rx%3D%229%22%20stroke%3D%22%23333%22%2F%3E%3Ccircle%20cx%3D%2214%22%20cy%3D%2211.5%22%20r%3D%224%22%2F%3E%3Cpath%20d%3D%22M6.5%2024v-1a7.5%207.5%200%200%201%2012-6%22%2F%3E%3Ccircle%20cx%3D%2223.5%22%20cy%3D%2223.5%22%20r%3D%225.5%22%20fill%3D%22%23000%22%2F%3E%3Cpath%20d%3D%22M21%2023.5h5%22%2F%3E%3C%2Fsvg%3E")}
+@media(prefers-reduced-motion:reduce){#main-scroll,#main-scroll button{transition:none}}

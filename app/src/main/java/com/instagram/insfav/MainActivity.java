@@ -129,6 +129,7 @@ public final class MainActivity extends Activity {
                             result.put("uiPreferences",UiPreferences.read(MainActivity.this)).put("raw", store.original()).put("app", appInfo()).put("stats", new JSONObject().put("usage", incrementUsage()).put("load", getPreferences(0).getInt("load", 0)).put("clear", getPreferences(0).getInt("clear", 0)));
                             send("bootstrap", result); break;
                         }
+                        case "main-scroll-controls": {boolean visible=input.optBoolean("visible");runOnUiThread(()->{if(web!=null)web.setVerticalScrollBarEnabled(!visible);});break;}
                         case "ui-preferences": UiPreferences.save(MainActivity.this,input);send("ui-preferences",UiPreferences.read(MainActivity.this));break;
                         case "status": send("status", images.snapshot(true)); break;
                         case "copy-missing-users": {
