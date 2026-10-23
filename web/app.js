@@ -45,8 +45,12 @@ window.nativeEvent=(event,data)=>{
 function rebuild(preserve=false){
  mainScroll.cancel();
  const groups=doc?C.filterCollections(doc,query):[];
- let labelHeight=20;if(uiPreferences.columns){const probe=document.createElement('button');probe.className='matrix-user';probe.textContent='@';probe.setAttribute('aria-hidden','true');probe.style.cssText='position:fixed;visibility:hidden;pointer-events:none;left:-1000px;width:100px';document.body.append(probe);labelHeight=probe.getBoundingClientRect().height;probe.remove();}
- rows=C.rowsFor(groups,opened,!!query.trim(),{columns:uiPreferences.columns,width:$('list').getBoundingClientRect().width,labelHeight});positions=C.offsets(rows);
+ let measured={};if(uiPreferences.columns){
+  const probe=document.createElement('div');probe.className='matrix-row';probe.setAttribute('aria-hidden','true');probe.style.cssText='position:fixed;visibility:hidden;pointer-events:none;left:-1000px;width:'+$('list').getBoundingClientRect().width+'px';probe.style.setProperty('--columns',uiPreferences.columns);
+  const cell=document.createElement('div');cell.className='matrix-cell';const image=document.createElement('button');image.className='avatar';const label=document.createElement('button');label.className='matrix-user';label.textContent='@';cell.append(image,label);probe.append(cell);document.body.append(probe);
+  measured={cellSize:image.getBoundingClientRect().width,rowHeight:probe.getBoundingClientRect().height,labelHeight:label.getBoundingClientRect().height};probe.classList.add('last');measured.lastRowHeight=probe.getBoundingClientRect().height;probe.remove();
+ }
+ rows=C.rowsFor(groups,opened,!!query.trim(),{columns:uiPreferences.columns,width:$('list').getBoundingClientRect().width,...measured});positions=C.offsets(rows);
  mainScroll.setExpanded(rows.some(row=>row.type==='account'||row.type==='matrix'));
  $('list').style.height=positions.at(-1)+'px';
  if(!preserve){for(const node of mounted.values()){for(const button of node.querySelectorAll('.avatar'))releaseAvatar(button);node.remove();}mounted.clear();}
