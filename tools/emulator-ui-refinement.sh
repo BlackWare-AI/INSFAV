@@ -7,7 +7,7 @@ adb install -r "$apk"
 adb install -r "$test_apk"
 adb shell pm grant com.instagram.insfav android.permission.POST_NOTIFICATIONS
 adb logcat -c
-adb shell am instrument -w com.instagram.insfav.test/com.instagram.insfav.UiRefinementInstrumentation | tee emulator-ui/instrumentation.txt
+adb shell am instrument -w -e scope ui-refinement com.instagram.insfav.test/com.instagram.insfav.fetcher.PoolInstrumentation | tee emulator-ui/instrumentation.txt
 grep -q REFINEMENT_UI_OK emulator-ui/instrumentation.txt
 grep -q SCROLL_UI_OK emulator-ui/instrumentation.txt
 for name in scroll-ui.json scroll-device-150.png matrix-device-150.png preference-device-150.png; do
