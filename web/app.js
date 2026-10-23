@@ -139,9 +139,10 @@ const mainScroll=(()=>{
  const thumb=document.createElement('div');thumb.id='scroll-thumb';thumb.tabIndex=0;thumb.setAttribute('role','scrollbar');thumb.setAttribute('aria-controls','list');thumb.setAttribute('aria-orientation','vertical');thumb.setAttribute('aria-label','List position; hold for 3 seconds to drag');thumb.setAttribute('aria-valuemin','0');thumb.setAttribute('aria-valuemax','100');
  track.append(thumb);controls.append(up,down,track);document.body.append(controls);
  const surfaces=['splash','dialog','settings','fetcher-screen','features-screen','viewer'].map($);
- let expanded=false,hold=null,timer=0,metrics=C.scrollMetrics(0,0,0,0);
+ let expanded=false,hold=null,timer=0,jumpFrame=0,jumpSerial=0,metrics=C.scrollMetrics(0,0,0,0);
  const available=()=>!document.hidden&&!document.body.classList.contains('overlay-open')&&surfaces.every(el=>el.hidden);
- function cancel(){clearTimeout(timer);timer=0;const previous=hold;hold=null;thumb.classList.remove('holding','armed');if(previous&&thumb.hasPointerCapture(previous.id))thumb.releasePointerCapture(previous.id);}
+ function cancelJump(){if(jumpFrame)cancelAnimationFrame(jumpFrame);jumpFrame=0;jumpSerial++;}
+ function cancel(){cancelJump();clearTimeout(timer);timer=0;const previous=hold;hold=null;thumb.classList.remove('holding','armed');if(previous&&thumb.hasPointerCapture(previous.id))thumb.releasePointerCapture(previous.id);}
  function update(){
   const root=document.scrollingElement,viewport=document.documentElement.clientHeight,right=document.documentElement.clientWidth,listRight=$('list').getBoundingClientRect().right,height=document.querySelector('.bottom-nav').getBoundingClientRect().top-94;
   metrics=C.scrollMetrics(root.scrollHeight,viewport,Math.max(0,height),root.scrollTop);
@@ -152,22 +153,27 @@ const mainScroll=(()=>{
   thumb.setAttribute('aria-valuenow',String(Math.round(metrics.position/metrics.max*100)));
   up.disabled=metrics.position<=0;down.disabled=metrics.position>=metrics.max;
  }
- const go=target=>{cancel();window.scrollTo(0,target);schedule();};
+ const go=target=>{
+  cancel();const serial=jumpSerial,started=performance.now();let frames=8;
+  // A stopped compositor fling can deliver one last scroll after pointerup.
+  // Settle for at most eight frames/150ms; fresh input cancels immediately.
+  const settle=()=>{if(serial!==jumpSerial)return;jumpFrame=0;if(!available())return;const root=document.scrollingElement;window.scrollTo(0,Math.max(0,Math.min(root.scrollHeight-root.clientHeight,target)));schedule();if(--frames>0&&performance.now()-started<150)jumpFrame=requestAnimationFrame(settle);};settle();
+ };
  up.onclick=()=>go(0);down.onclick=()=>go(metrics.max);
  // Chrome suppresses click for the tap that stops an active touch fling.
  for(const [button,target]of [[up,()=>0],[down,()=>metrics.max]])button.addEventListener('pointerup',event=>{if(event.pointerType==='touch'&&event.isPrimary){event.preventDefault();go(target());}});
  thumb.addEventListener('pointerdown',event=>{
   if(controls.hidden||!available()||!event.isPrimary||(event.pointerType==='mouse'&&event.button!==0))return;
   if(hold){cancel();return;}event.preventDefault();
-  hold={id:event.pointerId,x:event.clientX,y:event.clientY,lastY:event.clientY,armed:false};thumb.setPointerCapture(event.pointerId);thumb.classList.add('holding');
-  timer=setTimeout(()=>{if(!hold||!available()){cancel();return;}update();if(!hold)return;hold.armed=true;hold.originY=hold.lastY;hold.originScroll=document.scrollingElement.scrollTop;hold.metrics=metrics;thumb.classList.remove('holding');thumb.classList.add('armed');},3000);
+  hold={id:event.pointerId,x:event.clientX,y:event.clientY,lastY:event.clientY,width:innerWidth,height:innerHeight,armed:false};thumb.setPointerCapture(event.pointerId);thumb.classList.add('holding');
+  timer=setTimeout(()=>{if(!hold||!available()||hold.width!==innerWidth||hold.height!==innerHeight){cancel();return;}update();if(!hold)return;hold.armed=true;hold.originY=hold.lastY;hold.originScroll=document.scrollingElement.scrollTop;hold.metrics=metrics;thumb.classList.remove('holding');thumb.classList.add('armed');},3000);
  });
  thumb.addEventListener('pointermove',event=>{
-  if(!hold||hold.id!==event.pointerId)return;event.preventDefault();hold.lastY=event.clientY;
+  if(!hold||hold.id!==event.pointerId)return;if(hold.width!==innerWidth||hold.height!==innerHeight){cancel();return;}event.preventDefault();hold.lastY=event.clientY;
   if(!hold.armed){if(Math.hypot(event.clientX-hold.x,event.clientY-hold.y)>8)cancel();return;}
   window.scrollTo(0,C.dragScrollTarget(hold.metrics,hold.originScroll,event.clientY-hold.originY));schedule();
  });
- for(const name of ['pointerup','pointercancel','lostpointercapture'])thumb.addEventListener(name,cancel);
+ for(const name of ['pointerup','pointercancel','lostpointercapture'])thumb.addEventListener(name,event=>{if(hold?.id===event.pointerId)cancel();});
  thumb.addEventListener('contextmenu',event=>event.preventDefault());
  thumb.addEventListener('keydown',event=>{
   const actions={Home:0,End:metrics.max,ArrowUp:metrics.position-68,ArrowDown:metrics.position+68,PageUp:metrics.position-innerHeight,PageDown:metrics.position+innerHeight};
@@ -175,7 +181,7 @@ const mainScroll=(()=>{
  });
  const observer=new MutationObserver(()=>{if(!available())cancel();schedule();});observer.observe(document.body,{attributes:true,attributeFilter:['class']});for(const surface of surfaces)observer.observe(surface,{attributes:true,attributeFilter:['hidden']});
  window.addEventListener('blur',cancel);window.addEventListener('resize',cancel,{passive:true});window.addEventListener('wheel',cancel,{passive:true});document.addEventListener('visibilitychange',()=>{cancel();schedule();});
- document.addEventListener('pointerdown',event=>{if(hold&&hold.id!==event.pointerId)cancel();},true);document.addEventListener('keydown',event=>{if(event.key==='Escape')cancel();});
+ document.addEventListener('pointerdown',event=>{cancelJump();if(hold&&hold.id!==event.pointerId)cancel();},true);document.addEventListener('keydown',event=>{cancelJump();if(event.key==='Escape')cancel();},true);
  return {cancel,update,setExpanded:value=>{expanded=value;}};
 })();
 function refreshAvatars(previous={}){for(const node of mounted.values()){const button=node.querySelector('.avatar');if(button){const user=button.dataset.user;if(previous[user]?.file!==profiles[user]?.file||previous[user]?.version!==profiles[user]?.version)avatarFor(button,user);}}prioritizeAvatars(0);}
