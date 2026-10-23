@@ -1,0 +1,93 @@
+name: Publish verified restored avatar
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: insfav-avatar-publication
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'BlackWare-AI/INSFAV' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify source, evidence and signed APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GH_REPO/actions/runs/40037157430" --jq .conclusion)" = success
+          test "$(gh api "repos/$GH_REPO/actions/runs/40037157430" --jq .head_sha)" = c4e14287773860e1d256fcdab94ce0ac832a1aff
+          git diff --exit-code c4e14287773860e1d256fcdab94ce0ac832a1aff HEAD -- app web tests version.properties build.gradle settings.gradle gradle gradlew gradlew.bat package.json package-lock.json tools/minify.cjs tools/web-bundle.json
+          git show 89cf4c9bc42a397a46d72b5d75503ae297328ac1 > public-candidate.zip
+          echo 'bd6566c52ba13252f1b36da7a4bd47a285fa35cb81e81d7384449d0ba16055ac  public-candidate.zip' | sha256sum --check
+          unzip -q public-candidate.zip -d candidate
+          (cd candidate && sha256sum --check SHA256SUMS)
+          gh run download 40037157430 --name INSFAV-avatar-build --dir ci
+          mkdir previous
+          gh release download v5.0.0-build.10-matrix --pattern INSFAV-5.0.0.apk --dir previous
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess,sys,zipfile
+          from pathlib import Path
+          sys.path.insert(0,'tools/release')
+          import release_gate_500 as signing
+          import update_build10 as manifest
+          source='c4e14287773860e1d256fcdab94ce0ac832a1aff'
+          cert='705e090084a4e50c47a8eb122d1605963276e5bb76f873d6f185b965c01e8641'
+          record=json.loads(Path('candidate/verification.json').read_text())
+          expected=dict(sourceCommit=source,version='5.0.0',build=10,apkSha256='24232711f4cd1f01f13e5e5bef2b6f8a4da01667bf2cb9077299aef932587687',certificateSha256=cert,ciRun=40037157430,matrixChecks=70,ciConclusion='success',nativeTestsRerun=False,lintRerun=False,emulatorRerun=False,physicalDeviceTested=False,liveInstagramTested=False,signedReleaseInstalledOnDevice=False,debuggable=False)
+          assert record==expected,'Evidence mismatch'
+          sdk=Path(os.environ.get('ANDROID_HOME') or os.environ['ANDROID_SDK_ROOT']);tools=sorted(sdk.glob('build-tools/*/apksigner'))[-1].parent
+          for path,digest in [(Path('candidate/INSFAV-5.0.0.apk'),'24232711f4cd1f01f13e5e5bef2b6f8a4da01667bf2cb9077299aef932587687'),(Path('previous/INSFAV-5.0.0.apk'),'6b53d37cbf174d79d9c56c624419977d4cc5dcf1d1ac70924bf35665d2da705a')]:
+              manifest.verify_hash(path,digest)
+              assert signing.apk_certificate(tools/'apksigner',path)==cert
+              manifest.validate_manifest(signing.captured([str(tools/'aapt'),'dump','badging',str(path)]))
+          signing.captured([str(tools/'zipalign'),'-c','-P','16','4','candidate/INSFAV-5.0.0.apk'])
+          assert Path('candidate/INSFAV-Android-Studio-Project.zip').read_bytes()==subprocess.check_output(['git','archive','--format=zip',source])
+          def payload(path):
+              with zipfile.ZipFile(path) as z:
+                  return {n:z.read(n) for n in z.namelist() if not n.endswith('/') and not (n.startswith('META-INF/') and (n.endswith(('.SF','.RSA','.DSA','.EC')) or n=='META-INF/MANIFEST.MF'))}
+          current=payload('candidate/INSFAV-5.0.0.apk')
+          assert current==payload('ci/app/build/outputs/apk/release/app-release-unsigned.apk'),'CI payload mismatch'
+          previous=payload('previous/INSFAV-5.0.0.apk')
+          changed={n for n in set(current)|set(previous) if current.get(n)!=previous.get(n)}
+          assert changed <= {'assets/style.css','META-INF/version-control-info.textproto'} and 'assets/style.css' in changed,changed
+          assert current['assets/style.css']==Path('app/src/main/assets/style.css').read_bytes()
+          assert Path('ci/matrix-results.txt').read_text().splitlines()[-1]=='70 matrix/language checks passed'
+          assert Path('candidate/matrix-results.txt').read_bytes()==Path('ci/matrix-results.txt').read_bytes()
+          PY
+      - name: Publish verified package
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)" = "$GITHUB_SHA"
+          gh api "repos/$GH_REPO/releases/422380801" > draft.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.load(open('draft.json'))
+          assert d['id']==422380801 and d['draft'] is True and d['tag_name']=='v5.0.0-build.10-avatar-fallback' and d['target_commitish']=='c4e14287773860e1d256fcdab94ce0ac832a1aff'
+          assert all(a['name'] in {p.name for p in Path('candidate').iterdir()} for a in d['assets'])
+          PY
+          gh release upload v5.0.0-build.10-avatar-fallback candidate/* --clobber
+          verify_dir=$(mktemp -d "$RUNNER_TEMP/insfav-avatar.XXXXXX")
+          trap 'rm -rf "$verify_dir"' EXIT
+          gh release download v5.0.0-build.10-avatar-fallback --dir "$verify_dir"
+          (cd "$verify_dir" && sha256sum --check SHA256SUMS)
+          test "$(gh api "repos/$GH_REPO/releases/tags/v5.0.0-build.10-matrix" --jq '.assets[] | select(.name == "INSFAV-5.0.0.apk") | .digest')" = 'sha256:6b53d37cbf174d79d9c56c624419977d4cc5dcf1d1ac70924bf35665d2da705a'
+          test "$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)" = "$GITHUB_SHA"
+          gh release edit v5.0.0-build.10-avatar-fallback --notes-file candidate/RELEASE-NOTES.md --draft=false --latest
