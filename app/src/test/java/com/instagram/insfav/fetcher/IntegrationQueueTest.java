@@ -13,7 +13,7 @@ public class IntegrationQueueTest{
  @Test public void freshStartNeedsNoThreeProfileProof(){SharedPreferences p=SessionState.prefs(c);p.edit().putBoolean("background",true).putString("manualRunToken",ManualRun.TOKEN).putBoolean("armed",true).putBoolean("userPaused",false).commit();assertTrue(WorkScheduler.enabled(p));assertTrue(p.getString("cookieGeneration","").isEmpty());}
  @Test public void startMissingRecoversLostSuccessfulOutputButLeavesUnavailableAlone(){try(QueueStore q=new QueueStore(c)){q.sync(Arrays.asList("one","two"));q.mark("one","SUCCESS","VALID_WEBP");q.mark("two","SKIPPED_UNAVAILABLE","PROFILE_NOT_FOUND_OR_UNAVAILABLE");q.prepareMissing();q.requeueLost("one");assertEquals(Arrays.asList("one"),q.eligible());}}
  @Test public void pauseAndStopPersistWithoutDiscardingCompletedOrPendingWork(){
-  SharedPreferences p=SessionState.prefs(c);p.edit().putBoolean("armed",true).putBoolean("background",true).putBoolean("userPaused",false).commit();
+  SharedPreferences p=SessionState.prefs(c);p.edit().putString("manualRunToken",ManualRun.TOKEN).putBoolean("armed",true).putBoolean("background",true).putBoolean("userPaused",false).commit();
   try(QueueStore q=new QueueStore(c)){q.sync(Arrays.asList("finished","next"));q.mark("finished","SUCCESS","VALID_WEBP");}
   QueueControl.pause(c,false);assertTrue(p.getBoolean("armed",false));assertTrue(p.getBoolean("userPaused",false));assertFalse(WorkScheduler.enabled(p));
   try(QueueStore q=new QueueStore(c)){assertEquals(Arrays.asList("next"),q.pending());assertEquals(Integer.valueOf(1),q.counts().get("SUCCESS"));}

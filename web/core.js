@@ -19,7 +19,7 @@ function rowsFor(groups,open,search,view={}){
  const cell=columns?Math.max(1,((view.width||300)-18-8*(columns-1))/columns):0;
  for(const c of groups){const expanded=search||open.has(c.key);rows.push({type:'folder',key:'f'+c.key,group:c,height:expanded?68:82});
   if(expanded){
-   if(columns)for(let p=0;p<c.items.length;p+=columns)rows.push({type:'matrix',key:'m'+columns+':'+c.items[p].key,items:c.items.slice(p,p+columns),group:c,last:p+columns>=c.items.length,columns,cell,height:cell+42});
+   if(columns)for(let p=0;p<c.items.length;p+=columns)rows.push({type:'matrix',key:'m'+columns+':'+c.items[p].key,items:c.items.slice(p,p+columns),group:c,last:p+columns>=c.items.length,columns,cell,height:cell+22+(view.labelHeight||20)+(p+columns>=c.items.length?1:0)});
    else for(let p=0;p<c.items.length;p++)rows.push({type:'account',key:c.items[p].key,item:c.items[p],group:c,last:p===c.items.length-1,height:68});
    rows.push({type:'spacer',key:'s'+c.key,height:14});
   }

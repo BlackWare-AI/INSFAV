@@ -45,7 +45,8 @@ window.nativeEvent=(event,data)=>{
 function rebuild(preserve=false){
  mainScroll.cancel();
  const groups=doc?C.filterCollections(doc,query):[];
- rows=C.rowsFor(groups,opened,!!query.trim(),{columns:uiPreferences.columns,width:$('list').clientWidth});positions=C.offsets(rows);
+ let labelHeight=20;if(uiPreferences.columns){const probe=document.createElement('button');probe.className='matrix-user';probe.textContent='@';probe.setAttribute('aria-hidden','true');probe.style.cssText='position:fixed;visibility:hidden;pointer-events:none;left:-1000px;width:100px';document.body.append(probe);labelHeight=probe.getBoundingClientRect().height;probe.remove();}
+ rows=C.rowsFor(groups,opened,!!query.trim(),{columns:uiPreferences.columns,width:$('list').clientWidth,labelHeight});positions=C.offsets(rows);
  mainScroll.setExpanded(rows.some(row=>row.type==='account'||row.type==='matrix'));
  $('list').style.height=positions.at(-1)+'px';
  if(!preserve){for(const node of mounted.values()){for(const button of node.querySelectorAll('.avatar'))releaseAvatar(button);node.remove();}mounted.clear();}
