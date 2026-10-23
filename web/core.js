@@ -14,14 +14,24 @@ function parseDocument(text){
  return {original,collections,indexed,raw:text,total:indexed.reduce((n,c)=>n+c.items.length,0),unique:[...new Set(indexed.flatMap(c=>c.items.map(i=>i.user)))].filter(Boolean)};
 }
 function filterCollections(doc,q){q=String(q).normalize('NFKC').toLocaleLowerCase('en').trim();return !q?doc.indexed:doc.indexed.map(c=>({...c,items:c.items.filter(i=>i.search.includes(q))})).filter(c=>c.items.length);}
-function rowsFor(groups,open,search){const rows=[];for(const c of groups){const expanded=search||open.has(c.key);rows.push({type:'folder',key:'f'+c.key,group:c,height:expanded?68:82});if(expanded)for(let p=0;p<c.items.length;p++)rows.push({type:'account',key:c.items[p].key,item:c.items[p],group:c,last:p===c.items.length-1,height:68});if(expanded)rows.push({type:'spacer',key:'s'+c.key,height:14});}return rows;}
+function rowsFor(groups,open,search,view={}){
+ const rows=[],columns=[2,3,4].includes(view.columns)?view.columns:0;
+ const cell=columns?Math.max(1,((view.width||300)-18-8*(columns-1))/columns):0;
+ for(const c of groups){const expanded=search||open.has(c.key);rows.push({type:'folder',key:'f'+c.key,group:c,height:expanded?68:82});
+  if(expanded){
+   if(columns)for(let p=0;p<c.items.length;p+=columns)rows.push({type:'matrix',key:'m'+columns+':'+c.items[p].key,items:c.items.slice(p,p+columns),group:c,last:p+columns>=c.items.length,columns,cell,height:cell+42});
+   else for(let p=0;p<c.items.length;p++)rows.push({type:'account',key:c.items[p].key,item:c.items[p],group:c,last:p===c.items.length-1,height:68});
+   rows.push({type:'spacer',key:'s'+c.key,height:14});
+  }
+ }return rows;
+}
 function offsets(rows){const out=[0];for(const r of rows)out.push(out[out.length-1]+r.height);return out;}
 function windowRange(off,top,height,overscan=350){let lo=0,hi=off.length-1;const before=typeof overscan==='number'?overscan:overscan.before,after=typeof overscan==='number'?overscan:overscan.after;const start=Math.max(0,top-before),end=top+height+after;while(lo<hi){const mid=(lo+hi)>>1;if(off[mid+1]<=start)lo=mid+1;else hi=mid;}const a=lo;while(lo<off.length-1&&off[lo]<end)lo++;return [a,lo];}
 function overscanFor(velocity){const speed=Math.abs(velocity),forward=speed>12?240:Math.min(700,180+speed*90),back=100;return velocity<0?{before:forward,after:back}:{before:back,after:forward};}
 function scrollMetrics(content,viewport,track,position){
  const safe=n=>Number.isFinite(n)?Math.max(0,n):0;
  content=safe(content);viewport=safe(viewport);track=safe(track);
- const max=Math.max(0,content-viewport),thumb=Math.min(track,Math.max(28,track*(viewport/Math.max(1,content,viewport)))),travel=track-thumb;
+ const max=Math.max(0,content-viewport),thumb=Math.min(track,Math.max(42,track*(viewport/Math.max(1,content,viewport)))),travel=track-thumb;
  position=Math.min(max,safe(position));
  return {max,thumb,travel,position,offset:max?position/max*travel:0};
 }

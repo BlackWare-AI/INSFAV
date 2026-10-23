@@ -5,7 +5,7 @@ const root=path.resolve(__dirname,'..'),source=path.join(root,'web'),assets=path
 const sha=data=>crypto.createHash('sha256').update(data).digest('hex');
 (async()=>{
  const result={};
- for(const file of ['core.js','app.js','style.css','fonts.css']){
+ for(const file of ['core.js','i18n.js','app.js','style.css','fonts.css']){
   const input=fs.readFileSync(path.join(source,file),'utf8');let output;
   if(file.endsWith('.js')){
    const bundle=await minify({[file]:input},{ecma:2020,toplevel:false,compress:{passes:2,toplevel:false},mangle:{toplevel:false},format:{comments:false},sourceMap:{filename:file,includeSources:false}});

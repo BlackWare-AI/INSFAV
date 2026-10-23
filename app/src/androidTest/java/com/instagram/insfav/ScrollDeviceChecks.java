@@ -38,15 +38,15 @@ public final class ScrollDeviceChecks {
                 js(test,web,"opened.add(0);opened.add(1);rebuild(true);true");
                 await(test,web,"!document.getElementById('main-scroll').hidden");
                 JSONObject layout=json(test,web,"(()=>{const list=document.getElementById('list').getBoundingClientRect(),controls=document.getElementById('main-scroll').getBoundingClientRect(),folder=document.querySelector('.folder-wrap'),head=folder.querySelector('button'),count=head.querySelector('.folder-count').getBoundingClientRect(),arrow=head.querySelector('.folder-arrow').getBoundingClientRect(),avatar=document.querySelector('.avatar');return {width:innerWidth,fontSize:getComputedStyle(head.querySelector('.folder-title')).fontSize,rowHeight:document.querySelector('.account').getBoundingClientRect().height,avatarSize:avatar.getBoundingClientRect().width,avatarRadius:getComputedStyle(avatar).borderRadius,folderRadius:getComputedStyle(folder).borderTopLeftRadius,leftGap:controls.left-list.right,rightGap:document.documentElement.clientWidth-controls.right,noTextOverlap:count.right<=arrow.left,horizontalOverflow:document.documentElement.scrollWidth>innerWidth};})()");
-                require(layout.getDouble("leftGap")>=1.8&&layout.getDouble("rightGap")>=1.8,"Controls overlap card or screen edge");
+                require(layout.getDouble("rightGap")>=3.8,"Controls cross screen edge");
                 require(layout.getBoolean("noTextOverlap")&&!layout.getBoolean("horizontalOverflow"),"Large font title overflows");
                 require(layout.getDouble("rowHeight")==68&&layout.getDouble("avatarSize")==67.5&&layout.getString("avatarRadius").equals("14px")&&layout.getString("folderRadius").equals("26px"),"List geometry changed");
                 tap(test,web,point(test,web,"scroll-end"));await(test,web,"scrollY===document.scrollingElement.scrollHeight-document.documentElement.clientHeight");
                 require("true".equals(js(test,web,"document.querySelector('.card-user:last-child')!==null && [...document.querySelectorAll('.card-user')].at(-1).textContent==='@scroll_b1999'")),"End did not include both open folders");
                 tap(test,web,point(test,web,"scroll-start"));await(test,web,"scrollY===0");
-                float[] p=point(test,web,"scroll-thumb");long down=SystemClock.uptimeMillis();touch(test,down,MotionEvent.ACTION_DOWN,p[0],p[1]);
+                float[] p=point(test,web,"scroll-grip");long down=SystemClock.uptimeMillis();touch(test,down,MotionEvent.ACTION_DOWN,p[0],p[1]);
                 try {
-                    Thread.sleep(2000);require("false".equals(js(test,web,"document.getElementById('scroll-thumb').classList.contains('armed')")),"Thumb armed before 3 seconds");
+                    Thread.sleep(500);require("false".equals(js(test,web,"document.getElementById('scroll-thumb').classList.contains('armed')")),"Thumb armed before 1 second");
                     await(test,web,"document.getElementById('scroll-thumb').classList.contains('armed')");
                     require("true".equals(js(test,web,"scrollY===0")),"Arming jumped the page");
                     if(scale.equals("1.5"))try(FileOutputStream out=c.openFileOutput("scroll-device-150.png",Context.MODE_PRIVATE)) {Bitmap screenshot=test.getUiAutomation().takeScreenshot();if(screenshot==null)throw new AssertionError("Screenshot unavailable");try{screenshot.compress(Bitmap.CompressFormat.PNG,100,out);}finally{screenshot.recycle();}}
@@ -54,7 +54,15 @@ public final class ScrollDeviceChecks {
                 } finally {touch(test,down,MotionEvent.ACTION_UP,p[0],p[1]);}
                 require("false".equals(js(test,web,"document.getElementById('scroll-thumb').classList.contains('armed')")),"Thumb did not relock");
                 java.util.concurrent.atomic.AtomicInteger textZoom=new java.util.concurrent.atomic.AtomicInteger();test.runOnMainSync(()->textZoom.set(web.getSettings().getTextZoom()));
-                JSONObject result=new JSONObject().put("systemFontScale",Float.parseFloat(scale)).put("layout",layout).put("realTouchHoldAndDrag",true).put("globalStartEnd",true).put("textZoom",textZoom.get());results.put(result);
+                JSONArray matrix=new JSONArray();
+                for(int columns:new int[]{2,3,4}){
+                    js(test,web,"applyUiPreferences({columns:"+columns+",language:'tr'});true");
+                    await(test,web,"document.querySelectorAll('.matrix-row').length>0 && document.documentElement.lang==='tr'");
+                    JSONObject grid=json(test,web,"(()=>{const r=document.querySelector('.matrix-row'),cells=[...r.querySelectorAll('.matrix-cell')];return {columns:cells.length,squares:cells.every(c=>{const a=c.querySelector('.avatar').getBoundingClientRect();return Math.abs(a.width-a.height)<.2;}),labelsBelow:cells.every(c=>c.querySelector('.matrix-user').getBoundingClientRect().top>=c.querySelector('.avatar').getBoundingClientRect().bottom),noNames:!r.querySelector('.card-name'),noOverflow:document.documentElement.scrollWidth<=innerWidth};})()");
+                    require(grid.getInt("columns")==columns&&grid.getBoolean("squares")&&grid.getBoolean("labelsBelow")&&grid.getBoolean("noNames")&&grid.getBoolean("noOverflow"),"Matrix cell geometry failed");matrix.put(grid);
+                }
+                js(test,web,"applyUiPreferences({columns:0,language:'en'});true");
+                JSONObject result=new JSONObject().put("systemFontScale",Float.parseFloat(scale)).put("layout",layout).put("matrix",matrix).put("holdMilliseconds",1000).put("gripWidth",15).put("realTouchHoldAndDrag",true).put("globalStartEnd",true).put("textZoom",textZoom.get());results.put(result);
                 Activity current=activity;test.runOnMainSync(current::finish);activity=null;
             }
             JSONObject proof=new JSONObject().put("sdk",Build.VERSION.SDK_INT).put("fixture",true).put("accounts",4000).put("physicalDevice",false).put("results",results);

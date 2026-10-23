@@ -33,3 +33,18 @@ html.main-scroll-visible{scrollbar-color:transparent transparent}html.main-scrol
 #scroll-thumb::before{content:"";position:absolute;inset:0 2px;border:1px solid #111;border-radius:18px;background:#555;transition:background-color 120ms,box-shadow 120ms}
 #scroll-thumb.holding::before{background:#888;transition:background-color 3s linear}#scroll-thumb.armed::before{background:#aaa;box-shadow:0 0 2px #aaa8}
 #scroll-thumb:focus-visible::before{border-color:#aaa}
+
+/* Floating controls overlay the edge only while in use; list geometry stays unchanged. */
+#main-scroll{width:26px;gap:8px;transition:opacity 180ms ease}
+#main-scroll.idle{opacity:0}#main-scroll.idle button{pointer-events:none}
+#main-scroll button{width:26px;height:34px;background:#080808e8;color:#aaa}
+#main-scroll svg{width:16px;height:16px}.scroll-track{width:26px;margin-top:0}.scroll-track::before{left:18px}
+#scroll-thumb{left:11px;width:15px;min-height:42px}#scroll-thumb::before{inset:0 1px}
+#scroll-grip{position:absolute;right:100%;top:50%;transform:translateY(-50%);width:15px;height:34px;border:1px solid #222;border-radius:10px 0 0 10px;background:#333e}
+#scroll-grip::after{content:"";position:absolute;inset:9px 5px;border-left:1px solid #aaa;border-right:1px solid #aaa}
+#scroll-thumb.holding::before{transition:background-color 1s linear}#scroll-thumb.armed::before,#scroll-thumb.armed #scroll-grip{box-shadow:0 0 8px #aaa8}
+#settings header h2{flex:1;min-width:0}#language-choice,#display-mode{color:#bbb;background:#000;border:1px solid #111;border-radius:18px;padding:10px;font:inherit;color-scheme:dark;max-width:100%}
+#language-choice{font-size:13px;flex:none}#display-settings{margin-top:24px}.display-label{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;color:#888;border:1px solid #111;border-radius:26px;padding:12px}
+.matrix-row{display:grid;grid-template-columns:repeat(var(--columns),minmax(0,1fr));gap:8px;padding:8px;border-left:1px solid #111;border-right:1px solid #111;background:#000;overflow:hidden}
+.matrix-row.last{border-bottom:1px solid #111;border-radius:0 0 26px 26px}.matrix-cell{min-width:0;display:flex;flex-direction:column;gap:6px}.matrix-cell .avatar{width:100%;height:var(--cell);flex:none;border-radius:14px}.matrix-user{display:block;width:100%;min-width:0;padding:0;background:none;border:0;color:#aaa;font:12px/20px Inter,sans-serif;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media(prefers-reduced-motion:reduce){#main-scroll{transition:none}}

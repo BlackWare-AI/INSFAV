@@ -20,7 +20,7 @@ public final class Fetcher {
  private static List<String> lastSynced;private static final AtomicLong lastPublished=new AtomicLong();
  private static Context context;private static Host host;private static final CopyOnWriteArraySet<Listener> listeners=new CopyOnWriteArraySet<>();
  private static final AtomicLong generation=new AtomicLong();private static volatile String viewerToken="";private static volatile byte[] fullBytes;private static volatile String fullMime="image/jpeg";private static CompletableFuture<byte[]> viewing;
- public static void initialize(Context c,Host h){context=c.getApplicationContext();host=h;lastSynced=null;try{android.webkit.CookieManager.getInstance().removeAllCookies(null);android.webkit.WebStorage.getInstance().deleteAllData();}catch(RuntimeException|LinkageError ignored){}}
+ public static void initialize(Context c,Host h){context=c.getApplicationContext();host=h;lastSynced=null;ManualRun.reset(SessionState.prefs(context));WorkScheduler.cancel(context);context.getSystemService(android.app.NotificationManager.class).cancel(3);try{android.webkit.CookieManager.getInstance().removeAllCookies(null);android.webkit.WebStorage.getInstance().deleteAllData();}catch(RuntimeException|LinkageError ignored){}}
  static Host host(){if(host==null)throw new IllegalStateException("FETCHER_NOT_READY");return host;}
  public static void addListener(Listener l){listeners.add(l);}public static void removeListener(Listener l){listeners.remove(l);}
  static void publish(){long now=System.nanoTime(),before=lastPublished.get();if(now-before<200000000L||!lastPublished.compareAndSet(before,now))return;for(Listener l:listeners)l.changed();}

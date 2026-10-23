@@ -13,7 +13,7 @@ public final class FetchService extends Service {
     private volatile boolean owns;
     @Override public void onCreate() { super.onCreate(); DownloadNotification.channel(this); }
     @Override public int onStartCommand(Intent intent, int flags, int id) {
-        if (intent == null && !WorkScheduler.enabled(SessionState.prefs(this))) {stopSelf(id);return START_NOT_STICKY;}
+        if (intent == null || !ManualRun.accepts(intent.getStringExtra("manualRun"))) {if(!owns&&!QueueControl.lock.get()){ManualRun.finish(SessionState.prefs(this));WorkScheduler.cancel(this);}stopSelf(id);return START_NOT_STICKY;}
         String action = intent == null ? "resume" : intent.getAction();
         if ("pause".equals(action) || "stop".equals(action)) { QueueControl.pause(this, "stop".equals(action)); if (!owns) stopSelf(id); return START_NOT_STICKY; }
         if (!("missing".equals(action) || "resume".equals(action) || "verify_index".equals(action) || "retry_skipped".equals(action))) { stopSelf(id); return START_NOT_STICKY; }
@@ -34,9 +34,9 @@ public final class FetchService extends Service {
                 stopForeground(STOP_FOREGROUND_REMOVE); DownloadNotification.finish(this); stopSelf();
                 WorkScheduler.recovery(this); WorkScheduler.plan(this, false);
             }
-        }, "thumbnail-foreground"); worker.start(); return START_STICKY;
+        }, "thumbnail-foreground"); worker.start(); return START_NOT_STICKY;
     }
-    static void request(Context context, String action) { context.startForegroundService(new Intent(context, FetchService.class).setAction(action)); }
+    static void request(Context context, String action) { context.startForegroundService(new Intent(context, FetchService.class).setAction(action).putExtra("manualRun",ManualRun.TOKEN)); }
     @Override public IBinder onBind(Intent intent) { return null; }
     @Override public void onTimeout(int id, int type) {
         long next = RunPolicy.read(SessionState.prefs(this)).nextWindow(System.currentTimeMillis(), ZoneId.systemDefault());

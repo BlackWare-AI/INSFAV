@@ -42,7 +42,7 @@ final class QueueEngine {
     }
     if(flights.isEmpty()){
      if(hoursEnded){state("Paused — Outside Schedule");return;}
-     if(targets.isEmpty()){targets.addAll(queue.eligible());if(targets.isEmpty()){if(queue.counts().getOrDefault("RETRY_LATER",0)>0){state("Finished: previous failures saved; use Retry to try again");return;}settings.edit().putBoolean("armed",false).commit();state("Completed");return;}}
+     if(targets.isEmpty()){targets.addAll(queue.eligible());if(targets.isEmpty()){ManualRun.finish(settings);if(queue.counts().getOrDefault("RETRY_LATER",0)>0){state("Finished: previous failures saved; use Retry to try again");return;}settings.edit().putBoolean("armed",false).commit();state("Completed");return;}}
      continue;
     }
     boolean completed=false;

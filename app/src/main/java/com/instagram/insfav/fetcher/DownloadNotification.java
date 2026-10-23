@@ -34,7 +34,7 @@ final class DownloadNotification {
     }
     static Notification preparing(Context c) {
         channel(c);
-        return new Notification.Builder(c,"downloads").setSmallIcon(R.drawable.ic_download_status).setContentTitle("INSFAV Thumbnail Fetcher").setContentText("STARTING · Loading saved queue and index").setProgress(0,0,true).setOnlyAlertOnce(true).setOngoing(true).build();
+        return new Notification.Builder(c,"downloads").setSmallIcon(R.drawable.ic_download_status).setContentTitle("INSFAV Thumbnail Fetcher").setContentText(NotificationText.text(c,"STARTING · Loading saved queue and index")).setProgress(0,0,true).setOnlyAlertOnce(true).setOngoing(true).build();
     }
     static Notification create(Context c,String phase) {
         channel(c);Map<String,Integer> counts;int held;
@@ -52,15 +52,15 @@ final class DownloadNotification {
         if(progress.status.equals("Paused")&&prefs.getBoolean("userPaused",false))detail+="\nPaused by user; saved progress retained";
         if(failed)detail+="\n"+prefs.getString("blocked","Unknown error")+" · Queue and images preserved";
         int icon=rate||progress.status.equals("Authentication Required")||progress.status.equals("Completed with failures")?R.drawable.ic_download_warning:failed?R.drawable.ic_download_error:completed?R.drawable.ic_download_done:R.drawable.ic_download_status;
-        Notification.Builder builder=new Notification.Builder(c,"downloads").setSmallIcon(icon).setContentTitle("INSFAV Thumbnail Fetcher").setContentText(compact)
-            .setStyle(new Notification.BigTextStyle().bigText(detail)).setContentIntent(open).setOnlyAlertOnce(true).setOngoing(!terminal).setAutoCancel(terminal)
+        Notification.Builder builder=new Notification.Builder(c,"downloads").setSmallIcon(icon).setContentTitle("INSFAV Thumbnail Fetcher").setContentText(NotificationText.text(c,compact))
+            .setStyle(new Notification.BigTextStyle().bigText(NotificationText.text(c,detail))).setContentIntent(open).setOnlyAlertOnce(true).setOngoing(!terminal).setAutoCancel(terminal)
             .setProgress(Math.max(1,progress.total),progress.done,false);
-        if(progress.status.equals("Starting")){int total=prefs.getInt("indexTotal",0),processed=prefs.getInt("indexProcessed",0);builder.setProgress(total,processed,total==0).setContentText(total>0?"STARTING · Indexing "+processed+" / "+total:"STARTING · Loading persistent index");}
+        if(progress.status.equals("Starting")){int total=prefs.getInt("indexTotal",0),processed=prefs.getInt("indexProcessed",0);builder.setProgress(total,processed,total==0).setContentText(NotificationText.text(c,total>0?"STARTING · Indexing "+processed+" / "+total:"STARTING · Loading persistent index"));}
         if(rate&&prefs.getLong("retryAt",0)>System.currentTimeMillis())builder.setWhen(prefs.getLong("retryAt",0)).setUsesChronometer(true).setChronometerCountDown(true);
         if(completed)builder.setTimeoutAfter(6000);
         if(!terminal)for(String action:new String[]{"pause","stop"}){
             PendingIntent control=PendingIntent.getBroadcast(c,action.equals("pause")?1:2,new Intent(c,QueueControlReceiver.class).setAction(action),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
-            builder.addAction(new Notification.Action.Builder(null,action.equals("pause")?"Pause":"Stop",control).build());
+            builder.addAction(new Notification.Action.Builder(null,NotificationText.text(c,action.equals("pause")?"Pause":"Stop"),control).build());
         }
         return builder.build();
     }
