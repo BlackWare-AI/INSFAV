@@ -162,7 +162,7 @@ function renderVisible(){
  mainScroll.update();
 }
 function schedule(){if(!scheduled){scheduled=true;requestAnimationFrame(renderVisible);}}
-// Fixed controls live entirely in the existing right gutter; they never change list geometry.
+// Floating controls overlay the right edge without changing list geometry.
 const mainScroll=(()=>{
  const controls=document.createElement('nav');controls.id='main-scroll';controls.setAttribute('aria-label','List scrolling');controls.hidden=true;
  const makeButton=(id,label,path)=>{const button=document.createElement('button');button.id=id;button.type='button';button.setAttribute('aria-label',label);button.innerHTML='<svg viewBox="0 0 12 12" aria-hidden="true"><path d="'+path+'"/></svg>';return button;};
@@ -177,14 +177,14 @@ const mainScroll=(()=>{
  function cancelJump(){if(jumpFrame)cancelAnimationFrame(jumpFrame);jumpFrame=0;jumpSerial++;}
  function cancel(){cancelJump();clearTimeout(timer);timer=0;const previous=hold;hold=null;thumb.classList.remove('holding','armed');if(previous&&thumb.hasPointerCapture(previous.id))thumb.releasePointerCapture(previous.id);}
  function update(){
-  const root=document.scrollingElement,viewport=document.documentElement.clientHeight,right=document.documentElement.clientWidth,listRight=$('list').getBoundingClientRect().right,height=document.querySelector('.bottom-nav').getBoundingClientRect().top-110;
+  const root=document.scrollingElement,viewport=document.documentElement.clientHeight,right=document.documentElement.getBoundingClientRect().right,height=document.querySelector('.bottom-nav').getBoundingClientRect().top-110;
   metrics=C.scrollMetrics(root.scrollHeight,viewport,Math.max(0,height),root.scrollTop);
-  const visible=expanded&&available()&&metrics.max>0&&height>=48&&right-listRight>=15-.01;
+  const visible=expanded&&available()&&metrics.max>0&&height>=48;
   if(nativePaintHidden!==visible){nativePaintHidden=visible;request('main-scroll-controls',{visible});}if(visible&&controls.hidden)wake();controls.hidden=!visible;document.documentElement.classList.toggle('main-scroll-visible',visible);
   if(!visible){cancel();return;}
   controls.style.left=(right-30)+'px';track.style.height=height+'px';thumb.style.height=metrics.thumb+'px';thumb.style.transform='translateY('+metrics.offset+'px)';
   thumb.setAttribute('aria-valuenow',String(Math.round(metrics.position/metrics.max*100)));
-  up.disabled=metrics.position<=0;down.disabled=metrics.position>=metrics.max;
+  up.disabled=metrics.position<=1;down.disabled=metrics.max-metrics.position<=1;
  }
  const go=target=>{
   cancel();wake();const serial=jumpSerial,started=performance.now(),origin=document.scrollingElement.scrollTop;

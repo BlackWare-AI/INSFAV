@@ -26,7 +26,10 @@ jobs:
       - name: Install verified test browser
         run: |
           npm install --no-save --package-lock=false playwright@1.51.1
-          npx playwright install --with-deps chromium
+          npx playwright install chromium
+          browser_path="$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")"
+          ldd "$browser_path" | tee browser-dependencies.txt
+          if grep -q 'not found' browser-dependencies.txt; then npx playwright install-deps chromium; fi
       - name: Test changed matrix, preferences and scrolling
         timeout-minutes: 5
         shell: bash
@@ -42,6 +45,7 @@ jobs:
           name: INSFAV-builds
           path: |
             measurements/
+            browser-dependencies.txt
             core-results.txt
             matrix-results.txt
             scroll-results.txt
