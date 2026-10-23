@@ -23,12 +23,15 @@ const pairs={
 'Import your JSON backup to get started.':'Başlamak için JSON yedeğinizi içe aktarın.','Search...':'Ara...','Search accounts':'Hesap ara','Clear search':'Aramayı temizle','Back':'Geri','Back to Settings':'Ayarlara dön','Go to start of list':'Listenin başına git','Go to end of list':'Listenin sonuna git','List scrolling':'Liste kaydırma','List position; hold for 1 second to drag':'Liste konumu; sürüklemek için 1 saniye basılı tutun','No missing usernames.':'Eksik kullanıcı adı yok.','usernames copied.':'kullanıcı adı kopyalandı.'
 };
 const fragments=Object.entries(pairs).sort((a,b)=>b[0].length-a[0].length),originals=new WeakMap();let language='en';
-function text(source){if(language!=='tr')return source;if(pairs[source])return pairs[source];let result=source; // Use a single pass so translated output is never translated again.
- const escape=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
- const re=new RegExp(fragments.map(([en])=>escape(en)).join('|'),'g');
- result=result.replace(re,(match,offset)=>{const before=source[offset-1]||'',after=source[offset+match.length]||'';return /[A-Za-z0-9_.@]/.test(before)||/[A-Za-z0-9_.@]/.test(after)?match:pairs[match];});return result;}
+const escape=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+const phrases=new RegExp(fragments.map(([en])=>escape(en)).join('|'),'g');
+const scope='#settings,#fetcher-screen,#toast,#empty,#search-info,#main-scroll,.search-box';
+function text(source){if(language!=='tr')return source;if(pairs[source])return pairs[source];
+ // Single compiled expression; translated output never enters the matching pass.
+ return source.replace(phrases,(match,offset)=>{const before=source[offset-1]||'',after=source[offset+match.length]||'';return /[A-Za-z0-9_.@]/.test(before)||/[A-Za-z0-9_.@]/.test(after)?match:pairs[match];});
+}
 function apply(){
- for(const root of document.querySelectorAll('#settings,#fetcher-screen,#toast,#empty,#search-info,#main-scroll,.search-box')){
+ for(const root of document.querySelectorAll(scope)){
   const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);let node;
   while((node=walker.nextNode())){if(node.parentElement.closest('textarea,.folder-metric b'))continue;const old=originals.get(node),source=old&&node.nodeValue===old.output?old.source:node.nodeValue,output=text(source);originals.set(node,{source,output});if(node.nodeValue!==output)node.nodeValue=output;}
   for(const el of [root,...root.querySelectorAll('[aria-label],[placeholder],[title]')])for(const attr of ['aria-label','placeholder','title'])if(el.hasAttribute(attr)&&!el.matches('.folder-metric b')){
@@ -37,5 +40,7 @@ function apply(){
  }
 }
 window.InsfavI18n={set(value){language=value==='tr'?'tr':'en';document.documentElement.lang=language;apply();},text,apply};
-new MutationObserver(apply).observe(document.body,{subtree:true,childList:true,characterData:true});
+const observer=new MutationObserver(apply);
+// Virtual account rows and image loads must not trigger translation work.
+for(const root of document.querySelectorAll(scope))observer.observe(root,{subtree:true,childList:true,characterData:true});
 })();
