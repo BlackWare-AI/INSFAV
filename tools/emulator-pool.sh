@@ -11,6 +11,9 @@ adb shell am instrument -w com.instagram.insfav.test/com.instagram.insfav.fetche
 grep -q POOL_MATRIX_OK emulator-pool/instrumentation.txt
 grep -q RESCAN_DEVICE_OK emulator-pool/instrumentation.txt
 grep -q POLISH_UI_OK emulator-pool/instrumentation.txt
+grep -q SCROLL_UI_OK emulator-pool/instrumentation.txt
+adb exec-out run-as com.instagram.insfav cat files/scroll-ui.json > emulator-pool/scroll-ui.json
+adb exec-out run-as com.instagram.insfav cat files/scroll-device-150.png > emulator-pool/scroll-device-150.png
 adb exec-out run-as com.instagram.insfav cat files/polish-ui.json > emulator-pool/polish-ui.json
 adb exec-out run-as com.instagram.insfav cat files/rescan-15000.json > emulator-pool/rescan-15000.json
 adb exec-out run-as com.instagram.insfav cat files/pool-matrix.json > emulator-pool/pool-matrix.json

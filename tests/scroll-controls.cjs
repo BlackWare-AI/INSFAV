@@ -1,0 +1,78 @@
+/* Real browser pointer events; offline native bridge fixtures, not Instagram or device evidence. */
+const fs=require('node:fs'),path=require('node:path'),http=require('node:http'),assert=require('node:assert/strict');
+const {chromium}=require('playwright');const root=path.resolve(__dirname,'../app/src/main/assets');
+let checks=0;const check=(ok,label)=>{assert.ok(ok,label);console.log('PASS '+label);checks++;};
+(async()=>{
+ const server=http.createServer((req,res)=>{const file=path.join(root,req.url.split('?')[0]==='/'?'index.html':req.url.split('?')[0]);if(!file.startsWith(root+path.sep)||!fs.existsSync(file)){res.writeHead(404).end();return;}const ext=path.extname(file);res.setHeader('Content-Type',({'.js':'application/javascript','.css':'text/css','.html':'text/html','.woff2':'font/woff2','.webp':'image/webp'})[ext]||'application/octet-stream');res.end(fs.readFileSync(file));});
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch({executablePath:process.env.CHROME_BIN,headless:true,args:['--no-sandbox','--no-zygote','--single-process','--disable-gpu']});
+ try{
+ const page=await browser.newPage({viewport:{width:393,height:820},isMobile:true,hasTouch:true}),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')console.log(m.text());});
+ await page.addInitScript(()=>{window.Android={request(raw){if(JSON.parse(raw).command==='bootstrap'){const raw=JSON.stringify(['A','B'].map(group=>({name:group+' Very long collection name '.repeat(12),items:Array.from({length:10000},(_,i)=>({pageId:group.toLowerCase()+i,name:'Long display name '+i}))})));nativeEvent('bootstrap',{raw,profiles:{},stats:{}});}}};});
+ await page.goto('http://127.0.0.1:'+server.address().port);await page.locator('#splash').waitFor({state:'hidden'});
+ const baseline=await page.evaluate(()=>({width:document.getElementById('list').getBoundingClientRect().width,nav:document.querySelector('.nav-container').getBoundingClientRect().toJSON()}));
+ check(await page.locator('#main-scroll').isHidden(),'all folders closed: scrolling controls hidden');
+ check(await page.locator('.folder-wrap').first().evaluate(el=>{const s=getComputedStyle(el);return s.borderRadius==='26px'&&s.backgroundColor==='rgb(0, 0, 0)'&&s.borderTopColor==='rgb(17, 17, 17)';}),'closed folder uses AMOLED black, 26px corners and #111 border');
+ await page.locator('.folder-header').first().click();await page.locator('#main-scroll').waitFor({state:'visible'});
+ check(await page.evaluate(width=>document.getElementById('list').getBoundingClientRect().width===width,baseline.width),'controls preserve list width');
+ check(await page.locator('.folder-wrap.open').evaluate(el=>{const s=getComputedStyle(el);return s.borderTopLeftRadius==='26px'&&s.borderBottomLeftRadius==='0px'&&s.borderBottomWidth==='1px';}),'open folder has only rounded upper corners and a single separator');
+ check(await page.locator('.account').first().evaluate(el=>{const s=getComputedStyle(el),a=getComputedStyle(el.querySelector('.avatar'));return s.borderTopWidth==='0px'&&s.borderBottomWidth==='1px'&&s.borderRadius==='0px'&&el.getBoundingClientRect().height===68&&a.borderRadius==='14px'&&el.querySelector('.avatar').getBoundingClientRect().width===67.5;}),'inner rows have no top border or individual rounding; avatar and row sizes unchanged');
+ const validGutter=()=>{const list=document.getElementById('list').getBoundingClientRect(),c=document.getElementById('main-scroll').getBoundingClientRect(),thumb=document.getElementById('scroll-thumb').getBoundingClientRect(),nav=document.querySelector('.bottom-nav').getBoundingClientRect();return c.left-list.right>=1.9&&document.documentElement.clientWidth-c.right>=1.9&&thumb.bottom<nav.top&&document.documentElement.scrollWidth<=innerWidth;};
+ check(await page.evaluate(validGutter),'controls fit in existing gutter, clear of cards, edge and bottom bar');
+ for(const width of [280,320,393,600]){
+  await page.setViewportSize({width,height:820});await page.waitForTimeout(40);
+  check(await page.evaluate(validGutter),'no overlap at '+width+'px');
+  for(const scale of [1.3,1.5]){
+   const style=await page.addStyleTag({content:`.folder-title{font-size:${15.47*scale}px}.folder-count{font-size:${11.05*scale}px}.folder-arrow{font-size:${32.76*scale}px}.card-name{font-size:${16.575*scale}px}.card-user{font-size:${14.365*scale}px}`});
+   check(await page.locator('.folder-header').first().evaluate(el=>{const title=el.querySelector('.folder-title'),name=title.firstElementChild,count=title.lastElementChild,arrow=el.querySelector('.folder-arrow');const result={ellipsis:getComputedStyle(name).textOverflow,scroll:name.scrollWidth,width:name.clientWidth,countRight:count.getBoundingClientRect().right,arrowLeft:arrow.getBoundingClientRect().left,height:el.getBoundingClientRect().height};if(!(result.ellipsis==='ellipsis'&&result.scroll>result.width&&result.countRight<=result.arrowLeft&&result.height===68))console.error('TITLE_GEOMETRY',JSON.stringify(result));return result.ellipsis==='ellipsis'&&result.scroll>result.width&&result.countRight<=result.arrowLeft&&result.height===68;}),'long title and enlarged text '+scale+' at '+width+'px preserve count and arrow');
+   await style.evaluate(el=>el.remove());
+  }
+ }
+ await page.setViewportSize({width:393,height:820});await page.waitForTimeout(50);
+ await page.locator('#scroll-end').click();await page.waitForTimeout(50);
+ check(await page.evaluate(()=>scrollY===document.scrollingElement.scrollHeight-document.documentElement.clientHeight),'one click reaches the real page end');
+ check(await page.locator('.account.last').evaluate(el=>{const s=getComputedStyle(el);return s.borderTopLeftRadius==='0px'&&s.borderBottomLeftRadius==='26px'&&s.borderBottomRightRadius==='26px';}),'last account completes the outer 26px frame');
+ await page.locator('.folder-header').last().click();await page.locator('#scroll-end').click();await page.waitForTimeout(50);
+ check(await page.locator('.card-user').last().textContent()==='@b9999','end button traverses every open folder');
+ check(await page.locator('#scroll-end').isDisabled(),'end button disables at finite lower bound');
+ check(await page.locator('.account').count()<30,'20000 accounts retain bounded virtual DOM');
+ await page.locator('#scroll-start').click();await page.waitForTimeout(50);check(await page.evaluate(()=>scrollY===0),'start button returns to beginning of whole main list');
+ check(await page.locator('#scroll-start').isDisabled(),'start button disables at upper bound');
+ await page.locator('#info-btn').click();await page.locator('#main-scroll').waitFor({state:'hidden'});check(await page.locator('#main-scroll').isHidden(),'normal animated modal hides controls');
+ await page.evaluate(()=>closeDialog());await page.locator('#dialog').waitFor({state:'hidden'});await page.locator('#main-scroll').waitFor({state:'visible'});check(await page.locator('#main-scroll').isVisible(),'normal animated modal close restores controls');
+ const cdp=await page.context().newCDPSession(page);
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:150,y:650,id:1}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:150,y:350,id:1}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await page.waitForTimeout(100);
+ check(await page.evaluate(()=>scrollY>0),'normal touch scrolling outside the gutter remains available');await page.evaluate(()=>{window.scrollEvents=[];for(const kind of ['pointerdown','pointerup','click','touchstart'])document.addEventListener(kind,e=>scrollEvents.push({kind,target:e.target.id,y:scrollY,disabled:document.getElementById('scroll-start').disabled}),true);});await page.locator('#scroll-start').tap();await page.waitForTimeout(100);if(!await page.evaluate(()=>scrollY===0))console.log('TOUCH_BUTTON',await page.evaluate(()=>JSON.stringify({events:scrollEvents,y:scrollY,hidden:document.getElementById('main-scroll').hidden,disabled:document.getElementById('scroll-start').disabled})));check(await page.evaluate(()=>scrollY===0),'touch start button stops the touch fling and reaches zero');
+ const emptyTrack=await page.locator('.scroll-track').boundingBox();const trackBefore=await page.evaluate(p=>({y:scrollY,target:document.elementFromPoint(p.x,p.y)?.id}),{x:emptyTrack.x+5.5,y:emptyTrack.y+emptyTrack.height/2});await page.mouse.click(emptyTrack.x+5.5,emptyTrack.y+emptyTrack.height/2);const trackAfter=await page.evaluate(()=>scrollY);if(trackAfter!==0)console.log('EMPTY_TRACK',JSON.stringify({before:trackBefore,after:trackAfter}));check(trackAfter===0,'clicking empty track does not jump the list');
+ // Fake-clock hold tests use reduced motion: Playwright does not advance Web Animations.
+ await page.emulateMedia({reducedMotion:'reduce'});
+ // Freeze time only for gesture tests, retaining real pointer capture and real browser layout.
+ const instant=Date.now();await page.clock.install({time:instant});await page.clock.pauseAt(instant+100);
+ const flush=()=>page.clock.runFor(40);
+ const point=async()=>{const b=await page.locator('#scroll-thumb').boundingBox();return {x:b.x+b.width/2,y:b.y+b.height/2};};
+ let p=await point();await page.mouse.move(p.x,p.y);await page.mouse.down();await page.clock.runFor(2999);
+ check(!await page.locator('#scroll-thumb').evaluate(el=>el.classList.contains('armed')),'2999ms hold remains locked');
+ await page.clock.runFor(1);check(await page.locator('#scroll-thumb').evaluate(el=>el.classList.contains('armed')&&getComputedStyle(el,'::before').boxShadow!=='none'),'3000ms hold arms the thumb and shows glow');
+ const before=await page.evaluate(()=>scrollY);check(before===0,'arming does not jump the page');
+ await page.mouse.move(p.x,p.y+150);await flush();check(await page.evaluate(()=>scrollY>0),'armed real pointer drag scrolls the virtual list');
+ await page.mouse.move(p.x,2000);await flush();check(await page.evaluate(()=>scrollY===document.scrollingElement.scrollHeight-document.documentElement.clientHeight),'drag beyond track clamps to real end');
+ await page.mouse.move(p.x,-200);await flush();check(await page.evaluate(()=>scrollY===0),'drag beyond upper track clamps to zero');
+ await page.mouse.up();check(!await page.locator('#scroll-thumb').evaluate(el=>el.classList.contains('armed')),'release removes glow and relocks');
+ p=await point();await page.mouse.move(p.x,p.y);await page.mouse.down();await page.clock.runFor(2999);check(!await page.locator('#scroll-thumb').evaluate(el=>el.classList.contains('armed')),'next drag requires a fresh full hold');await page.mouse.up();await page.clock.runFor(10);
+ check(!await page.locator('#scroll-thumb').evaluate(el=>el.classList.contains('armed')),'early release cancels pending activation');
+ await page.evaluate(()=>document.getElementById('scroll-start').click());await flush();p=await point();await page.mouse.move(p.x,p.y);await page.mouse.down();await page.mouse.move(p.x,p.y+9);await page.clock.runFor(3100);
+ check(await page.evaluate(()=>scrollY===0&&!document.getElementById('scroll-thumb').classList.contains('armed')),'movement over 8px before arming cancels without scrolling');await page.mouse.up();
+ p=await point();await page.mouse.move(p.x,p.y);await page.mouse.down();await page.clock.runFor(1000);await page.evaluate(()=>showInfo());await flush();await page.clock.runFor(3000);check(await page.locator('#main-scroll').isHidden()&&!await page.locator('#scroll-thumb').evaluate(el=>el.classList.contains('armed')),'opening modal cancels hold and hides controls');await page.mouse.up();
+ await page.evaluate(()=>closeDialog());await page.clock.runFor(300);await flush();check(await page.locator('#main-scroll').isVisible(),'closing modal restores controls');
+ p=await point();await page.mouse.move(p.x,p.y);await page.mouse.down();await page.clock.runFor(1000);await page.setViewportSize({width:320,height:820});await page.clock.runFor(3100);check(!await page.locator('#scroll-thumb').evaluate(el=>el.classList.contains('armed')),'resize cancels pending hold');await page.mouse.up();
+ p=await point();await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:p.x,y:p.y,id:2}]});await page.clock.runFor(3000);check(await page.locator('#scroll-thumb').evaluate(el=>el.classList.contains('armed')),'real touch input also arms after full hold');await cdp.send('Input.dispatchTouchEvent',{type:'touchCancel',touchPoints:[]});check(!await page.locator('#scroll-thumb').evaluate(el=>el.classList.contains('armed')),'touch cancellation removes active capture and glow');
+ await page.locator('#scroll-thumb').focus();await page.keyboard.press('End');await flush();check(await page.evaluate(()=>scrollY===document.scrollingElement.scrollHeight-document.documentElement.clientHeight),'keyboard End reaches actual end');await page.keyboard.press('Home');await flush();check(await page.evaluate(()=>scrollY===0),'keyboard Home returns to beginning');
+ p=await point();await page.mouse.move(p.x,p.y);await page.mouse.down();await page.clock.runFor(1000);
+ await page.evaluate(()=>{opened.clear();rebuild(true);});await flush();await page.clock.runFor(3000);check(await page.locator('#main-scroll').isHidden()&&!await page.locator('#scroll-thumb').evaluate(el=>el.classList.contains('armed')),'collapsing folders cancels a pending hold and removes controls');await page.mouse.up();
+ await page.evaluate(()=>{query='b99';document.getElementById('search-input').value=query;rebuild();});await flush();check(await page.locator('#main-scroll').isVisible(),'search-expanded accounts receive the same finite controls');
+ await page.evaluate(()=>{query='nothing_matches_this';rebuild();});await flush();check(await page.locator('#main-scroll').isHidden(),'empty search has no scroll controls');
+ await page.evaluate(()=>{query='';nativeEvent('imported',{raw:JSON.stringify([{name:'Short',items:[{pageId:'one'}]}]),profiles:{}});opened.add(0);rebuild(true);});await flush();check(await page.locator('#main-scroll').isHidden(),'short expanded folder without overflow hides controls');
+ check(errors.length===0,'no script errors during scrolling, modal changes or search');
+ if(process.env.SCROLL_SCREENSHOT){await page.evaluate(()=>{nativeEvent('imported',{raw:JSON.stringify([{name:'AMOLED ACCOUNTS',items:Array.from({length:200},(_,i)=>({pageId:'account'+i,name:'Display Name '+i}))}]),profiles:{}});opened.add(0);rebuild(true);});await flush();await page.setViewportSize({width:393,height:820});await flush();await page.evaluate(()=>document.getElementById('toast').hidden=true);await page.screenshot({path:process.env.SCROLL_SCREENSHOT});}
+ console.log(checks+' scroll and AMOLED checks passed');
+ }finally{await browser.close();server.close();}
+})().catch(e=>{console.error(e);process.exitCode=1;});

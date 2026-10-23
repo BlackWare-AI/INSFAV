@@ -18,5 +18,13 @@ function rowsFor(groups,open,search){const rows=[];for(const c of groups){const 
 function offsets(rows){const out=[0];for(const r of rows)out.push(out[out.length-1]+r.height);return out;}
 function windowRange(off,top,height,overscan=350){let lo=0,hi=off.length-1;const before=typeof overscan==='number'?overscan:overscan.before,after=typeof overscan==='number'?overscan:overscan.after;const start=Math.max(0,top-before),end=top+height+after;while(lo<hi){const mid=(lo+hi)>>1;if(off[mid+1]<=start)lo=mid+1;else hi=mid;}const a=lo;while(lo<off.length-1&&off[lo]<end)lo++;return [a,lo];}
 function overscanFor(velocity){const speed=Math.abs(velocity),forward=speed>12?240:Math.min(700,180+speed*90),back=100;return velocity<0?{before:forward,after:back}:{before:back,after:forward};}
-const api={overscanFor,normalize,parseDocument,filterCollections,rowsFor,offsets,windowRange};if(typeof module!=='undefined')module.exports=api;root.InsfavCore=api;
+function scrollMetrics(content,viewport,track,position){
+ const safe=n=>Number.isFinite(n)?Math.max(0,n):0;
+ content=safe(content);viewport=safe(viewport);track=safe(track);
+ const max=Math.max(0,content-viewport),thumb=Math.min(track,Math.max(28,track*(viewport/Math.max(1,content,viewport)))),travel=track-thumb;
+ position=Math.min(max,safe(position));
+ return {max,thumb,travel,position,offset:max?position/max*travel:0};
+}
+function dragScrollTarget(metrics,origin,delta){return metrics.travel>0?Math.max(0,Math.min(metrics.max,origin+delta/metrics.travel*metrics.max)):metrics.position;}
+const api={scrollMetrics,dragScrollTarget,overscanFor,normalize,parseDocument,filterCollections,rowsFor,offsets,windowRange};if(typeof module!=='undefined')module.exports=api;root.InsfavCore=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

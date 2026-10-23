@@ -7,7 +7,7 @@ public final class PoolInstrumentation extends Instrumentation{
  private Bundle status(String s){Bundle b=new Bundle();b.putString("stream",s+"\n");return b;}
  @Override public void onCreate(Bundle args){super.onCreate(args);start();}
  @Override public void onStart(){Bundle result=new Bundle();try{
-  Context c=getTargetContext();com.instagram.insfav.RescanDeviceBenchmark.run(this);com.instagram.insfav.UiDeviceChecks.run(this);byte[] png=png();JSONArray matrix=new JSONArray();
+  Context c=getTargetContext();com.instagram.insfav.RescanDeviceBenchmark.run(this);com.instagram.insfav.UiDeviceChecks.run(this);com.instagram.insfav.ScrollDeviceChecks.run(this);byte[] png=png();JSONArray matrix=new JSONArray();
   for(int[] configuration:new int[][]{{1,1},{2,1},{5,1},{10,1},{30,1},{5,25}}){
    int requested=configuration[0],delay=configuration[1];
    SessionState.prefs(c).edit().clear().putInt("minimum",delay).putInt("maximum",delay).putInt("startMinute",0).putInt("endMinute",1439).putInt("concurrentWebViews",requested).commit();
