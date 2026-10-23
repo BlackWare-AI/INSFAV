@@ -55,7 +55,7 @@ public final class Fetcher {
   if(host().tree().isEmpty())throw new IOException("Select the thumbnail folder in Profile Images first.");
   if(!writable())throw new IOException("Grant write access to the selected thumbnail folder first.");
   SharedPreferences s=SessionState.prefs(context);if(action.equals("verify_index")){QueueControl.requested=false;FetchService.request(context,action);return;}if(!action.equals("verify_index")&&System.currentTimeMillis()<s.getLong("retryAt",0))throw new IOException("Retry cooldown is still active.");
-  QueueControl.requested=false;if(action.equals("missing"))s.edit().putLong("elapsedSeconds",0).commit();s.edit().putBoolean("armed",true).putBoolean("userPaused",false).putString("blocked","").putLong("startedAt",System.currentTimeMillis()).commit();
+  QueueControl.requested=false;if(action.equals("missing"))s.edit().putLong("elapsedSeconds",0).commit();s.edit().putString("manualRunToken",ManualRun.TOKEN).putBoolean("armed",true).putBoolean("userPaused",false).putString("blocked","").putLong("startedAt",System.currentTimeMillis()).commit();
   FetchService.request(context,action);WorkScheduler.recovery(context);publish();
  }
  public static void foregroundStopped(){closeViewer();if(!SessionState.prefs(context).getBoolean("background",false)&&running())QueueControl.pause(context,false);}
