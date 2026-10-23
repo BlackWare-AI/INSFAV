@@ -33,8 +33,8 @@ jobs:
           test "$(gh api "repos/$GH_REPO/actions/runs/40002877188" --jq .conclusion)" = success
           test "$(gh api "repos/$GH_REPO/actions/runs/40002877188" --jq .head_sha)" = 0f22a19613cbb7317b357c67bb69c1119376a530
           git diff --exit-code 0f22a19613cbb7317b357c67bb69c1119376a530 HEAD -- app web tests version.properties build.gradle settings.gradle gradle gradlew gradlew.bat package.json package-lock.json tools/minify.cjs tools/web-bundle.json
-          git show b19e2c04f3f0af65ad5515eabd8d410e37ca648a > public-candidate.zip
-          echo '43083b56ee288ce385bd6b9e97c88da24c96f0d6b560074cf14a4bf7a5bf7db0  public-candidate.zip' | sha256sum --check
+          git show 16eaa2b7eb652ee684a1ee8e10dc0f594b9af22c > public-candidate.zip
+          echo 'e2caf4f05f6b0f230dfa6bc1d0f2393ae46f7f77d875611f184a89839b39ca1f  public-candidate.zip' | sha256sum --check
           unzip -q public-candidate.zip -d candidate
           (cd candidate && sha256sum --check SHA256SUMS)
           mkdir previous
