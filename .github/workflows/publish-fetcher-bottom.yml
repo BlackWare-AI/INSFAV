@@ -1,0 +1,101 @@
+name: Publish verified bottom-first fetcher
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: insfav-fetcher-bottom-publication
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'BlackWare-AI/INSFAV' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify source, evidence and signed APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GH_REPO/actions/runs/40046103017" --jq .conclusion)" = success
+          test "$(gh api "repos/$GH_REPO/actions/runs/40046103017" --jq .head_sha)" = bdcebdf2212bcacab809f96b7dac32328a29426f
+          git diff --exit-code bdcebdf2212bcacab809f96b7dac32328a29426f HEAD -- app web tests version.properties build.gradle settings.gradle gradle gradlew gradlew.bat package.json package-lock.json tools/minify.cjs tools/web-bundle.json docs/FETCHER-BOTTOM-FIRST.md
+          git show d04d0ee96867e9675e25a41f1356de9757d64527 > public-candidate.zip
+          echo '106905563dcad26ca17e1cc9a09ffbb1c8a0abbd044ff040cc8adffea81ab5a3  public-candidate.zip' | sha256sum --check
+          unzip -q public-candidate.zip -d candidate
+          (cd candidate && sha256sum --check SHA256SUMS)
+          gh run download 40046103017 --name INSFAV-fetcher-bottom-build --dir ci
+          mkdir previous
+          gh release download v5.0.0-build.10-avatar-fallback --pattern INSFAV-5.0.0.apk --dir previous
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess,sys,zipfile
+          from pathlib import Path
+          sys.path.insert(0,'tools/release')
+          import release_gate_500 as signing
+          import update_build10 as manifest
+          source='bdcebdf2212bcacab809f96b7dac32328a29426f'
+          cert='705e090084a4e50c47a8eb122d1605963276e5bb76f873d6f185b965c01e8641'
+          record=json.loads(Path('candidate/verification.json').read_text())
+          expected={'sourceCommit': 'bdcebdf2212bcacab809f96b7dac32328a29426f', 'version': '5.0.0', 'build': 10, 'apkSha256': 'ba3dd8f0c8577ca52e3dd76c6d57415ed9d71b0ee4196647484d262302286c68', 'certificateSha256': '705e090084a4e50c47a8eb122d1605963276e5bb76f873d6f185b965c01e8641', 'ciRun': 40046103017, 'ciConclusion': 'success', 'nativeTests': {'tests': 238, 'failures': 0, 'errors': 0, 'skipped': 0}, 'lintErrors': 0, 'lintWarnings': 34, 'apkChangedEntries': ['META-INF/version-control-info.textproto', 'assets/dexopt/baseline.prof', 'classes.dex'], 'order': 'JSON_POSITION_DESC', 'changedProductionFiles': ['app/src/main/java/com/instagram/insfav/fetcher/QueueStore.java'], 'referenceRepository': 'BlackWare-AI/INSFAV-Thumb-Fetcher', 'referenceTag': 'v0.5.0', 'referenceCommit': '401631af687a01cd062e6ee7169b0f576c751759', 'referenceCodeReviewed': True, 'referenceTestsRun': False, 'recurringDevicePauseCauseConfirmed': False, 'emulatorTested': False, 'physicalDeviceTested': False, 'liveInstagramTested': False, 'signedReleaseInstalledOnDevice': False, 'debuggable': False}
+          assert record==expected,'Evidence mismatch'
+          sdk=Path(os.environ.get('ANDROID_HOME') or os.environ['ANDROID_SDK_ROOT']);tools=sorted(sdk.glob('build-tools/*/apksigner'))[-1].parent
+          for path,digest in [(Path('candidate/INSFAV-5.0.0.apk'),'ba3dd8f0c8577ca52e3dd76c6d57415ed9d71b0ee4196647484d262302286c68'),(Path('previous/INSFAV-5.0.0.apk'),'24232711f4cd1f01f13e5e5bef2b6f8a4da01667bf2cb9077299aef932587687')]:
+              manifest.verify_hash(path,digest)
+              assert signing.apk_certificate(tools/'apksigner',path)==cert
+              manifest.validate_manifest(signing.captured([str(tools/'aapt'),'dump','badging',str(path)]))
+          signing.captured([str(tools/'zipalign'),'-c','-P','16','4','candidate/INSFAV-5.0.0.apk'])
+          assert Path('candidate/INSFAV-Android-Studio-Project.zip').read_bytes()==subprocess.check_output(['git','archive','--format=zip',source])
+          def payload(path):
+              with zipfile.ZipFile(path) as z:
+                  return {n:z.read(n) for n in z.namelist() if not n.endswith('/') and not (n.startswith('META-INF/') and (n.endswith(('.SF','.RSA','.DSA','.EC')) or n=='META-INF/MANIFEST.MF'))}
+          current=payload('candidate/INSFAV-5.0.0.apk')
+          assert current==payload('ci/app/build/outputs/apk/release/app-release-unsigned.apk'),'CI payload mismatch'
+          previous=payload('previous/INSFAV-5.0.0.apk')
+          changed={n for n in set(current)|set(previous) if current.get(n)!=previous.get(n)}
+          assert changed == {'classes.dex','assets/dexopt/baseline.prof','META-INF/version-control-info.textproto'},changed
+          import xml.etree.ElementTree as E
+          from collections import Counter
+          counts=Counter()
+          for p in Path('ci/app/build/test-results/testDebugUnitTest').glob('TEST-*.xml'):
+              root=E.parse(p).getroot()
+              for k in ['tests','failures','errors','skipped']:counts[k]+=int(root.get(k,0))
+          assert dict(counts)==dict(tests=238,failures=0,errors=0,skipped=0)
+          lint=Counter(i.get('severity') for i in E.parse('ci/app/build/reports/lint-results-debug.xml').getroot().findall('issue'))
+          assert lint.get('Error',0)==0 and lint.get('Warning',0)==record['lintWarnings']
+          assert Path('candidate/ci-results.txt').read_bytes()==Path('ci/verification-results.txt').read_bytes()
+          assert Path('candidate/ci-lint-results.xml').read_bytes()==Path('ci/app/build/reports/lint-results-debug.xml').read_bytes()
+          PY
+      - name: Publish verified package
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)" = "$GITHUB_SHA"
+          gh api "repos/$GH_REPO/releases/422425389" > draft.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.load(open('draft.json'))
+          assert d['id']==422425389 and d['draft'] is True and d['tag_name']=='v5.0.0-build.10-fetcher-bottom' and d['target_commitish']=='bdcebdf2212bcacab809f96b7dac32328a29426f'
+          assert all(a['name'] in {p.name for p in Path('candidate').iterdir()} for a in d['assets'])
+          PY
+          gh release upload v5.0.0-build.10-fetcher-bottom candidate/* --clobber
+          verify_dir=$(mktemp -d "$RUNNER_TEMP/insfav-fetcher-bottom.XXXXXX")
+          trap 'rm -rf "$verify_dir"' EXIT
+          gh release download v5.0.0-build.10-fetcher-bottom --dir "$verify_dir"
+          (cd "$verify_dir" && sha256sum --check SHA256SUMS)
+          test "$(gh api "repos/$GH_REPO/releases/tags/v5.0.0-build.10-avatar-fallback" --jq '.assets[] | select(.name == "INSFAV-5.0.0.apk") | .digest')" = 'sha256:24232711f4cd1f01f13e5e5bef2b6f8a4da01667bf2cb9077299aef932587687'
+          test "$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)" = "$GITHUB_SHA"
+          gh release edit v5.0.0-build.10-fetcher-bottom --notes-file candidate/RELEASE-NOTES.md --draft=false --latest
