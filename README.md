@@ -1,47 +1,49 @@
 # INSFAV
 
-**REQUIRED: A JSON backup exported from SamMods InstaPro version 15.30 or earlier. INSFAV is designed to read and display the `favorite_page_pref` (Favorites) section of that backup. Without a compatible backup, the app cannot show your InstaPro favorites.**
+**Required:** A JSON backup exported from SamMods InstaPro version 15.30 or earlier. INSFAV reads and displays the `favorite_page_pref` (Favorites) section. Without a compatible backup, the app cannot show your InstaPro favorites.
 
-INSFAV is a local Android viewer and organizer for the Instagram profiles saved in your InstaPro Favorites backup. It presents the original collections in a fast AMOLED-black interface, with search, account counts, optional local profile pictures and a high-resolution image viewer. It does not automatically access your InstaPro installation or synchronize favorites with Instagram.
+[Download the signed INSFAV 5.0.0 release](https://github.com/BlackWare-AI/INSFAV/releases/latest).
+
+INSFAV is a local Android viewer and organizer for Instagram profiles saved in an InstaPro Favorites backup. It presents the original collections in an AMOLED-black interface, with search, account counts, optional local profile pictures and a high-resolution image viewer. It does not access your InstaPro installation or synchronize favorites with Instagram.
 
 ## What it does
 
-- Imports the compatible **InstaPro Favorites JSON backup** and preserves the original JSON for export.
+- Imports a compatible InstaPro Favorites JSON backup and preserves the original JSON for export.
 - Shows favorite collections, saved profiles, search, collection membership and account statistics.
 - Displays local profile photos stored in a user-selected `.thumbnails/<username>.webp` folder using Android's Storage Access Framework (SAF).
-- Offers an integrated, optional **Thumb Fetcher 0.4.0** for collecting profile images, with configurable concurrent WebViews, persisted queue, pause/resume, progress notifications and Android-permitted background processing.
+- Offers an integrated, optional Thumb Fetcher for collecting profile images, with a persisted queue, pause/resume, progress notifications and Android-permitted background processing.
 - Opens a profile image locally first, then attempts to retrieve the original Instagram image for the in-memory HD viewer, where available. The HD image is not permanently saved.
 
 ## How to use
 
-1. In **SamMods InstaPro 15.30 or earlier**, export its settings/backup as a **`.json` file**. The backup must contain the **`favorite_page_pref` Favorites data**. An arbitrary Instagram data export or a newer incompatible backup is **not** a substitute.
-2. Open INSFAV and **Import JSON**. Choose the backup. Your Favorites collections and accounts appear.
+1. In SamMods InstaPro 15.30 or earlier, export its settings/backup as a `.json` file. The backup must contain the `favorite_page_pref` Favorites data. An arbitrary Instagram data export or a newer incompatible backup is not a substitute.
+2. Open INSFAV and choose **Import JSON**. Your Favorites collections and accounts appear.
 3. Browse the collections, search for profiles and open their links.
-4. **Optional — local avatars:** Select the `.thumbnails` folder in Settings, grant read access, then tap **Rescan Thumbnails**. For a parent folder that contains `.thumbnails`, the app can select the hidden child where supported.
-5. **Optional — Thumb Fetcher:** Grant the chosen folder write access, configure Instagram cookies and concurrent WebViews in Fetcher settings, then start the missing-images queue. Observe progress in the application or Android notifications. Instagram authentication, restrictions and connectivity may limit retrieval.
+4. Optional local avatars: select the `.thumbnails` folder in Settings, grant read access, then tap **Rescan Thumbnails**.
+5. Optional Thumb Fetcher: grant the chosen folder write access, configure Instagram cookies and concurrency in Fetcher settings, then start the missing-images queue. Instagram authentication, restrictions and connectivity may limit retrieval.
 6. Export your collection JSON as a backup whenever needed.
 
 ### Read-only thumbnail rescan
 
-Rescan enumerates the folder once to discover added, changed and removed entries. A private SQLite checkpoint stores every candidate, including duplicates and validated unreadable images. Reliable, unchanged size and modification time allow reuse without opening or decoding images. Missing provider metadata requires validation again. Small thumbnails are opened once for bounded header and pixel validation; at most two validation workers run concurrently. Completed 256-file batches survive interruption; retry re-enumerates metadata and reuses saved work. The existing JSON index remains available until a full scan finishes. Rescan never writes, renames or deletes source files, even with write permission. See [rescan measurements and limitations](docs/RESCAN-PERFORMANCE.md).
+Rescan enumerates the folder once to discover added, changed and removed entries. A private SQLite checkpoint stores every candidate, including duplicates and validated unreadable images. Reliable, unchanged size and modification time allow reuse without opening or decoding images. Missing provider metadata requires validation again. Small thumbnails are opened once for bounded header and pixel validation; at most two validation workers run concurrently. Completed batches survive interruption; retry re-enumerates metadata and reuses saved work. The existing JSON index remains available until a full scan finishes. Rescan never writes, renames or deletes source files, even with write permission. See [rescan measurements and limitations](docs/RESCAN-PERFORMANCE.md).
 
 ## Requirements and privacy
 
 - Android 8.0 (API 26) or newer.
-- The compatible InstaPro `.json` backup described above is **mandatory for viewing favorites**.
+- A compatible InstaPro `.json` backup is required to view favorites.
 - Local image folders are user-selected; scanning is read-only. The Fetcher writes only when explicitly granted access.
-- Original source thumbnails are not re-encoded into a second private thumbnail archive. WebView may temporarily cache original responses.
+- Original source thumbnails are not re-encoded into a second private thumbnail archive.
 - HD photos are kept in memory, not saved by INSFAV.
-- The Fetcher depends on Instagram availability and account access; neither live retrieval nor uninterrupted background work is guaranteed. Android Force Stop and operating-system restrictions still apply.
+- The Fetcher depends on Instagram availability and account access; live retrieval and uninterrupted background work are not guaranteed. Android Force Stop and operating-system restrictions still apply.
 - INSFAV is an independent project and is not affiliated with Instagram, Meta or SamMods.
 
 ## Open source and development
 
-This public GitHub repository may be **forked** to study, modify and extend the project, subject to its license and any applicable third-party terms. Contributions can be proposed by pull request. Do not commit private JSON backups, cookies or signing keys.
+This public MIT-licensed repository can be forked to study, modify and extend INSFAV. Third-party contributions are welcome through pull requests. Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes.
 
-The stable source history is retained in Git. A separately named pre-4.0.0 backup branch preserves the previous mainline code. Tagged 4.0.0 source and binaries should be published only after verification and release signing.
+The current published application is **INSFAV 5.0.0, build 10**. The current source is preserved on the `preservation/current-main-2026-10-24` branch. The earlier pre-4.0.0 mainline is preserved on `backup/pre-4.0.0-main-2026-10-21`. Published release history and assets are retained.
 
-Build using **JDK 17**, Android SDK Platform 35 and the Gradle wrapper:
+Build using JDK 17, Android SDK Platform 35 and the Gradle wrapper:
 
 ```sh
 ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
