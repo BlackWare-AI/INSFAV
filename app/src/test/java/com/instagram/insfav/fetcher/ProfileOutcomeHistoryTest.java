@@ -31,7 +31,7 @@ public class ProfileOutcomeHistoryTest {
   try(QueueStore q=new QueueStore(c)){
    q.sync(Arrays.asList("absent","present","done"));q.mark("absent","SKIPPED_UNAVAILABLE","PROFILE_PAGE_UNAVAILABLE");q.mark("present","SKIPPED_NO_IMAGE","PROFILE_DEFAULT_AVATAR");q.mark("done","SUCCESS","VALID_WEBP");
    q.sync(Arrays.asList("present","done"));q.retrySkipped();assertEquals(1,q.recordedOutcomes());assertEquals(Collections.singletonList("present"),q.eligible());
-   q.sync(Arrays.asList("absent","present","done","fresh"));assertEquals(Arrays.asList("present","fresh"),q.eligible());assertEquals(Integer.valueOf(1),q.counts().get("SUCCESS"));
+   q.sync(Arrays.asList("absent","present","done","fresh"));assertEquals(Arrays.asList("fresh","present"),q.eligible());assertEquals(Integer.valueOf(1),q.counts().get("SUCCESS"));
   }
  }
  @Test public void versionFourUpgradeImportsHistoryWithoutResettingStatusesAttemptsOrImageIndex(){

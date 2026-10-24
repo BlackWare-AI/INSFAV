@@ -67,11 +67,12 @@ final class QueueStore extends SQLiteOpenHelper {
     void prepareMissing() {getWritableDatabase().execSQL("UPDATE accounts SET eligible=1 WHERE status='PENDING'");}
     void deferClaims(String code) {getWritableDatabase().execSQL("UPDATE accounts SET status='RETRY_LATER',phase='PENDING',code=? WHERE phase='DOWNLOADING'", new Object[]{code});}
     String next(){
-        for(String condition:new String[]{"status='PENDING'","status='RETRY_LATER' AND attempts=0"})try(Cursor c=getReadableDatabase().rawQuery("SELECT username FROM accounts WHERE "+condition+" ORDER BY position LIMIT 1",null)){if(c.moveToFirst())return c.getString(0);}return null;
+        try(Cursor c=getReadableDatabase().rawQuery("SELECT username FROM accounts WHERE status='PENDING' OR (status='RETRY_LATER' AND attempts=0) ORDER BY position DESC LIMIT 1",null)){return c.moveToFirst()?c.getString(0):null;}
     }
     List<String> eligible() {
         ArrayList<String> result=new ArrayList<>();
-        try(Cursor c=getReadableDatabase().rawQuery("SELECT username FROM accounts WHERE status='PENDING' OR (status='RETRY_LATER' AND attempts=0) ORDER BY CASE WHEN status='PENDING' THEN 0 ELSE 1 END,position",null)){while(c.moveToNext())result.add(c.getString(0));}return result;
+        // JSON positions follow source order; retrieval starts at the bottom.
+        try(Cursor c=getReadableDatabase().rawQuery("SELECT username FROM accounts WHERE status='PENDING' OR (status='RETRY_LATER' AND attempts=0) ORDER BY position DESC",null)){while(c.moveToNext())result.add(c.getString(0));}return result;
     }
     List<String> users(boolean failedOnly) {
         ArrayList<String> users = new ArrayList<>();
@@ -94,9 +95,7 @@ final class QueueStore extends SQLiteOpenHelper {
     int held(){try(Cursor c=getReadableDatabase().rawQuery("SELECT COUNT(*) FROM accounts WHERE status='RETRY_LATER' AND attempts>0",null)){return c.moveToFirst()?c.getInt(0):0;}}
     int recordedOutcomes(){try(Cursor c=getReadableDatabase().rawQuery("SELECT COUNT(*) FROM fetch_outcomes",null)){return c.moveToFirst()?c.getInt(0):0;}}
     List<String> pending() {
-        ArrayList<String> users = new ArrayList<>();
-        try (Cursor cursor = getReadableDatabase().rawQuery("SELECT username FROM accounts WHERE status='PENDING' OR (status='RETRY_LATER' AND attempts=0) ORDER BY position", null)) { while (cursor.moveToNext()) users.add(cursor.getString(0)); }
-        return users;
+        return eligible();
     }
     void reset(List<String> users) {
         SQLiteDatabase db = getWritableDatabase(); db.beginTransaction();
