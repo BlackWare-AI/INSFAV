@@ -1,0 +1,68 @@
+name: Sign and publish verified HD thumbnail APK
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: official-hd-thumbnail-signing
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'BlackWare-AI/INSFAV' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      EXPECTED_PACKAGE: 'com.instagram.insfav'
+      EXPECTED_VERSION: '5.0.0'
+      EXPECTED_CODE: '10'
+      EXPECTED_CERT_SHA256: '705e090084a4e50c47a8eb122d1605963276e5bb76f873d6f185b965c01e8641'
+      UNSIGNED_TAG: 'v5.0.0-build.10-hd-thumbnail-unsigned'
+      UNSIGNED_SOURCE: '58cb47d5b5d959286e5bffad301bb212ce988631'
+      UNSIGNED_SHA256: 'e6ba0c13728f5b2fe45fa517581558a758fb4a1df4ae176979b3b8c0ae93ce8c'
+      PREVIOUS_TAG: 'v5.0.0-build.10-fetcher-bottom'
+      PREVIOUS_APK: 'INSFAV-5.0.0.apk'
+      RELEASE_TAG: 'v5.0.0-build.10-hd-thumbnail'
+      APK_NAME: 'INSFAV-5.0.0.apk'
+      REQUIRE_KEY_PASSWORD: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+      - name: Sign the tested unsigned APK and verify official certificate continuity
+        env:
+          INSFAV_KEYSTORE_BASE64: ${{ secrets.INSFAV_KEYSTORE_BASE64 }}
+          INSFAV_STORE_PASSWORD: ${{ secrets.INSFAV_STORE_PASSWORD }}
+          INSFAV_KEY_ALIAS: ${{ secrets.INSFAV_KEY_ALIAS }}
+          INSFAV_KEY_PASSWORD: ${{ secrets.INSFAV_KEY_PASSWORD }}
+        run: python3 tools/sign-published-hd.py
+      - name: Publish signed release without replacing history
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1 || gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo '::error::Release or tag already exists; refusing to overwrite.'
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" "artifacts/$APK_NAME" artifacts/apk.json artifacts/SHA256SUMS --draft --target "$PLUS_SOURCE_SHA" --title 'INSFAV 5.0.0 — HD thumbnail' --notes-file artifacts/notes.md
+          gh release download "$RELEASE_TAG" --dir candidate-check
+          (cd candidate-check && sha256sum --check ../artifacts/SHA256SUMS)
+          gh release edit "$RELEASE_TAG" --draft=false --latest
+      - name: Download and verify published signed APK
+        run: |
+          gh release download "$RELEASE_TAG" --dir downloaded
+          (cd downloaded && sha256sum --check ../artifacts/SHA256SUMS)
+          cmp artifacts/apk.json downloaded/apk.json
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "downloaded/$APK_NAME"
+          gh release view "$RELEASE_TAG" --json url,isDraft,isPrerelease
