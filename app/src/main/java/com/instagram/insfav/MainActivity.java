@@ -121,8 +121,8 @@ public final class MainActivity extends Activity {
             JSONObject before=new JSONObject(store.settings.toString());
             try {
                 for(java.util.Iterator<String> it=extra.keys();it.hasNext();) {String key=it.next();store.settings.put(key,extra.get(key));}
-                store.saveSettings();
                 if(!oldTree.equals(store.settings.optString("treeUri"))||!oldDirectory.equals(store.settings.optString("directoryId")))store.replaceIndex(new JSONObject());
+                store.saveSettings();
             } catch(Exception failure) {store.settings=before;throw failure;}
         }
     }
