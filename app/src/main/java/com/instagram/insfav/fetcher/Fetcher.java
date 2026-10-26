@@ -13,9 +13,13 @@ public final class Fetcher {
   Collection<String> users()throws Exception;
   String tree();String directory();long revision();boolean hasImage(String user);
   void imageWritten(String user,Uri uri,String tree)throws Exception;
+  default long sourceRevision(){return 0;}
+  default void sourceChanged(){}
+  default void flushImages()throws Exception{}
   default JSONObject catalog()throws Exception{return new JSONObject();}
  }
- public interface Listener{void changed();void fullReady(String user,String token,int width,int height);void fullFailed(String token,String code);}
+ public interface Listener{void changed();
+    default void changed(boolean critical){changed();}void fullReady(String user,String token,int width,int height);void fullFailed(String token,String code);}
  private static android.database.ContentObserver catalogObserver;private static String observerTree="";
  private static List<String> lastSynced;private static final AtomicLong lastPublished=new AtomicLong();
  private static Context context;private static Host host;private static final CopyOnWriteArraySet<Listener> listeners=new CopyOnWriteArraySet<>();
@@ -23,16 +27,74 @@ public final class Fetcher {
  public static void initialize(Context c,Host h){context=c.getApplicationContext();host=h;lastSynced=null;ManualRun.reset(SessionState.prefs(context));WorkScheduler.cancel(context);context.getSystemService(android.app.NotificationManager.class).cancel(3);}
  static Host host(){if(host==null)throw new IllegalStateException("FETCHER_NOT_READY");return host;}
  public static void addListener(Listener l){listeners.add(l);}public static void removeListener(Listener l){listeners.remove(l);}
- static void publish(){long now=System.nanoTime(),before=lastPublished.get();if(now-before<200000000L||!lastPublished.compareAndSet(before,now))return;for(Listener l:listeners)l.changed();}
+  private static final ScheduledExecutorService updates =
+      Executors.newSingleThreadScheduledExecutor(
+          r -> {
+            Thread t = new Thread(r, "insfav-status-updates");
+            t.setDaemon(true);
+            return t;
+          });
+  private static ScheduledFuture<?> pendingUpdate;
+
+  static void publish() {
+    publish(false);
+  }
+
+  static synchronized void publish(boolean critical) {
+    long now = System.nanoTime(), delay = 1000000000L - (now - lastPublished.get());
+    if (critical || delay <= 0) {
+      if (pendingUpdate != null) {
+        pendingUpdate.cancel(false);
+        pendingUpdate = null;
+      }
+      lastPublished.set(now);
+      for (Listener listener : listeners) listener.changed(critical);
+    } else if (pendingUpdate == null)
+      pendingUpdate =
+          updates.schedule(
+              () -> {
+                synchronized (Fetcher.class) {
+                  pendingUpdate = null;
+                }
+                publish(false);
+              },
+              delay,
+              TimeUnit.NANOSECONDS);
+  }
+
+  /** Re-register cheaply on cold launch/resume without cloning the catalog or seeding the queue. */
+  public static synchronized void watchSource() {
+    String tree = host().tree(), key = tree + "\n" + host().directory();
+    if (key.equals(observerTree)) return;
+    if (catalogObserver != null) {
+      context.getContentResolver().unregisterContentObserver(catalogObserver);
+      catalogObserver = null;
+    }
+    observerTree = "";
+    if (!tree.isEmpty()) {
+      android.database.ContentObserver next =
+          new android.database.ContentObserver(
+              new android.os.Handler(android.os.Looper.getMainLooper())) {
+            @Override
+            public void onChange(boolean self, Uri uri) {
+              CompletableFuture.runAsync(() -> FetcherCatalog.observe(context, uri));
+            }
+          };
+      context.getContentResolver().registerContentObserver(Uri.parse(tree), true, next);
+      catalogObserver = next;
+    }
+    observerTree = key;
+  }
+
  public static synchronized void sync()throws Exception{
   if(QueueControl.lock.get())throw new IOException("Pause the fetcher before changing collections or folder.");
   SharedPreferences s=SessionState.prefs(context);String tree=host().tree(),dir=host().directory();
   List<String> users=new ArrayList<>(host().users());if(!users.equals(lastSynced)){try(QueueStore q=new QueueStore(context)){q.sync(users);}lastSynced=users;}
-  if(!tree.equals(observerTree)){if(catalogObserver!=null)context.getContentResolver().unregisterContentObserver(catalogObserver);observerTree=tree;if(!tree.isEmpty()){catalogObserver=new android.database.ContentObserver(new android.os.Handler(android.os.Looper.getMainLooper())){@Override public void onChange(boolean self,Uri uri){CompletableFuture.runAsync(()->FetcherCatalog.observe(context,uri));}};context.getContentResolver().registerContentObserver(Uri.parse(tree),true,catalogObserver);}}
+  try{watchSource();}catch(RuntimeException unavailable){new Diagnostics(context).log("INDEX","OBSERVER_UNAVAILABLE",0);}
   try(QueueStore q=new QueueStore(context)){FetcherCatalog.seed(q);}
   if(!tree.equals(s.getString("tree",""))||!dir.equals(s.getString("directoryId","")))s.edit().putString("tree",tree).putString("directoryId",dir).putLong("datasetGeneration",s.getLong("datasetGeneration",0)+1).putBoolean("armed",false).putBoolean("userPaused",true).commit();
  }
- public static void memoryPressure(){QueueControl.memoryPressure=true;}
+ public static void memoryPressure(){QueueControl.memoryPressure=true;FetchBroker.get(context).wakeup();}
  public static boolean running(){return QueueControl.lock.get();}
  public static boolean writable(){String tree=host().tree();for(UriPermission p:context.getContentResolver().getPersistedUriPermissions())if(p.getUri().toString().equals(tree)&&p.isWritePermission()&&p.isReadPermission())return true;return false;}
  public static void saveCookies(String text)throws Exception{
@@ -58,14 +120,15 @@ public final class Fetcher {
   QueueControl.requested=false;if(action.equals("missing"))s.edit().putLong("elapsedSeconds",0).commit();s.edit().putString("manualRunToken",ManualRun.TOKEN).putBoolean("armed",true).putBoolean("userPaused",false).putString("blocked","").putLong("startedAt",System.currentTimeMillis()).commit();
   FetchService.request(context,action);WorkScheduler.recovery(context);publish();
  }
+ public static void indexPersistenceFailure(){if(context==null)return;SessionState.prefs(context).edit().putString("blocked","INDEX_SNAPSHOT_FAILED").putString("state","Paused: index snapshot failed; durable changes preserved").commit();FetchBroker.get(context).cancelAll();WorkScheduler.cancel(context);publish(true);}
  public static void foregroundStopped(){closeViewer();if(!SessionState.prefs(context).getBoolean("background",false)&&running())QueueControl.pause(context,false);}
  public static JSONObject snapshot()throws Exception{
-  SharedPreferences p=SessionState.prefs(context);JSONObject out=new JSONObject();int total=0;Map<String,Integer> counts;
-  try(QueueStore q=new QueueStore(context)){counts=q.counts();out.put("phases",new JSONObject(q.phases())).put("held",q.held()).put("recordedOutcomes",q.recordedOutcomes());}for(int n:counts.values())total+=n;
+  SharedPreferences p=SessionState.prefs(context);JSONObject out=new JSONObject();JSONObject resolution;int total=0;Map<String,Integer> counts;
+  try(QueueStore q=new QueueStore(context)){counts=q.counts();out.put("phases",new JSONObject(q.phases())).put("held",q.held()).put("recordedOutcomes",q.recordedOutcomes());if(!running())FetcherCatalog.seed(q);resolution=FetcherCatalog.resolution(q,-1);}for(int n:counts.values())total+=n;
   int pending=counts.getOrDefault("PENDING",0),retry=counts.getOrDefault("RETRY_LATER",0),failed=counts.getOrDefault("FAILED",0),success=counts.getOrDefault("SUCCESS",0),existing=counts.getOrDefault("EXISTING",0),skipped=counts.getOrDefault("SKIPPED_UNAVAILABLE",0)+counts.getOrDefault("SKIPPED_NO_IMAGE",0);
   FetchBroker broker=FetchBroker.get(context);
   out.put("process",FetchProgress.snapshot(p,running(),QueueControl.activeAccounts,broker.tasks.size(),broker.authenticating!=null,broker.nextDispatchAt(),System.currentTimeMillis()));
-  RunPolicy r=RunPolicy.read(p);long started=p.getLong("startedAt",0),elapsed=p.getLong("elapsedSeconds",0)+(running()&&started>0?Math.max(0,(System.currentTimeMillis()-started)/1000):0);return out.put("total",total).put("success",success).put("existing",existing).put("failed",failed).put("skipped",skipped).put("retry",retry).put("pending",pending).put("processed",total-pending-retry).put("current",QueueControl.current).put("etaSeconds",QueueControl.etaSeconds).put("state",p.getString("state","Idle")).put("scheduleStatus",ScheduleStatus.text(p,running(),QueueControl.activeAccounts)).put("running",running()).put("retryAt",p.getLong("retryAt",0)).put("blockedHttp",p.getInt("blockedHttp",0)).put("automaticResume",WorkScheduler.enabled(p)).put("resolution",resolution(-1)).put("cookiesSaved", InstagramSession.configured(context)).put("manualCookiesSaved", new CookieVault(context).configured()).put("manualSession", InstagramSession.manual(context)).put("instagramSession", InstagramSession.status(context)).put("writable",writable()).put("minimum",r.minimum).put("maximum",r.maximum).put("start",RunPolicy.time(r.start)).put("end",RunPolicy.time(r.end)).put("background",p.getBoolean("background",false)).put("elapsedSeconds",elapsed).put("blocked",p.getString("blocked","")).put("imageRevision",host().revision()).put("requestedViews",p.getInt("concurrentWebViews",1)).put("effectiveViews",running()?QueueControl.effectiveViews:ConcurrencyPolicy.initial(context,p.getInt("concurrentWebViews",1))).put("activeViews",QueueControl.activeViews).put("activeAccounts",QueueControl.activeAccounts).put("peakAccounts",QueueControl.peakAccounts).put("completedPerMinute",QueueControl.completedPerMinute).put("memoryPssKiB",android.os.Debug.getPss()).put("folder",host().tree().isEmpty()?"Not selected":"Current INSFAV thumbnail folder");
+  RunPolicy r=RunPolicy.read(p);long started=p.getLong("startedAt",0),elapsed=p.getLong("elapsedSeconds",0)+(running()&&started>0?Math.max(0,(System.currentTimeMillis()-started)/1000):0);return out.put("total",total).put("success",success).put("existing",existing).put("failed",failed).put("skipped",skipped).put("retry",retry).put("pending",pending).put("processed",total-pending-retry).put("current",QueueControl.current).put("etaSeconds",QueueControl.etaSeconds).put("state",p.getString("state","Idle")).put("scheduleStatus",ScheduleStatus.text(p,running(),QueueControl.activeAccounts)).put("running",running()).put("retryAt",p.getLong("retryAt",0)).put("blockedHttp",p.getInt("blockedHttp",0)).put("automaticResume",WorkScheduler.enabled(p)).put("resolution",resolution).put("cookiesSaved", InstagramSession.configured(context)).put("manualCookiesSaved", new CookieVault(context).configured()).put("manualSession", InstagramSession.manual(context)).put("instagramSession", InstagramSession.status(context)).put("writable",writable()).put("minimum",r.minimum).put("maximum",r.maximum).put("start",RunPolicy.time(r.start)).put("end",RunPolicy.time(r.end)).put("background",p.getBoolean("background",false)).put("elapsedSeconds",elapsed).put("blocked",p.getString("blocked","")).put("imageRevision",host().revision()).put("sourceRevision",host().sourceRevision()).put("requestedViews",p.getInt("concurrentWebViews",1)).put("effectiveViews",running()?QueueControl.effectiveViews:ConcurrencyPolicy.initial(context,p.getInt("concurrentWebViews",1))).put("activeViews",QueueControl.activeViews).put("activeAccounts",QueueControl.activeAccounts).put("peakAccounts",QueueControl.peakAccounts).put("completedPerMinute",QueueControl.completedPerMinute).put("memoryPssKiB",android.os.Debug.getPss()).put("folder",host().tree().isEmpty()?"Not selected":"Current INSFAV thumbnail folder");
  }
  public static JSONObject resolution(int offset)throws Exception {try(QueueStore q=new QueueStore(context)){if(!running())FetcherCatalog.seed(q);return FetcherCatalog.resolution(q,offset);}}
  public static String exportSettings(char[] password,JSONObject extra)throws Exception{return SettingsArchive.export(context,password,extra);}

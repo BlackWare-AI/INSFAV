@@ -21,20 +21,16 @@ public final class InsfavApplication extends Application implements Fetcher.Host
   try{android.graphics.BitmapFactory.Options b=ImageCodec.bounds(getContentResolver(),Uri.parse(uri));return ImageCodec.validate(getContentResolver(),Uri.parse(uri),b);}catch(Exception|OutOfMemoryError error){return false;}
  }
  public void imageWritten(String user,Uri uri,String tree)throws Exception{
-  synchronized(store){
-   if(!tree.equals(tree()))return;
-   android.graphics.BitmapFactory.Options bounds=ImageCodec.bounds(getContentResolver(),uri);
-   if(!ImageCodec.validate(getContentResolver(),uri,bounds))throw new java.io.IOException("Written thumbnail validation failed");
-   JSONObject profiles=store.index.optJSONObject("profiles");if(profiles==null){profiles=new JSONObject();store.index.put("profiles",profiles);}
-   boolean added=!profiles.has(user);
-   long size=-1,modified=System.currentTimeMillis();
-   try(android.database.Cursor c=getContentResolver().query(uri,new String[]{android.provider.DocumentsContract.Document.COLUMN_SIZE},null,null,null)){if(c!=null&&c.moveToFirst()&&!c.isNull(0))size=c.getLong(0);}
-   JSONObject old=profiles.optJSONObject(user);boolean replacing=old!=null&&(user+".webp").equals(old.optString("name"));long oldSize=replacing?Math.max(0,old.optLong("size")):0;
-   if(!added&&!replacing)store.index.put("duplicates",store.index.optInt("duplicates")+1);
-   if(replacing&&!old.optBoolean("readable"))store.index.put("unreadable",Math.max(0,store.index.optInt("unreadable")-1));
-   profiles.put(user,new JSONObject().put("uri",uri.toString()).put("name",user+".webp").put("readable",true).put("width",bounds.outWidth).put("height",bounds.outHeight).put("size",size).put("modified",modified));
-   store.index.put("treeUri",tree).put("revision",Math.max(System.currentTimeMillis(),store.index.optLong("revision")+1)).put("bytes",Math.max(0,store.index.optLong("bytes")-oldSize+Math.max(0,size))).put("files",store.index.optInt("files")+(added||!replacing?1:0));
-   store.replaceIndex(store.index);
-  }
+  String directory;JSONObject selectedIndex;
+  synchronized(store){if(!tree.equals(tree()))return;directory=directory();selectedIndex=store.index;}
+  android.graphics.BitmapFactory.Options bounds=ImageCodec.bounds(getContentResolver(),uri);
+  if(!ImageCodec.validate(getContentResolver(),uri,bounds))throw new java.io.IOException("Written thumbnail validation failed");
+  long size=-1,modified=System.currentTimeMillis();
+  try(android.database.Cursor c=getContentResolver().query(uri,new String[]{android.provider.DocumentsContract.Document.COLUMN_SIZE},null,null,null)){if(c!=null&&c.moveToFirst()&&!c.isNull(0))size=c.getLong(0);}
+  JSONObject profile=new JSONObject().put("uri",uri.toString()).put("name",user+".webp").put("readable",true).put("width",bounds.outWidth).put("height",bounds.outHeight).put("size",size).put("modified",modified);
+  synchronized(store){if(selectedIndex==store.index&&tree.equals(tree())&&directory.equals(directory()))store.updateProfile(user,profile,tree);}
  }
+ public void flushImages()throws Exception{store.flushIndex();}
+ public long sourceRevision(){synchronized(store){return store.externalRevision;}}
+ public void sourceChanged(){synchronized(store){store.externalRevision++;}}
 }

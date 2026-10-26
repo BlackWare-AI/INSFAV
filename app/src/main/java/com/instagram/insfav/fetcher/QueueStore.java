@@ -6,6 +6,7 @@ import android.database.sqlite.*;
 import java.util.*;
 
 final class QueueStore extends SQLiteOpenHelper {
+    long pointImageReads;
     QueueStore(Context context) { super(context, "fetcher-queue.db", null, 5); setWriteAheadLoggingEnabled(true); }
     @Override public void onCreate(SQLiteDatabase db) { db.execSQL("CREATE TABLE accounts (username TEXT PRIMARY KEY, position INTEGER NOT NULL, status TEXT NOT NULL, code TEXT NOT NULL DEFAULT '', eligible INTEGER NOT NULL DEFAULT 1, attempts INTEGER NOT NULL DEFAULT 0)"); db.execSQL("CREATE INDEX account_work_order ON accounts(status,position)");createCatalog(db); }
     @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
@@ -29,7 +30,19 @@ final class QueueStore extends SQLiteOpenHelper {
         String user,uri,name;long size,modified;int width,height;boolean readable,needsCheck;
         Image(String user,String uri,String name,long size,int width,int height,long modified,boolean readable){this.user=user;this.uri=uri;this.name=name;this.size=size;this.width=width;this.height=height;this.modified=modified;this.readable=readable;}
     }
-    Image image(String user){try(Cursor c=getReadableDatabase().rawQuery("SELECT uri,name,size,width,height,modified,readable,needs_check FROM fetch_images WHERE username=?",new String[]{user})){if(!c.moveToFirst())return null;Image v=new Image(user,c.getString(0),c.getString(1),c.getLong(2),c.getInt(3),c.getInt(4),c.getLong(5),c.getInt(6)!=0);v.needsCheck=c.getInt(7)!=0;return v;}}
+    Image image(String user){pointImageReads++;try(Cursor c=getReadableDatabase().rawQuery("SELECT uri,name,size,width,height,modified,readable,needs_check FROM fetch_images WHERE username=?",new String[]{user})){if(!c.moveToFirst())return null;Image v=new Image(user,c.getString(0),c.getString(1),c.getLong(2),c.getInt(3),c.getInt(4),c.getLong(5),c.getInt(6)!=0);v.needsCheck=c.getInt(7)!=0;return v;}}
+  Map<String, Image> images() {
+    Map<String, Image> result = new HashMap<>();
+    try (Cursor c = getReadableDatabase().rawQuery("SELECT username,uri,name,size,width,height,modified,readable,needs_check FROM fetch_images", null)) {
+      while (c.moveToNext()) {
+        Image image = new Image(c.getString(0), c.getString(1), c.getString(2), c.getLong(3), c.getInt(4), c.getInt(5), c.getLong(6), c.getInt(7) != 0);
+        image.needsCheck = c.getInt(8) != 0;
+        result.put(image.user, image);
+      }
+    }
+    return result;
+  }
+
     void image(Image i){
         ContentValues v=new ContentValues();v.put("username",i.user);v.put("uri",i.uri);v.put("name",i.name);v.put("size",i.size);v.put("width",i.width);v.put("height",i.height);v.put("modified",i.modified);v.put("readable",i.readable?1:0);v.put("needs_check",0);v.put("checked_at",System.currentTimeMillis());
         getWritableDatabase().insertWithOnConflict("fetch_images",null,v,SQLiteDatabase.CONFLICT_REPLACE);

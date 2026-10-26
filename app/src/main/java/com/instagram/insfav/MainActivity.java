@@ -18,11 +18,21 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.*;
 
 public final class MainActivity extends Activity {
+    private long lastImageRevision;
+    private String lastImageScope = "";
+    private JSONObject imageSnapshot(boolean full) throws Exception {
+        JSONObject result=images.snapshotChanges(lastImageRevision,lastImageScope,full);
+        lastImageRevision=result.optLong("revision");lastImageScope=result.optString("scopeRevision");return result;
+    }
     private WebView web;
     private volatile boolean foreground;
     private Store store;
     private LocalImages images;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+  private final StatusTasks statusTasks = new StatusTasks(io);
+  private void queueFetcherStatus(boolean critical, Runnable task) {
+    if (critical) io.execute(task); else statusTasks.execute("fetcher-status", task);
+  }
     private final ExecutorService scans = Executors.newSingleThreadExecutor();
     private String pendingExport;
     private SettingsBackupUi settingsBackup;
@@ -30,7 +40,8 @@ public final class MainActivity extends Activity {
     private final java.util.concurrent.atomic.AtomicBoolean scanPending = new java.util.concurrent.atomic.AtomicBoolean();
     private static final int IMPORT = 20, EXPORT = 21, FOLDER = 22, WRITE_FOLDER = 23;
     private final Fetcher.Listener fetchListener=new Fetcher.Listener(){
-        public void changed(){if(!foreground)return;if(!io.isShutdown())try{io.execute(()->{try{send("fetcher-status",Fetcher.snapshot());}catch(Exception ignored){}});}catch(RejectedExecutionException ignored){}}
+        public void changed(){changed(false);}
+        public void changed(boolean critical){if(!foreground)return;if(!io.isShutdown())try{queueFetcherStatus(critical,()->{try{send("fetcher-status",Fetcher.snapshot());}catch(Exception error){store.log("fetcher_status","FAILED");}});}catch(RejectedExecutionException ignored){}}
         public void fullReady(String user,String token,int width,int height){try{send("remote-full",new JSONObject().put("user",user).put("token",token).put("width",width).put("height",height));}catch(Exception ignored){}}
         public void fullFailed(String token,String code){try{send("remote-full-failed",new JSONObject().put("token",token).put("code",code));}catch(Exception ignored){}}
     };
@@ -52,8 +63,8 @@ public final class MainActivity extends Activity {
                 // SAF grants are device-owned, never restored from a JSON claim.
                 JSONObject extra=data.getJSONObject("extra");String tree=extra.optString("treeUri");boolean granted=false;
                 for(UriPermission grant:getContentResolver().getPersistedUriPermissions())if(grant.getUri().toString().equals(tree)&&grant.isReadPermission())granted=true;
-                if(granted)synchronized(store){String old=store.settings.optString("treeUri");JSONObject before=new JSONObject(store.settings.toString());try{for(java.util.Iterator<String> i=extra.keys();i.hasNext();){String k=i.next();store.settings.put(k,extra.get(k));}store.saveSettings();if(!old.equals(tree))store.replaceIndex(new JSONObject());}catch(Exception e){store.settings=before;throw e;}}
-                images.checkAccess();Fetcher.sync();send("fetcher-status",Fetcher.snapshot());send("status",images.snapshot(true));
+                if(granted)restoreFolderSelection(store,extra);
+                images.checkAccess();Fetcher.sync();send("fetcher-status",Fetcher.snapshot());send("status",imageSnapshot(false));
             }
             public void message(String text){send("message",text);}
         });
@@ -84,7 +95,7 @@ public final class MainActivity extends Activity {
                         if(path.startsWith("/full/"))return response("image/png",images.image(user,true));
                         java.util.Map<String,String> headers=new java.util.HashMap<>();
                         headers.put("Cache-Control","private, max-age=300");
-                        return new WebResourceResponse(images.mime(user),null,200,"OK",headers,new ByteArrayInputStream(images.image(user,false)));
+                        return new WebResourceResponse(images.mime(user),null,200,"OK",headers,images.openImage(user));
                     }
                     String name = "/".equals(path) ? "index.html" : path.substring(1);
                     if (!name.matches("[a-zA-Z0-9._-]+")) return response("text/plain", new byte[0]);
@@ -102,7 +113,18 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onResume() {
         super.onResume();foreground=true;
-        io.execute(() -> {images.checkAccess(); try {send("status", images.snapshot(true));} catch (Exception error) {error(error);}});
+        io.execute(() -> {images.checkAccess(); try {Fetcher.watchSource();send("status", imageSnapshot(false));} catch (Exception error) {error(error);}});
+    }
+    static void restoreFolderSelection(Store store, JSONObject extra) throws Exception {
+        synchronized(store) {
+            String oldTree=store.settings.optString("treeUri"),oldDirectory=store.settings.optString("directoryId");
+            JSONObject before=new JSONObject(store.settings.toString());
+            try {
+                for(java.util.Iterator<String> it=extra.keys();it.hasNext();) {String key=it.next();store.settings.put(key,extra.get(key));}
+                store.saveSettings();
+                if(!oldTree.equals(store.settings.optString("treeUri"))||!oldDirectory.equals(store.settings.optString("directoryId")))store.replaceIndex(new JSONObject());
+            } catch(Exception failure) {store.settings=before;throw failure;}
+        }
     }
     private WebResourceResponse response(String mime, byte[] bytes) {return new WebResourceResponse(mime,null,200,"OK",java.util.Collections.singletonMap("Cache-Control","no-store"),new ByteArrayInputStream(bytes));}
     private void send(String event, Object data) {
@@ -120,18 +142,18 @@ public final class MainActivity extends Activity {
     public final class Bridge {
         @JavascriptInterface public void request(String raw) {
             if (io.isShutdown()) return;
-            try {io.execute(() -> {
+            try {statusTasks.request(raw,() -> {
                 try {
                     JSONObject input = new JSONObject(raw); String command = input.getString("command");
                     switch (command) {
                         case "bootstrap": {
-                            images.checkAccess(); JSONObject result = images.snapshot(true);
+                            images.checkAccess(); JSONObject result = imageSnapshot(true);
                             result.put("uiPreferences",UiPreferences.read(MainActivity.this)).put("raw", store.original()).put("app", appInfo()).put("stats", new JSONObject().put("usage", incrementUsage()).put("load", getPreferences(0).getInt("load", 0)).put("clear", getPreferences(0).getInt("clear", 0)));
                             send("bootstrap", result); break;
                         }
                         case "main-scroll-controls": {boolean visible=input.optBoolean("visible");runOnUiThread(()->{if(web!=null)web.setVerticalScrollBarEnabled(!visible);});break;}
                         case "ui-preferences": UiPreferences.save(MainActivity.this,input);send("ui-preferences",UiPreferences.read(MainActivity.this));break;
-                        case "status": send("status", images.snapshot(true)); break;
+                        case "status": send("status", imageSnapshot(false)); break;
                         case "copy-missing-users": {
                             String text=images.missingUsernames();
                             runOnUiThread(()->{try{int count=MissingProfiles.copy(MainActivity.this,text);send("message",count==0?"No missing usernames.":count+" usernames copied.");}catch(RuntimeException e){send("error","Clipboard unavailable. Try again while INSFAV is open.");}});
@@ -166,9 +188,9 @@ public final class MainActivity extends Activity {
                         case "select-folder": selectFolder(); break;
                         case "rescan": if(Fetcher.running())throw new IOException("Pause the fetcher before rescanning.");
                             startScan(false);break;
-                        case "clear-cache": runOnUiThread(()->{if(web!=null)web.clearCache(true);}); images.clearCache(); images.clearLegacyCache(); send("image-cache-cleared",new JSONObject()); send("status", images.snapshot(true)); send("message", "Image cache cleared. Source photos and collections are unchanged."); break;
-                        case "clear-index": if(Fetcher.running())throw new IOException("Pause the fetcher before clearing its image index.");images.clearIndex(); send("status", images.snapshot(true)); send("message", "Thumbnail index cleared. Source photos and collections are unchanged."); break;
-                        case "image-failed": send("status", images.snapshot(true)); break;
+                        case "clear-cache": runOnUiThread(()->{if(web!=null)web.clearCache(true);}); images.clearCache(); images.clearLegacyCache(); send("image-cache-cleared",new JSONObject()); send("status", imageSnapshot(false)); send("message", "Image cache cleared. Source photos and collections are unchanged."); break;
+                        case "clear-index": if(Fetcher.running())throw new IOException("Pause the fetcher before clearing its image index.");images.clearIndex(); send("status", imageSnapshot(false)); send("message", "Thumbnail index cleared. Source photos and collections are unchanged."); break;
+                        case "image-failed": send("status", imageSnapshot(false)); break;
                         case "import": runOnUiThread(() -> {
                             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);
                             intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/json", "text/plain", "application/octet-stream"}); startActivityForResult(intent, IMPORT);
@@ -211,7 +233,7 @@ public final class MainActivity extends Activity {
     }
     private void startScan(boolean cleanupRequested) {
         if (!scanPending.compareAndSet(false, true)) {send("message", "A scan is already in progress."); return;}
-        scans.execute(() -> {try {images.scan((event, result) -> send(event, result),cleanupRequested);} finally {scanPending.set(false);}});
+        scans.execute(() -> {try {images.scan((event, result) -> {if("status".equals(event))io.execute(()->{try{send("status",imageSnapshot(false));}catch(Exception error){error(error);}});else send(event,result);},cleanupRequested);} finally {scanPending.set(false);}});
     }
     private void openInstagram(String name) {
         String user = Store.normalize(name);
@@ -242,7 +264,7 @@ public final class MainActivity extends Activity {
                     int grant=flags&(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
                     if(grant!=(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION))throw new IOException("Folder read/write access was not granted.");
                     getContentResolver().takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);Fetcher.sync();send("fetcher-status",Fetcher.snapshot());
-                }else if (request == FOLDER) {images.select(uri, flags); send("status", images.snapshot(true)); startScan(false);}
+                }else if (request == FOLDER) {images.select(uri, flags); send("status", imageSnapshot(false)); startScan(false);}
                 else if (request == IMPORT) {
                     String raw;
                     try (InputStream input = getContentResolver().openInputStream(uri); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
@@ -252,7 +274,7 @@ public final class MainActivity extends Activity {
                     }
                     if(Fetcher.running()||images.scanning()||scanPending.get())throw new IOException("Pause the fetcher and wait for scans before importing collections.");
                     store.importDocument(raw); getPreferences(0).edit().putInt("load", getPreferences(0).getInt("load", 0) + 1).apply();
-                    JSONObject snapshot = images.snapshot(true); snapshot.put("raw", raw); send("imported", snapshot);
+                    JSONObject snapshot = imageSnapshot(true); snapshot.put("raw", raw); send("imported", snapshot);
                 } else if (request == EXPORT && pendingExport != null) {
                     try (OutputStream output = getContentResolver().openOutputStream(uri, "wt")) {if (output == null) throw new IOException("Destination cannot be opened"); output.write(pendingExport.getBytes(StandardCharsets.UTF_8));}
                     pendingExport = null; store.log("export", "success"); send("message", "Export complete.");
@@ -267,10 +289,10 @@ public final class MainActivity extends Activity {
         else if (web != null) send("message", "Press back again to exit.");
         else android.widget.Toast.makeText(this, "Press back again to exit.", android.widget.Toast.LENGTH_SHORT).show();
     }
-    @Override protected void onStop(){ com.instagram.insfav.fetcher.InstagramSession.flush();exitBack.reset();foreground=false;Fetcher.foregroundStopped();super.onStop();}
+    @Override protected void onStop(){ com.instagram.insfav.fetcher.InstagramSession.flush();exitBack.reset();foreground=false;Fetcher.foregroundStopped();if(!io.isShutdown())io.execute(()->{try{store.flushIndex();}catch(Exception error){store.log("index_snapshot","FAILED");Fetcher.indexPersistenceFailure();}});super.onStop();}
     @Override protected void onDestroy() {
         Fetcher.removeListener(fetchListener);Fetcher.closeViewer();
-        images.cancelScan(); scans.shutdownNow(); io.shutdownNow();
+        images.cancelScan(); images.closeStreams(); scans.shutdownNow(); io.shutdownNow();
         if (web != null) {web.removeJavascriptInterface("Android"); web.destroy(); web = null;} super.onDestroy();
     }
 }

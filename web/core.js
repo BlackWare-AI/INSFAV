@@ -13,7 +13,8 @@ function parseDocument(text){
  const indexed=collections.map((c,ci)=>({name:c.name,key:ci,items:c.items.map((i,ii)=>({source:i,key:ci+':'+ii,user:normalize(i.pageId),name:i.name||i.pageId,search:(i.pageId+' '+(i.name||'')).normalize('NFKC').toLocaleLowerCase('en')}))}));
  return {original,collections,indexed,raw:text,total:indexed.reduce((n,c)=>n+c.items.length,0),unique:[...new Set(indexed.flatMap(c=>c.items.map(i=>i.user)))].filter(Boolean)};
 }
-function filterCollections(doc,q){q=String(q).normalize('NFKC').toLocaleLowerCase('en').trim();return !q?doc.indexed:doc.indexed.map(c=>({...c,items:c.items.filter(i=>i.search.includes(q))})).filter(c=>c.items.length);}
+const searches=new WeakMap();
+function filterCollections(doc,q){const raw=String(q),cached=searches.get(doc);if(cached?.raw===raw)return cached.groups;q=raw.normalize('NFKC').toLocaleLowerCase('en').trim();if(cached?.query===q){cached.raw=raw;return cached.groups;}const groups=!q?doc.indexed:doc.indexed.map(c=>({...c,items:c.items.filter(i=>i.search.includes(q))})).filter(c=>c.items.length);searches.set(doc,{raw,query:q,groups});return groups;}
 function rowsFor(groups,open,search,view={}){
  const rows=[],columns=[2,3,4,5].includes(view.columns)?view.columns:0;
  const cell=Number.isFinite(view.cellSize)&&view.cellSize>0?view.cellSize:columns?Math.max(1,((view.width||300)-18-8*(columns-1))/columns):0;

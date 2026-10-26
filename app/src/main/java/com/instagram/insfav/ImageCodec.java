@@ -57,7 +57,7 @@ final class ImageCodec {
     static InputStream open(ContentResolver resolver, Uri uri) throws IOException {
         return bounded(resolver.openInputStream(uri),null);
     }
-    private static InputStream open(ContentResolver resolver,Uri uri,CancellationSignal cancellation)throws IOException {
+    static InputStream open(ContentResolver resolver,Uri uri,CancellationSignal cancellation)throws IOException {
         if(cancellation==null)return open(resolver,uri);
         cancellation.throwIfCanceled();
         AssetFileDescriptor descriptor=resolver.openAssetFileDescriptor(uri,"r",cancellation);
