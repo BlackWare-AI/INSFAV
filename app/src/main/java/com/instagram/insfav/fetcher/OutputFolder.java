@@ -152,10 +152,15 @@ final class OutputFolder {
             if(!name.matches("[a-z0-9._]{1,30}\\.webp")||!backupName.matches("\\.insfav-[a-f0-9-]+\\.bak")||!pendingName.matches("\\.insfav-[a-f0-9-]+\\.part"))throw new IOException("OUTPUT_UNAVAILABLE");
             Uri backup=files.get(backupName),finalFile=files.get(name),pending=files.get(pendingName);
             if(backup!=null){
-                if(finalFile!=null&&ThumbnailCodec.valid(read(resolver.openInputStream(finalFile))))DocumentsContract.deleteDocument(resolver,backup);
-                else{if(finalFile!=null)DocumentsContract.deleteDocument(resolver,finalFile);if(DocumentsContract.renameDocument(resolver,backup,name)==null)throw new IOException("OUTPUT_REPLACE_FAILED");}
+                boolean finalValid=false;
+                if(finalFile!=null)try{finalValid=ThumbnailCodec.valid(read(resolver.openInputStream(finalFile)));}
+                catch(IOException error){if(!"OUTPUT_SIZE_REJECTED".equals(error.getMessage()))throw error;}
+                if(finalValid){
+                    if(!DocumentsContract.deleteDocument(resolver,backup))throw new IOException("OUTPUT_REPLACE_FAILED");
+                }
+                else{if(finalFile!=null&&!DocumentsContract.deleteDocument(resolver,finalFile))throw new IOException("OUTPUT_REPLACE_FAILED");Uri restored=DocumentsContract.renameDocument(resolver,backup,name);if(restored==null)throw new IOException("OUTPUT_REPLACE_FAILED");exactName(restored,name);}
             }
-            if(pending!=null)DocumentsContract.deleteDocument(resolver,pending);journal.delete();
+            if(pending!=null&&!DocumentsContract.deleteDocument(resolver,pending))throw new IOException("PARTIAL_CLEANUP_FAILED");journal.delete();
         }catch(org.json.JSONException error){throw new IOException("OUTPUT_UNAVAILABLE",error);}
     }
     private static final Object WRITE_LOCK=new Object();
@@ -173,16 +178,28 @@ final class OutputFolder {
     Uri commit(String filename,byte[] bytes,boolean replace)throws IOException{
         return commit(filename, bytes, replace, false);
     }
-    private Uri commit(String filename, byte[] bytes, boolean replace, boolean missingOnly) throws IOException {
+    private Uri commit(String filename,byte[] bytes,boolean replace,boolean missingOnly)throws IOException{
         synchronized(WRITE_LOCK){
             if(!filename.matches("[a-z0-9._]{1,30}\\.webp")||!ThumbnailCodec.valid(bytes))throw new IOException("OUTPUT_INVALID_WEBP");
             lastWriteCreated=false;
+            if(replace||journal.getBaseFile().exists()||catalog==null&&seenRevision!=CONTENT_REVISION.get()){
+                files.clear();files.putAll(children(folder));recoverJournal();
+                if(journal.getBaseFile().exists())throw new IOException("OUTPUT_UNAVAILABLE");
+                files.clear();files.putAll(children(folder));seenRevision=CONTENT_REVISION.get();
+            }
             if(catalog!=null){refreshOne(filename);}
-            if(catalog==null&&(seenRevision!=CONTENT_REVISION.get()||journal.getBaseFile().exists())){files.clear();files.putAll(children(folder));recoverJournal();files.clear();files.putAll(children(folder));seenRevision=CONTENT_REVISION.get();}
-            if(valid(filename))return lookup(filename);
+            boolean existingValid=valid(filename);
+            if(existingValid&&!replace)return lookup(filename);
             if (missingOnly) { files.clear(); files.putAll(children(folder)); if (files.containsKey(filename)) return null; }
             String nonce=java.util.UUID.randomUUID().toString();String pendingName=".insfav-"+nonce+".part",backupName=".insfav-"+nonce+".bak";
             Uri pending=null,old=lookup(filename),backup=null,committed=null;boolean finalVerified=false;
+
+            if(old!=null&&existingValid){
+                exactName(old,filename);
+                byte[] previous=read(resolver.openInputStream(old));
+                if(!ThumbnailCodec.valid(previous))throw new IOException("OUTPUT_UNAVAILABLE");
+                if(Arrays.equals(previous,bytes))return old;
+            }
             String writingUser=Identity.normalize(filename.substring(0,filename.length()-5));FetcherCatalog.writing.add(writingUser);
             try{
                 if (missingOnly) saveJournal(filename, pendingName, backupName);
@@ -195,8 +212,9 @@ final class OutputFolder {
                 if(!ThumbnailCodec.valid(read(resolver.openInputStream(committed))))throw new IOException("OUTPUT_FINAL_VERIFY_FAILED");
                 finalVerified=true;
                 // Only a verified new final file may replace the old valid content.
-                if(backup!=null){try{DocumentsContract.deleteDocument(resolver,backup);}catch(Exception ignored){/* Retain backup rather than risk the final file. */}}
-                journal.delete();files.put(filename,committed);lastWriteCreated=true;
+                boolean cleaned=backup==null;
+                if(backup!=null){try{cleaned=DocumentsContract.deleteDocument(resolver,backup);}catch(Exception ignored){/* Retry cleanup through the journal. */}}
+                if(cleaned)journal.delete();files.put(filename,committed);lastWriteCreated=true;
                 if(catalog!=null)catalog.image(new QueueStore.Image(Identity.normalize(filename.substring(0,filename.length()-5)),committed.toString(),filename,bytes.length,ThumbnailCodec.TARGET_SIZE,ThumbnailCodec.TARGET_SIZE,System.currentTimeMillis(),true));
                 seenRevision=CONTENT_REVISION.incrementAndGet();return committed;
             }catch(Exception error){
