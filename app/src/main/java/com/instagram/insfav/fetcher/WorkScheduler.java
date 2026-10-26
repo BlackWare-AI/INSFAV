@@ -16,7 +16,7 @@ final class WorkScheduler {
     static void plan(Context c, boolean append) {
         SharedPreferences p = SessionState.prefs(c);
         if (!enabled(p)) { try { WorkManager.getInstance(c).cancelUniqueWork(RECOVERY); } catch (RuntimeException ignored) { } return; }
-        if (!new CookieVault(c).configured()) return;
+        if (!InstagramSession.configured(c)) return;
         try (QueueStore queue = new QueueStore(c)) { if (queue.pending().isEmpty()) { p.edit().putBoolean("armed", false).apply(); cancel(c); return; } }
         long now = System.currentTimeMillis();
         long earliest = Math.max(now, Math.max(p.getLong("nextRequestAt", 0), Math.max(p.getLong("retryAt", 0), p.getLong("systemNotBefore", 0))));

@@ -4,10 +4,12 @@ import org.json.*;import java.io.*;import java.net.*;import java.security.Princi
 import java.util.*;import java.util.concurrent.*;import java.util.concurrent.atomic.*;
 /** Real Chromium page creation/navigation/DOM plus the real CDN reader against offline HTTPS fixtures. */
 public final class PoolInstrumentation extends Instrumentation{
+    private Bundle sessionArguments;
  private Bundle status(String s){Bundle b=new Bundle();b.putString("stream",s+"\n");return b;}
  private boolean refinementOnly;
- @Override public void onCreate(Bundle args){refinementOnly=args!=null&&"ui-refinement".equals(args.getString("scope"));super.onCreate(args);start();}
- @Override public void onStart(){Bundle result=new Bundle();try{
+ @Override public void onCreate(Bundle args){ sessionArguments = args;refinementOnly=args!=null&&"ui-refinement".equals(args.getString("scope"));super.onCreate(args);start();}
+ @Override public void onStart(){
+        if (sessionArguments != null && sessionArguments.containsKey("scenario")) { SessionInstrumentation.run(this, sessionArguments); return; }Bundle result=new Bundle();try{
   if(refinementOnly){com.instagram.insfav.ScrollDeviceChecks.run(this);result.putString("stream","REFINEMENT_UI_OK\n");finish(android.app.Activity.RESULT_OK,result);return;}
   Context c=getTargetContext();com.instagram.insfav.RescanDeviceBenchmark.run(this);com.instagram.insfav.UiDeviceChecks.run(this);com.instagram.insfav.ScrollDeviceChecks.run(this);byte[] png=png();JSONArray matrix=new JSONArray();
   for(int[] configuration:new int[][]{{1,1},{2,1},{5,1},{10,1},{30,1},{5,25}}){
