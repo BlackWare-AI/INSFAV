@@ -8,7 +8,7 @@ final class FetchBroker {
  interface Time{long now();void sleep(long millis)throws InterruptedException;}
  interface Factory{ProfileProvider open(boolean full)throws ProfileProvider.Failure;}
  private static FetchBroker instance;
- static synchronized FetchBroker get(Context c){if(instance==null){Context app=c.getApplicationContext();instance=new FetchBroker(app,full->new WebViewProfileProvider(app,new CookieVault(app).load()));}return instance;}
+ static synchronized FetchBroker get(Context c){if(instance==null){Context app=c.getApplicationContext();instance=new FetchBroker(app,full->InstagramSession.open(app));}return instance;}
  final SharedPreferences prefs;final Factory factory;final Time time;final Context context;final java.util.function.IntUnaryOperator admission;
  final PriorityBlockingQueue<Request> tasks=new PriorityBlockingQueue<>();final Set<Request> active=ConcurrentHashMap.newKeySet();
  final AtomicLong sequence=new AtomicLong();final ExecutorService workers=Executors.newCachedThreadPool(r->{Thread t=new Thread(r,"insfav-profile-worker");t.setDaemon(true);return t;});

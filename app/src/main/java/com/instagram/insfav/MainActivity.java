@@ -146,6 +146,15 @@ public final class MainActivity extends Activity {
                             if(text==null)throw new IOException("No plain text is available in the clipboard.");if(text.length()>131072)throw new IOException("Cookie text is too large.");
                             send("cookie-paste",text.toString());break;
                         }
+                        case "instagram-session-method":
+                            Fetcher.closeViewer();
+                            com.instagram.insfav.fetcher.InstagramSession.select(MainActivity.this, input.optBoolean("manual"));
+                            send("fetcher-status", Fetcher.snapshot()); break;
+                        case "instagram-session-open":
+                            Fetcher.closeViewer();
+                            runOnUiThread(() -> com.instagram.insfav.fetcher.InstagramSession.show(MainActivity.this)); break;
+                        case "instagram-session-test":
+                            runOnUiThread(() -> com.instagram.insfav.fetcher.InstagramSession.test(MainActivity.this)); break;
                         case "fetcher-cookies-save": Fetcher.saveCookies(input.getString("text"));send("fetcher-status",Fetcher.snapshot());send("message","Cookies saved securely.");break;
                         case "fetcher-cookies-remove": Fetcher.removeCookies();send("fetcher-status",Fetcher.snapshot());break;
                         case "fetcher-config": Fetcher.configure(input.getInt("minimum"),input.getInt("maximum"),input.getString("start"),input.getString("end"),input.optBoolean("background"),input.optInt("concurrentWebViews",1));send("fetcher-status",Fetcher.snapshot());break;
@@ -258,7 +267,7 @@ public final class MainActivity extends Activity {
         else if (web != null) send("message", "Press back again to exit.");
         else android.widget.Toast.makeText(this, "Press back again to exit.", android.widget.Toast.LENGTH_SHORT).show();
     }
-    @Override protected void onStop(){exitBack.reset();foreground=false;Fetcher.foregroundStopped();super.onStop();}
+    @Override protected void onStop(){ com.instagram.insfav.fetcher.InstagramSession.flush();exitBack.reset();foreground=false;Fetcher.foregroundStopped();super.onStop();}
     @Override protected void onDestroy() {
         Fetcher.removeListener(fetchListener);Fetcher.closeViewer();
         images.cancelScan(); scans.shutdownNow(); io.shutdownNow();
