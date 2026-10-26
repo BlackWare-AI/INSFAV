@@ -1,5 +1,8 @@
 name: Publish Instagram session update
 on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-session.yml', 'version.properties']
   workflow_dispatch:
 permissions:
   contents: read
