@@ -1,0 +1,121 @@
+name: Verify and publish automatic HD thumbnails
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: insfav-hd-thumbnail-release
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm test
+      - run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleRelease --no-daemon --console=plain
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: INSFAV-HD-thumbnail-test-evidence
+          path: |
+            app/build/test-results/
+            app/build/reports/
+            app/build/outputs/apk/release/
+  publish:
+    needs: verify
+    if: github.repository == 'BlackWare-AI/INSFAV' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Prepare existing official signing material
+        env:
+          INSFAV_KEYSTORE_BASE64: ${{ secrets.INSFAV_KEYSTORE_BASE64 }}
+          INSFAV_STORE_PASSWORD: ${{ secrets.INSFAV_STORE_PASSWORD }}
+          INSFAV_KEY_ALIAS: ${{ secrets.INSFAV_KEY_ALIAS }}
+          INSFAV_KEY_PASSWORD: ${{ secrets.INSFAV_KEY_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          import base64,os
+          from pathlib import Path
+          for key in ['INSFAV_KEYSTORE_BASE64','INSFAV_STORE_PASSWORD','INSFAV_KEY_ALIAS']:
+              if not os.environ.get(key): raise SystemExit('Required official signing secret is missing: '+key)
+          p=Path(os.environ['RUNNER_TEMP'])/'insfav-release.jks'
+          p.write_bytes(base64.b64decode(os.environ['INSFAV_KEYSTORE_BASE64'],validate=True));p.chmod(0o600)
+          PY
+      - name: Build officially signed APK
+        env:
+          INSFAV_KEYSTORE: ${{ runner.temp }}/insfav-release.jks
+          INSFAV_STORE_PASSWORD: ${{ secrets.INSFAV_STORE_PASSWORD }}
+          INSFAV_KEY_ALIAS: ${{ secrets.INSFAV_KEY_ALIAS }}
+          INSFAV_KEY_PASSWORD: ${{ secrets.INSFAV_KEY_PASSWORD }}
+        run: ./gradlew :app:assembleRelease --no-daemon --console=plain
+      - name: Verify signature continuity and unchanged application version
+        run: |
+          mkdir candidate previous
+          cp app/build/outputs/apk/release/app-release.apk candidate/INSFAV-5.0.0.apk
+          gh release download v5.0.0-build.10-fetcher-bottom --pattern INSFAV-5.0.0.apk --dir previous
+          python3 - <<'PY'
+          import hashlib,json,os,re,subprocess
+          from pathlib import Path
+          bt=Path(os.environ['ANDROID_HOME'])/'build-tools/35.0.0'
+          apk=Path('candidate/INSFAV-5.0.0.apk')
+          def run(*args): return subprocess.check_output(list(map(str,args)),text=True)
+          def cert(path):
+              text=run(bt/'apksigner','verify','--verbose','--print-certs',path)
+              return re.findall(r'certificate SHA-256 digest: ([a-f0-9]+)',text)
+          current=cert(apk); prior=cert('previous/INSFAV-5.0.0.apk')
+          assert current==prior==['705e090084a4e50c47a8eb122d1605963276e5bb76f873d6f185b965c01e8641'],'Official signing certificate mismatch'
+          badging=run(bt/'aapt2','dump','badging',apk)
+          line=badging.splitlines()[0]
+          for field,value in [('name','com.instagram.insfav'),('versionName','5.0.0'),('versionCode','10')]:
+              assert re.search(r"\b"+field+r"='([^']*)'",line)[1]==value
+          assert 'application-debuggable' not in badging.splitlines()
+          run(bt/'zipalign','-c','-P','16','4',apk)
+          digest=hashlib.sha256(apk.read_bytes()).hexdigest()
+          Path('candidate/apk.json').write_text(json.dumps(dict(sourceCommit=os.environ['GITHUB_SHA'],package='com.instagram.insfav',version='5.0.0',versionCode=10,certificateSha256=current,sha256=digest,signatureVerified=True,debuggable=False),indent=2)+'\n')
+          Path('candidate/SHA256SUMS').write_text(digest+'  INSFAV-5.0.0.apk\n')
+          Path('candidate/notes.md').write_text('HD görüntüleyicide doğrulanmış uzak profil fotoğrafından eksik 256×256 WebP thumbnail otomatik kaydı.\n\nVersionName: 5.0.0; versionCode: 10. Mevcut resmi sertifika korunur.\n\nSource: '+os.environ['GITHUB_SHA']+'\n\nTests: https://github.com/'+os.environ['GITHUB_REPOSITORY']+'/actions/runs/'+os.environ['GITHUB_RUN_ID']+'\n')
+          PY
+      - name: Publish a separate release without replacing history
+        run: |
+          set -euo pipefail
+          tag=v5.0.0-build.10-hd-thumbnail
+          if gh release view "$tag" >/dev/null 2>&1 || gh api "repos/$GH_REPO/git/ref/tags/$tag" >/dev/null 2>&1; then
+            echo '::error::Release or tag already exists; refusing to overwrite.'
+            exit 1
+          fi
+          gh release create "$tag" candidate/INSFAV-5.0.0.apk candidate/apk.json candidate/SHA256SUMS --draft --target "$GITHUB_SHA" --title 'INSFAV 5.0.0 — HD thumbnail' --notes-file candidate/notes.md
+          gh release download "$tag" --pattern INSFAV-5.0.0.apk --dir downloaded
+          (cd downloaded && sha256sum --check ../candidate/SHA256SUMS)
+          gh release edit "$tag" --draft=false --latest
+          gh release view "$tag" --json url --jq .url
+      - name: Remove temporary signing material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/insfav-release.jks"

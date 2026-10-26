@@ -86,12 +86,11 @@ public final class Fetcher {
    try{
     if(error!=null){for(Listener l:listeners)if(id==generation.get())l.fullFailed(token,"REMOTE_IMAGE_UNAVAILABLE");return;}
     // Validate the whole container and decoder before replacing an existing view or thumbnail.
-    byte[] thumbnail=ThumbnailCodec.convert(bytes);BitmapFactory.Options bounds=new BitmapFactory.Options();bounds.inJustDecodeBounds=true;BitmapFactory.decodeByteArray(bytes,0,bytes.length,bounds);
-    synchronized(Fetcher.class){if(id!=generation.get()||!token.equals(viewerToken)){Arrays.fill(bytes,(byte)0);return;}fullBytes=bytes;fullMime=bounds.outMimeType;viewing=null;}
+    ThumbnailCodec.convert(bytes);BitmapFactory.Options bounds=new BitmapFactory.Options();bounds.inJustDecodeBounds=true;BitmapFactory.decodeByteArray(bytes,0,bytes.length,bounds);
+    byte[] thumbnailSource = null;
+    synchronized(Fetcher.class){if(id!=generation.get()||!token.equals(viewerToken)){Arrays.fill(bytes,(byte)0);return;}fullBytes=bytes;fullMime=bounds.outMimeType;viewing=null;try{thumbnailSource=bytes.clone();}catch(OutOfMemoryError ignored){}}
     for(Listener l:listeners)if(id==generation.get())l.fullReady(name,token,bounds.outWidth,bounds.outHeight);
-    if(id==generation.get()&&writable()){
-     String tree=host().tree();OutputFolder folder=new OutputFolder(context,tree);Uri uri=folder.commit(Identity.outputFilename(name),thumbnail,false);host().imageWritten(name,uri,tree);
-    }
+    if(thumbnailSource!=null&&HdThumbnailWriter.save(context,host(),name,thumbnailSource))for(Listener l:listeners)l.changed();
    }catch(Exception|OutOfMemoryError issue){if(bytes!=null&&bytes!=fullBytes)Arrays.fill(bytes,(byte)0);if(id==generation.get()&&bytes!=fullBytes)for(Listener l:listeners)l.fullFailed(token,"IMAGE_VALIDATION_FAILED");new Diagnostics(context).log("IMAGE","VIEW_OR_REFRESH_FAILED",0);}
    finally{if(id==generation.get())viewing=null;publish();}
   });
