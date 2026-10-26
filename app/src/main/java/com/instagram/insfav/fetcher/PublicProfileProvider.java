@@ -66,6 +66,7 @@ final class PublicProfileProvider implements ProfileProvider {
     }
     private volatile HttpsURLConnection active;
     private volatile boolean cancelled;
+    String userAgent = System.getProperty("http.agent", "");
     private static final Pattern SCRIPT = Pattern.compile("<script\\b[^>]*>(.*?)</script\\s*>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
     static boolean trusted(URL url, boolean image) {
         if (!url.getProtocol().equals("https") || url.getUserInfo() != null || (url.getPort() != -1 && url.getPort() != 443)) return false;
@@ -110,7 +111,7 @@ final class PublicProfileProvider implements ProfileProvider {
             HttpsURLConnection connection = connections.open(url); active = connection;
             try {
                 connection.setInstanceFollowRedirects(false); connection.setConnectTimeout(15000); connection.setReadTimeout(15000);
-                connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36 INSFAVThumbFetcher/0.3.0");
+                connection.setRequestProperty("User-Agent", userAgent);
                 if (!image && cookies != null) {
                     if (cookies.value("sessionid", System.currentTimeMillis()).isEmpty()) throw new Failure("COOKIE_EXPIRED", 0, 0, true);
                     connection.setRequestProperty("Cookie", cookies.header(url, System.currentTimeMillis()));
@@ -118,6 +119,7 @@ final class PublicProfileProvider implements ProfileProvider {
                 connection.setRequestProperty("Accept", image ? "image/webp,image/jpeg,image/png" : "text/html");
                 connection.setRequestProperty("Accept-Encoding", "identity");
                 if (image) connection.setRequestProperty("Referer", "https://www.instagram.com/");
+                if (cancelled) throw new Failure("REQUEST_CANCELLED");
                 int status = connection.getResponseCode();
                 if (cancelled) throw new Failure("REQUEST_CANCELLED");
                 if (System.nanoTime() > deadline) throw new Failure("REQUEST_TIMEOUT");
