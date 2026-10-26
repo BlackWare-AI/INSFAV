@@ -53,7 +53,7 @@ jobs:
             echo 'Release build or lint failed; signing output withheld to protect existing key material.' >&2
             exit 1
           fi
-      - name: Verify package, version and signing certificate continuity
+      - name: Verify package, version and owner-approved signing certificate
         shell: bash
         run: |
           set -euo pipefail
@@ -63,13 +63,15 @@ jobs:
           grep -F "package: name='com.instagram.insfav' versionCode='11' versionName='5.0.0'" "$RUNNER_TEMP/badging.txt"
           if grep -q application-debuggable "$RUNNER_TEMP/badging.txt"; then exit 1; fi
           "$tools/apksigner" verify --verbose --print-certs "$apk" > "$RUNNER_TEMP/current-cert.txt"
-          mkdir previous
-          gh release download v5.0.0-build.10-fetcher-bottom --pattern '*.apk' --dir previous
-          prior=$(find previous -name '*.apk' -print -quit)
-          "$tools/apksigner" verify --verbose --print-certs "$prior" > "$RUNNER_TEMP/previous-cert.txt"
-          grep 'certificate SHA-256 digest:' "$RUNNER_TEMP/current-cert.txt" > current-cert.txt
-          grep 'certificate SHA-256 digest:' "$RUNNER_TEMP/previous-cert.txt" > previous-cert.txt
-          diff -u previous-cert.txt current-cert.txt
+          python3 - <<'PY'
+          import os,re
+          from pathlib import Path
+          report=(Path(os.environ['RUNNER_TEMP'])/'current-cert.txt').read_text()
+          fingerprints=re.findall(r'Signer #\d+ certificate SHA-256 digest: ([0-9a-f]+)',report)
+          # Owner explicitly approved replacing the previous release identity.
+          assert fingerprints==['8c0dbdeea6c381fe6cbad23931d86c4e74792f324cf02cd52b26678273dac808'],'APK must use the owner-approved signing certificate'
+          print('Owner-approved signing certificate verified')
+          PY
           cp "$apk" INSFAV-5.0.0-build11.apk
           sha256sum INSFAV-5.0.0-build11.apk > SHA256SUMS
       - name: Publish only the verified session update
