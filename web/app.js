@@ -56,7 +56,7 @@ function rebuild(preserve=false){
  rows=C.rowsFor(groups,opened,!!query.trim(),{columns:uiPreferences.columns,width:$('list').getBoundingClientRect().width,...measured});positions=C.offsets(rows);
  mainScroll.setExpanded(rows.some(row=>row.type==='account'||row.type==='matrix'));
  $('list').style.height=positions.at(-1)+'px';
- if(!preserve){for(const node of mounted.values()){for(const button of node.querySelectorAll('.avatar'))releaseAvatar(button);node.remove();}mounted.clear();}
+ if(!preserve){for(const node of mounted.values()){releaseRow(node);node.remove();}mounted.clear();}
  $('empty').hidden=!!doc;$('search-info').classList.toggle('visible',!!query.trim());
  $('search-info').textContent=groups.reduce((count,collection)=>count+collection.items.length,0)+' RESULTS';renderVisible();
 }
@@ -87,6 +87,14 @@ $('preference-picker').onclick=event=>{if(event.target===$('preference-picker'))
 function highlighted(el,text){el.replaceChildren();const q=query.trim();if(!q){el.textContent=text;return;}const source=text.toLocaleLowerCase('en'),needle=q.toLocaleLowerCase('en');let p=0,i;while((i=source.indexOf(needle,p))!==-1){el.append(document.createTextNode(text.slice(p,i)));const mark=document.createElement('mark');mark.textContent=text.slice(i,i+q.length);el.append(mark);p=i+q.length;}el.append(document.createTextNode(text.slice(p)));}
 function notifyImageFailure(){clearTimeout(imageFailureTimer);imageFailureTimer=setTimeout(()=>request('image-failed'),180);}
 // A bounded pool of browser Image elements, never a native bitmap or disk cache.
+function releaseRow(node){
+ for(const button of node.querySelectorAll('.avatar')){releaseAvatar(button);button.onclick=null;button.removeAttribute('data-user');button._rowIndex=-1;button.replaceChildren();}
+ const link=node.querySelector('.card-link');if(!link)return;
+ clearTimeout(link._hold);link._hold=0;
+ link.onclick=link.oncontextmenu=link.onkeydown=link.onpointerdown=link.onpointermove=link.onpointerup=link.onpointercancel=null;
+ link.removeAttribute('title');link.removeAttribute('aria-label');
+ link.querySelector('.card-name')?.replaceChildren();link.querySelector('.card-user')?.replaceChildren();
+}
 function makeRow(r,index){const reused=r.type==='account'?rowPool.pop():null;const node=reused||document.createElement('div');node.className='virtual-row';node.style.top=positions[index]+'px';node.style.height=r.height+'px';node.dataset.key=r.key;
  if(r.type==='spacer'){node.setAttribute('aria-hidden','true');return node;}
  if(r.type==='matrix'){
@@ -114,7 +122,7 @@ function renderVisible(){
  }
  list.append(fragment);
  for(const [key,node]of mounted)if(!wanted.has(key)){
-  for(const button of node.querySelectorAll('.avatar'))releaseAvatar(button);
+  releaseRow(node);
   const button=node.classList.contains('account')?node.querySelector('.avatar'):null;node.remove();mounted.delete(key);if(button&&rowPool.length<32){button.replaceChildren();rowPool.push(node);}
  }
  prioritizeAvatars(top);
