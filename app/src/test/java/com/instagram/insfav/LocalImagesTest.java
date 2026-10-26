@@ -188,6 +188,23 @@ public class LocalImagesTest {
         store.importDocument(new JSONArray().put(new JSONObject().put("name","Synthetic").put("items",items)).toString());images.select(root,Intent.FLAG_GRANT_READ_URI_PERMISSION);context.getContentResolver().takePersistableUriPermission(root,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);store.replaceIndex(new JSONObject().put("treeUri",root.toString()).put("profiles",old));
         int opens=provider.opens;long begin=System.nanoTime();images.scan((e,v)->{});System.out.println("RESCAN_10000_MS="+(System.nanoTime()-begin)/1000000);assertEquals(opens,provider.opens);assertEquals(10000,images.snapshot(false).getInt("matched"));assertEquals(0,provider.deletes);
     }
+
+    @Test public void rescanAndIndexClearKeepEverySourceSha256() throws Exception {
+        provider.add("root/orphan.webp", "orphan.webp", 256, 256);
+        java.util.Map<String, byte[]> before = new java.util.HashMap<>();
+        for (java.util.Map.Entry<String, File> item : provider.files.entrySet())
+            before.put(item.getKey(), java.security.MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(item.getValue().toPath())));
+        selectAndScan();
+        images.scan((event, value) -> {}, true);
+        images.clearIndex();
+        images.scan((event, value) -> {}, true);
+        for (java.util.Map.Entry<String, byte[]> item : before.entrySet()) {
+            assertTrue(provider.files.containsKey(item.getKey()));
+            assertArrayEquals(item.getKey(), item.getValue(), java.security.MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(provider.files.get(item.getKey()).toPath())));
+        }
+        assertEquals(0, provider.writes); assertEquals(0, provider.deletes);
+    }
+
     public static final class FixtureProvider extends ContentProvider {
         volatile long delayMs; File directory; final Map<String,File> files = new LinkedHashMap<>(); final Map<String,String> names = new HashMap<>();
         int childQueries, opens, writes, deletes; boolean available = true, parentHasThumbnailChild;

@@ -14,10 +14,23 @@ final class PublicProfileProvider implements ProfileProvider {
     interface Connections { HttpsURLConnection open(URL url) throws IOException; }
     private final Connections connections;
     private final CookieJar cookies;
+    private final File stagingDirectory;
     PublicProfileProvider() { this(url -> (HttpsURLConnection)url.openConnection(), null); }
     PublicProfileProvider(CookieJar cookies) { this(url -> (HttpsURLConnection)url.openConnection(), cookies); }
     PublicProfileProvider(Connections connections) { this(connections, null); }
-    PublicProfileProvider(Connections connections, CookieJar cookies) { this.connections = connections; this.cookies = cookies; }
+    PublicProfileProvider(Connections connections, CookieJar cookies) {
+      this(connections, cookies, new File(System.getProperty("java.io.tmpdir"), "insfav-profile-downloads"));
+    }
+
+    PublicProfileProvider(File stagingDirectory, CookieJar cookies) {
+      this(url -> (HttpsURLConnection) url.openConnection(), cookies, stagingDirectory);
+    }
+
+    PublicProfileProvider(Connections connections, CookieJar cookies, File stagingDirectory) {
+      this.connections = connections;
+      this.cookies = cookies;
+      this.stagingDirectory = stagingDirectory;
+    }
     @Override public void authenticate() throws Failure {
         if (cookies == null || cookies.value("sessionid", System.currentTimeMillis()).isEmpty()) throw new Failure("COOKIE_REQUIRED");
         try {
@@ -74,6 +87,12 @@ final class PublicProfileProvider implements ProfileProvider {
         if (!image) return host.equals("www.instagram.com") || host.equals("instagram.com");
         return host.endsWith(".cdninstagram.com") || host.endsWith(".fbcdn.net");
     }
+    static boolean placeholder(String raw) {
+        String lower = raw.toLowerCase(Locale.ROOT);
+        return lower.contains("anonymous") || lower.contains("default") || lower.contains("logo")
+            || lower.contains("44884218_345707102882519_2446069589734326272");
+    }
+
     static long retryAt(String header, long now) {
         if (header == null) return now + 60_000;
         try { long seconds = Long.parseLong(header.trim()); return now + Math.min(Math.max(0, seconds), 30L * 24 * 3600) * 1000; }
@@ -103,7 +122,8 @@ final class PublicProfileProvider implements ProfileProvider {
         for (int redirect = 0; redirect <= 3; redirect++) {
             if (cancelled) throw new Failure("REQUEST_CANCELLED");
             if (System.nanoTime() > deadline) throw new Failure("REQUEST_TIMEOUT");
-            if (!trusted(url, image)) throw new Failure("UNTRUSTED_SOURCE");
+            if (!trusted(url, image) || image && placeholder(url.toString()))
+                throw new Failure("UNTRUSTED_SOURCE");
             if (!image && !url.getPath().equals(user == null ? "/" : "/" + user + "/")) {
                 String path = url.getPath().toLowerCase(Locale.ROOT);
                 throw new Failure(path.contains("challenge") || path.contains("captcha") ? "CHALLENGE_REQUIRED" : path.contains("accounts/login") ? cookies == null ? "LOGIN_REQUIRED" : "COOKIE_INVALID_EXPIRED" : "LOGIN_OR_REDIRECT_BLOCKED", 0, 0, true);
@@ -137,7 +157,13 @@ final class PublicProfileProvider implements ProfileProvider {
                 if (type == null || !(image ? type.matches("(?i)image/(jpeg|png|webp)(;.*)?") : type.toLowerCase(Locale.ROOT).startsWith("text/html"))) throw new Failure("CONTENT_TYPE_REJECTED", status, 0, false);
                 int limit = image ? 8 * 1024 * 1024 : 4 * 1024 * 1024;
                 if (connection.getContentLengthLong() > limit) throw new Failure("RESPONSE_TOO_LARGE");
-                try (InputStream input = connection.getInputStream(); ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {
+                if (image) {
+                try (InputStream input = connection.getInputStream()) {
+                    return DownloadStaging.read(input, stagingDirectory, limit,
+                        connection.getContentLengthLong(), deadline, () -> cancelled);
+                }
+            }
+            try (InputStream input = connection.getInputStream(); ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {
                     byte[] buffer = new byte[8192]; int n;
                     while ((n = input.read(buffer)) != -1) {
                         if (cancelled || System.nanoTime() > deadline) throw new Failure("REQUEST_TIMEOUT");
@@ -190,8 +216,7 @@ final class PublicProfileProvider implements ProfileProvider {
             if (object.opt("username") instanceof String && user.equals(Identity.normalize(object.optString("username"))) && object.optString("id", object.optString("pk")).matches("[0-9]+") && (!object.has("has_anonymous_profile_picture") || object.opt("has_anonymous_profile_picture") instanceof Boolean) && !Boolean.TRUE.equals(object.opt("has_anonymous_profile_picture")) && !"true".equals(object.optString("has_anonymous_profile_picture")) && !Boolean.FALSE.equals(object.opt("has_profile_pic"))) {
                 String picture = object.optString("profile_pic_url_hd"); if (picture.isEmpty()) picture = object.optString("profile_pic_url");
                 if (picture.isEmpty()) { JSONObject info = object.optJSONObject("hd_profile_pic_url_info"); if (info == null) info = object.optJSONObject("profile_pic_url_info"); if (info != null) picture = info.optString("url"); }
-                String lower = picture.toLowerCase(Locale.ROOT);
-                if (!picture.isEmpty() && !lower.contains("anonymous") && !lower.contains("default") && !lower.contains("logo") && !lower.contains("44884218_345707102882519_2446069589734326272")) found.add(picture);
+                if (!picture.isEmpty() && !placeholder(picture)) found.add(picture);
             }
             Iterator<String> keys = object.keys(); while (keys.hasNext()) find(object.opt(keys.next()), user, found, depth + 1, visits, restricted);
         } else if (value instanceof JSONArray) { JSONArray array = (JSONArray)value; for (int i = 0; i < array.length(); i++) find(array.opt(i), user, found, depth + 1, visits, restricted); }
