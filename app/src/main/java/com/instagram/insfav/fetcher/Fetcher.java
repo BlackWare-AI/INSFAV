@@ -78,13 +78,17 @@ public final class Fetcher {
  public static synchronized String fullMime(String token){return fullMime;}
  public static synchronized byte[] full(String token){return token.equals(viewerToken)&&fullBytes!=null?fullBytes:new byte[0];}
  public static synchronized void closeViewer(){viewerToken="";generation.incrementAndGet();if(viewing!=null){viewing.cancel(false);viewing=null;}if(context!=null)FetchBroker.get(context).cancelViewer();if(fullBytes!=null){Arrays.fill(fullBytes,(byte)0);fullBytes=null;}}
- public static void view(String name,String token){
+ private static String viewFailure(Throwable error) {
+    while ((error instanceof java.util.concurrent.CompletionException || error instanceof java.util.concurrent.ExecutionException) && error.getCause() != null) error = error.getCause();
+    return error instanceof ProfileProvider.Failure ? ((ProfileProvider.Failure) error).code : "REMOTE_IMAGE_UNAVAILABLE";
+  }
+  public static void view(String name,String token){
   closeViewer();if(!Identity.valid(name)||!token.matches("[a-zA-Z0-9_-]{1,80}"))return;
-  if(!InstagramSession.configured(context)){for(Listener l:listeners)l.fullFailed(token,"COOKIE_REQUIRED");return;}
+  if(InstagramSession.manual(context)&&!InstagramSession.configured(context)){for(Listener l:listeners)l.fullFailed(token,"COOKIE_REQUIRED");return;}
   final long id=generation.get();viewerToken=token;CompletableFuture<byte[]> future=FetchBroker.get(context).submit(name,true);viewing=future;
   future.whenCompleteAsync((bytes,error)->{
    try{
-    if(error!=null){for(Listener l:listeners)if(id==generation.get())l.fullFailed(token,"REMOTE_IMAGE_UNAVAILABLE");return;}
+    if(error!=null){for(Listener l:listeners)if(id==generation.get())l.fullFailed(token,viewFailure(error));return;}
     // Validate the whole container and decoder before replacing an existing view or thumbnail.
     ThumbnailCodec.convert(bytes);BitmapFactory.Options bounds=new BitmapFactory.Options();bounds.inJustDecodeBounds=true;BitmapFactory.decodeByteArray(bytes,0,bytes.length,bounds);
     byte[] thumbnailSource = null;
