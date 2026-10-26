@@ -1,0 +1,720 @@
+{
+  "baselineCommit": "db9fc68d5579fdc8feba3853fbe49364359d61c0",
+  "candidateSourceSha256": "8a61f98e485e38094d135948f3e31e09ae7d697e77a2a4c89d655e187100e474",
+  "baselineSourceSha256": "7553dca1bc6d2cad47343eacbe5dfbe65f3890bfbccb4c72a6baf59bff3138e8",
+  "physicalDevice": false,
+  "records": [
+    {
+      "variant": "before",
+      "round": 0,
+      "measurements": [
+        {
+          "kind": "INDEX_WRITE",
+          "environment": "Host filesystem + Robolectric; metadata only",
+          "initialProfiles": 15000,
+          "updates": 64,
+          "elapsedNanos": 1426705515,
+          "incremental": false,
+          "writes": {
+            "snapshotWrites": 64,
+            "snapshotSerializedBytes": 154660287
+          },
+          "linuxProcessIoDelta": {
+            "wchar": 154660287,
+            "syscw": 64,
+            "write_bytes": 0
+          }
+        },
+        {
+          "kind": "SMALL_STATUS",
+          "accounts": 5000,
+          "responses": 100,
+          "medianNanos": 47621854,
+          "warmStoreReopenNanos": 16764750
+        },
+        {
+          "kind": "SMALL_STATUS",
+          "accounts": 15000,
+          "responses": 100,
+          "medianNanos": 55292698,
+          "warmStoreReopenNanos": 15007593
+        },
+        {
+          "kind": "SMALL_STATUS",
+          "accounts": 20000,
+          "responses": 100,
+          "medianNanos": 78298552,
+          "warmStoreReopenNanos": 21094200
+        },
+        {
+          "kind": "RESCAN_15000",
+          "environment": "Robolectric API34, 15000 real synthetic 128/256 WebP files; 1 ms simulated SAF open latency",
+          "files": 15000,
+          "coldMs": 13660,
+          "warmMs": 406,
+          "coldOpens": 15000,
+          "warmOpens": 0,
+          "coldQueries": 2,
+          "warmQueries": 2,
+          "peakOpenCalls": 2,
+          "sourceBytesAndDatesUnchanged": true,
+          "sourceWrites": 0
+        },
+        {
+          "kind": "STATUS_SNAPSHOT",
+          "environment": "Host Robolectric API34; metadata only, current onResume contract",
+          "profiles": 15000,
+          "unchangedResponses": 20,
+          "unchangedResponseBytes": 24992060,
+          "elapsedNanos": 692811056,
+          "singleProfileResponseBytes": 1249603,
+          "deltaContract": false
+        },
+        {
+          "kind": "BROKER_IDLE",
+          "environment": "Host JVM + Robolectric; idle dispatcher",
+          "sampleNanos": 1000216973,
+          "threadCpuNanos": 4305824,
+          "waitTransitions": 50,
+          "cpuMeasured": true
+        },
+        {
+          "kind": "CATALOG_SEED",
+          "profiles": 5000,
+          "unchangedSeedNanos": 365889017,
+          "pointReads": -1
+        },
+        {
+          "kind": "QUEUE_READ",
+          "accounts": 20000,
+          "repetitions": 20,
+          "oldMedianNanos": 79675157,
+          "combinedMedianNanos": null,
+          "plans": [
+            {
+              "sql": "SELECT status,COUNT(*) FROM accounts GROUP BY status",
+              "plan": [
+                "SCAN TABLE accounts USING COVERING INDEX account_work_order"
+              ]
+            },
+            {
+              "sql": "SELECT phase,COUNT(*) FROM accounts GROUP BY phase",
+              "plan": [
+                "SCAN TABLE accounts USING COVERING INDEX account_phase"
+              ]
+            },
+            {
+              "sql": "SELECT status,phase,COUNT(*) FROM accounts GROUP BY status,phase",
+              "plan": [
+                "SCAN TABLE accounts USING INDEX account_work_order",
+                "USE TEMP B-TREE FOR GROUP BY"
+              ]
+            },
+            {
+              "sql": "SELECT username,uri,name,size,width,height,modified,readable,needs_check FROM fetch_images",
+              "plan": [
+                "SCAN TABLE fetch_images"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "variant": "after",
+      "round": 0,
+      "measurements": [
+        {
+          "kind": "INDEX_WRITE",
+          "environment": "Host filesystem + Robolectric; metadata only",
+          "initialProfiles": 15000,
+          "updates": 64,
+          "elapsedNanos": 156287954,
+          "incremental": true,
+          "writes": {
+            "snapshotWrites": 1,
+            "snapshotSerializedBytes": 2421238,
+            "snapshotNanos": 92192092,
+            "journalSessions": 1,
+            "deltaWrites": 64,
+            "pendingChanges": 0,
+            "recoveredDeltas": 0
+          },
+          "linuxProcessIoDelta": {
+            "wchar": 3067862,
+            "syscw": 313,
+            "write_bytes": 0
+          }
+        },
+        {
+          "kind": "SMALL_STATUS",
+          "accounts": 5000,
+          "responses": 100,
+          "medianNanos": 967917,
+          "warmStoreReopenNanos": 17271620
+        },
+        {
+          "kind": "SMALL_STATUS",
+          "accounts": 15000,
+          "responses": 100,
+          "medianNanos": 646554,
+          "warmStoreReopenNanos": 70088368
+        },
+        {
+          "kind": "SMALL_STATUS",
+          "accounts": 20000,
+          "responses": 100,
+          "medianNanos": 341755,
+          "warmStoreReopenNanos": 100575892
+        },
+        {
+          "kind": "RESCAN_15000",
+          "environment": "Robolectric API34, 15000 real synthetic 128/256 WebP files; 1 ms simulated SAF open latency",
+          "files": 15000,
+          "coldMs": 13612,
+          "warmMs": 531,
+          "coldOpens": 15000,
+          "warmOpens": 0,
+          "coldQueries": 2,
+          "warmQueries": 2,
+          "peakOpenCalls": 2,
+          "sourceBytesAndDatesUnchanged": true,
+          "sourceWrites": 0
+        },
+        {
+          "kind": "STATUS_SNAPSHOT",
+          "environment": "Host Robolectric API34; metadata only, current onResume contract",
+          "profiles": 15000,
+          "unchangedResponses": 20,
+          "unchangedResponseBytes": 15740,
+          "elapsedNanos": 3101109,
+          "singleProfileResponseBytes": 914,
+          "deltaContract": true
+        },
+        {
+          "kind": "BROKER_IDLE",
+          "environment": "Host JVM + Robolectric; idle dispatcher",
+          "sampleNanos": 1000390121,
+          "threadCpuNanos": 0,
+          "waitTransitions": 0,
+          "cpuMeasured": true
+        },
+        {
+          "kind": "CATALOG_SEED",
+          "profiles": 5000,
+          "unchangedSeedNanos": 57135259,
+          "pointReads": 0
+        },
+        {
+          "kind": "QUEUE_READ",
+          "accounts": 20000,
+          "repetitions": 20,
+          "oldMedianNanos": 88853293,
+          "combinedMedianNanos": null,
+          "plans": [
+            {
+              "sql": "SELECT status,COUNT(*) FROM accounts GROUP BY status",
+              "plan": [
+                "SCAN TABLE accounts USING COVERING INDEX account_work_order"
+              ]
+            },
+            {
+              "sql": "SELECT phase,COUNT(*) FROM accounts GROUP BY phase",
+              "plan": [
+                "SCAN TABLE accounts USING COVERING INDEX account_phase"
+              ]
+            },
+            {
+              "sql": "SELECT status,phase,COUNT(*) FROM accounts GROUP BY status,phase",
+              "plan": [
+                "SCAN TABLE accounts USING INDEX account_work_order",
+                "USE TEMP B-TREE FOR GROUP BY"
+              ]
+            },
+            {
+              "sql": "SELECT username,uri,name,size,width,height,modified,readable,needs_check FROM fetch_images",
+              "plan": [
+                "SCAN TABLE fetch_images"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "variant": "after",
+      "round": 1,
+      "measurements": [
+        {
+          "kind": "INDEX_WRITE",
+          "environment": "Host filesystem + Robolectric; metadata only",
+          "initialProfiles": 15000,
+          "updates": 64,
+          "elapsedNanos": 167005390,
+          "incremental": true,
+          "writes": {
+            "snapshotWrites": 1,
+            "snapshotSerializedBytes": 2421238,
+            "snapshotNanos": 105677643,
+            "journalSessions": 1,
+            "deltaWrites": 64,
+            "pendingChanges": 0,
+            "recoveredDeltas": 0
+          },
+          "linuxProcessIoDelta": {
+            "wchar": 3067862,
+            "syscw": 313,
+            "write_bytes": 0
+          }
+        },
+        {
+          "kind": "SMALL_STATUS",
+          "accounts": 5000,
+          "responses": 100,
+          "medianNanos": 926184,
+          "warmStoreReopenNanos": 25016619
+        },
+        {
+          "kind": "SMALL_STATUS",
+          "accounts": 15000,
+          "responses": 100,
+          "medianNanos": 758852,
+          "warmStoreReopenNanos": 42563982
+        },
+        {
+          "kind": "SMALL_STATUS",
+          "accounts": 20000,
+          "responses": 100,
+          "medianNanos": 240032,
+          "warmStoreReopenNanos": 30175798
+        },
+        {
+          "kind": "RESCAN_15000",
+          "environment": "Robolectric API34, 15000 real synthetic 128/256 WebP files; 1 ms simulated SAF open latency",
+          "files": 15000,
+          "coldMs": 13300,
+          "warmMs": 513,
+          "coldOpens": 15000,
+          "warmOpens": 0,
+          "coldQueries": 2,
+          "warmQueries": 2,
+          "peakOpenCalls": 2,
+          "sourceBytesAndDatesUnchanged": true,
+          "sourceWrites": 0
+        },
+        {
+          "kind": "STATUS_SNAPSHOT",
+          "environment": "Host Robolectric API34; metadata only, current onResume contract",
+          "profiles": 15000,
+          "unchangedResponses": 20,
+          "unchangedResponseBytes": 15740,
+          "elapsedNanos": 3268802,
+          "singleProfileResponseBytes": 914,
+          "deltaContract": true
+        },
+        {
+          "kind": "BROKER_IDLE",
+          "environment": "Host JVM + Robolectric; idle dispatcher",
+          "sampleNanos": 1000277858,
+          "threadCpuNanos": 0,
+          "waitTransitions": 0,
+          "cpuMeasured": true
+        },
+        {
+          "kind": "CATALOG_SEED",
+          "profiles": 5000,
+          "unchangedSeedNanos": 107354169,
+          "pointReads": 0
+        },
+        {
+          "kind": "QUEUE_READ",
+          "accounts": 20000,
+          "repetitions": 20,
+          "oldMedianNanos": 102448026,
+          "combinedMedianNanos": null,
+          "plans": [
+            {
+              "sql": "SELECT status,COUNT(*) FROM accounts GROUP BY status",
+              "plan": [
+                "SCAN TABLE accounts USING COVERING INDEX account_work_order"
+              ]
+            },
+            {
+              "sql": "SELECT phase,COUNT(*) FROM accounts GROUP BY phase",
+              "plan": [
+                "SCAN TABLE accounts USING COVERING INDEX account_phase"
+              ]
+            },
+            {
+              "sql": "SELECT status,phase,COUNT(*) FROM accounts GROUP BY status,phase",
+              "plan": [
+                "SCAN TABLE accounts USING INDEX account_work_order",
+                "USE TEMP B-TREE FOR GROUP BY"
+              ]
+            },
+            {
+              "sql": "SELECT username,uri,name,size,width,height,modified,readable,needs_check FROM fetch_images",
+              "plan": [
+                "SCAN TABLE fetch_images"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "variant": "before",
+      "round": 1,
+      "measurements": [
+        {
+          "kind": "INDEX_WRITE",
+          "environment": "Host filesystem + Robolectric; metadata only",
+          "initialProfiles": 15000,
+          "updates": 64,
+          "elapsedNanos": 1030301853,
+          "incremental": false,
+          "writes": {
+            "snapshotWrites": 64,
+            "snapshotSerializedBytes": 154660287
+          },
+          "linuxProcessIoDelta": {
+            "wchar": 154660287,
+            "syscw": 64,
+            "write_bytes": 0
+          }
+        },
+        {
+          "kind": "SMALL_STATUS",
+          "accounts": 5000,
+          "responses": 100,
+          "medianNanos": 51987114,
+          "warmStoreReopenNanos": 16596939
+        },
+        {
+          "kind": "SMALL_STATUS",
+          "accounts": 15000,
+          "responses": 100,
+          "medianNanos": 53337278,
+          "warmStoreReopenNanos": 17388371
+        },
+        {
+          "kind": "SMALL_STATUS",
+          "accounts": 20000,
+          "responses": 100,
+          "medianNanos": 82881806,
+          "warmStoreReopenNanos": 15373177
+        },
+        {
+          "kind": "RESCAN_15000",
+          "environment": "Robolectric API34, 15000 real synthetic 128/256 WebP files; 1 ms simulated SAF open latency",
+          "files": 15000,
+          "coldMs": 13523,
+          "warmMs": 518,
+          "coldOpens": 15000,
+          "warmOpens": 0,
+          "coldQueries": 2,
+          "warmQueries": 2,
+          "peakOpenCalls": 2,
+          "sourceBytesAndDatesUnchanged": true,
+          "sourceWrites": 0
+        },
+        {
+          "kind": "STATUS_SNAPSHOT",
+          "environment": "Host Robolectric API34; metadata only, current onResume contract",
+          "profiles": 15000,
+          "unchangedResponses": 20,
+          "unchangedResponseBytes": 24992060,
+          "elapsedNanos": 807135730,
+          "singleProfileResponseBytes": 1249603,
+          "deltaContract": false
+        },
+        {
+          "kind": "BROKER_IDLE",
+          "environment": "Host JVM + Robolectric; idle dispatcher",
+          "sampleNanos": 1000569392,
+          "threadCpuNanos": 6093052,
+          "waitTransitions": 49,
+          "cpuMeasured": true
+        },
+        {
+          "kind": "CATALOG_SEED",
+          "profiles": 5000,
+          "unchangedSeedNanos": 526500969,
+          "pointReads": -1
+        },
+        {
+          "kind": "QUEUE_READ",
+          "accounts": 20000,
+          "repetitions": 20,
+          "oldMedianNanos": 82022829,
+          "combinedMedianNanos": null,
+          "plans": [
+            {
+              "sql": "SELECT status,COUNT(*) FROM accounts GROUP BY status",
+              "plan": [
+                "SCAN TABLE accounts USING COVERING INDEX account_work_order"
+              ]
+            },
+            {
+              "sql": "SELECT phase,COUNT(*) FROM accounts GROUP BY phase",
+              "plan": [
+                "SCAN TABLE accounts USING COVERING INDEX account_phase"
+              ]
+            },
+            {
+              "sql": "SELECT status,phase,COUNT(*) FROM accounts GROUP BY status,phase",
+              "plan": [
+                "SCAN TABLE accounts USING INDEX account_work_order",
+                "USE TEMP B-TREE FOR GROUP BY"
+              ]
+            },
+            {
+              "sql": "SELECT username,uri,name,size,width,height,modified,readable,needs_check FROM fetch_images",
+              "plan": [
+                "SCAN TABLE fetch_images"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "variant": "before",
+      "round": 2,
+      "measurements": [
+        {
+          "kind": "INDEX_WRITE",
+          "environment": "Host filesystem + Robolectric; metadata only",
+          "initialProfiles": 15000,
+          "updates": 64,
+          "elapsedNanos": 1257721816,
+          "incremental": false,
+          "writes": {
+            "snapshotWrites": 64,
+            "snapshotSerializedBytes": 154660287
+          },
+          "linuxProcessIoDelta": {
+            "wchar": 154660287,
+            "syscw": 64,
+            "write_bytes": 0
+          }
+        },
+        {
+          "kind": "SMALL_STATUS",
+          "accounts": 5000,
+          "responses": 100,
+          "medianNanos": 46008614,
+          "warmStoreReopenNanos": 11177054
+        },
+        {
+          "kind": "SMALL_STATUS",
+          "accounts": 15000,
+          "responses": 100,
+          "medianNanos": 45931530,
+          "warmStoreReopenNanos": 15604208
+        },
+        {
+          "kind": "SMALL_STATUS",
+          "accounts": 20000,
+          "responses": 100,
+          "medianNanos": 56439150,
+          "warmStoreReopenNanos": 17507933
+        },
+        {
+          "kind": "RESCAN_15000",
+          "environment": "Robolectric API34, 15000 real synthetic 128/256 WebP files; 1 ms simulated SAF open latency",
+          "files": 15000,
+          "coldMs": 13625,
+          "warmMs": 513,
+          "coldOpens": 15000,
+          "warmOpens": 0,
+          "coldQueries": 2,
+          "warmQueries": 2,
+          "peakOpenCalls": 2,
+          "sourceBytesAndDatesUnchanged": true,
+          "sourceWrites": 0
+        },
+        {
+          "kind": "STATUS_SNAPSHOT",
+          "environment": "Host Robolectric API34; metadata only, current onResume contract",
+          "profiles": 15000,
+          "unchangedResponses": 20,
+          "unchangedResponseBytes": 24992060,
+          "elapsedNanos": 724216117,
+          "singleProfileResponseBytes": 1249603,
+          "deltaContract": false
+        },
+        {
+          "kind": "BROKER_IDLE",
+          "environment": "Host JVM + Robolectric; idle dispatcher",
+          "sampleNanos": 1000176485,
+          "threadCpuNanos": 3674845,
+          "waitTransitions": 50,
+          "cpuMeasured": true
+        },
+        {
+          "kind": "CATALOG_SEED",
+          "profiles": 5000,
+          "unchangedSeedNanos": 397693187,
+          "pointReads": -1
+        },
+        {
+          "kind": "QUEUE_READ",
+          "accounts": 20000,
+          "repetitions": 20,
+          "oldMedianNanos": 117074108,
+          "combinedMedianNanos": null,
+          "plans": [
+            {
+              "sql": "SELECT status,COUNT(*) FROM accounts GROUP BY status",
+              "plan": [
+                "SCAN TABLE accounts USING COVERING INDEX account_work_order"
+              ]
+            },
+            {
+              "sql": "SELECT phase,COUNT(*) FROM accounts GROUP BY phase",
+              "plan": [
+                "SCAN TABLE accounts USING COVERING INDEX account_phase"
+              ]
+            },
+            {
+              "sql": "SELECT status,phase,COUNT(*) FROM accounts GROUP BY status,phase",
+              "plan": [
+                "SCAN TABLE accounts USING INDEX account_work_order",
+                "USE TEMP B-TREE FOR GROUP BY"
+              ]
+            },
+            {
+              "sql": "SELECT username,uri,name,size,width,height,modified,readable,needs_check FROM fetch_images",
+              "plan": [
+                "SCAN TABLE fetch_images"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "variant": "after",
+      "round": 2,
+      "measurements": [
+        {
+          "kind": "INDEX_WRITE",
+          "environment": "Host filesystem + Robolectric; metadata only",
+          "initialProfiles": 15000,
+          "updates": 64,
+          "elapsedNanos": 185986271,
+          "incremental": true,
+          "writes": {
+            "snapshotWrites": 1,
+            "snapshotSerializedBytes": 2421238,
+            "snapshotNanos": 146774043,
+            "journalSessions": 1,
+            "deltaWrites": 64,
+            "pendingChanges": 0,
+            "recoveredDeltas": 0
+          },
+          "linuxProcessIoDelta": {
+            "wchar": 3067862,
+            "syscw": 313,
+            "write_bytes": 0
+          }
+        },
+        {
+          "kind": "SMALL_STATUS",
+          "accounts": 5000,
+          "responses": 100,
+          "medianNanos": 1033360,
+          "warmStoreReopenNanos": 17270320
+        },
+        {
+          "kind": "SMALL_STATUS",
+          "accounts": 15000,
+          "responses": 100,
+          "medianNanos": 633526,
+          "warmStoreReopenNanos": 59780896
+        },
+        {
+          "kind": "SMALL_STATUS",
+          "accounts": 20000,
+          "responses": 100,
+          "medianNanos": 377539,
+          "warmStoreReopenNanos": 35953182
+        },
+        {
+          "kind": "RESCAN_15000",
+          "environment": "Robolectric API34, 15000 real synthetic 128/256 WebP files; 1 ms simulated SAF open latency",
+          "files": 15000,
+          "coldMs": 14184,
+          "warmMs": 462,
+          "coldOpens": 15000,
+          "warmOpens": 0,
+          "coldQueries": 2,
+          "warmQueries": 2,
+          "peakOpenCalls": 2,
+          "sourceBytesAndDatesUnchanged": true,
+          "sourceWrites": 0
+        },
+        {
+          "kind": "STATUS_SNAPSHOT",
+          "environment": "Host Robolectric API34; metadata only, current onResume contract",
+          "profiles": 15000,
+          "unchangedResponses": 20,
+          "unchangedResponseBytes": 15740,
+          "elapsedNanos": 3007617,
+          "singleProfileResponseBytes": 914,
+          "deltaContract": true
+        },
+        {
+          "kind": "BROKER_IDLE",
+          "environment": "Host JVM + Robolectric; idle dispatcher",
+          "sampleNanos": 1000263086,
+          "threadCpuNanos": 0,
+          "waitTransitions": 0,
+          "cpuMeasured": true
+        },
+        {
+          "kind": "CATALOG_SEED",
+          "profiles": 5000,
+          "unchangedSeedNanos": 95869567,
+          "pointReads": 0
+        },
+        {
+          "kind": "QUEUE_READ",
+          "accounts": 20000,
+          "repetitions": 20,
+          "oldMedianNanos": 95648112,
+          "combinedMedianNanos": null,
+          "plans": [
+            {
+              "sql": "SELECT status,COUNT(*) FROM accounts GROUP BY status",
+              "plan": [
+                "SCAN TABLE accounts USING COVERING INDEX account_work_order"
+              ]
+            },
+            {
+              "sql": "SELECT phase,COUNT(*) FROM accounts GROUP BY phase",
+              "plan": [
+                "SCAN TABLE accounts USING COVERING INDEX account_phase"
+              ]
+            },
+            {
+              "sql": "SELECT status,phase,COUNT(*) FROM accounts GROUP BY status,phase",
+              "plan": [
+                "SCAN TABLE accounts USING INDEX account_work_order",
+                "USE TEMP B-TREE FOR GROUP BY"
+              ]
+            },
+            {
+              "sql": "SELECT username,uri,name,size,width,height,modified,readable,needs_check FROM fetch_images",
+              "plan": [
+                "SCAN TABLE fetch_images"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "measuredCandidateCommit": "5c7e60f4127132919cf0c62e22eea30455ab5aa4"
+}

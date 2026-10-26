@@ -1,0 +1,30 @@
+[
+  {
+    "script": "browser",
+    "exitCode": 0
+  },
+  {
+    "script": "clipboard-preview",
+    "exitCode": 0
+  },
+  {
+    "script": "about-counters",
+    "exitCode": 0
+  },
+  {
+    "script": "probe-browser",
+    "exitCode": 0
+  },
+  {
+    "script": "probe-classification",
+    "exitCode": 0
+  },
+  {
+    "script": "scroll-controls",
+    "exitCode": 0
+  },
+  {
+    "script": "matrix-language",
+    "exitCode": 0
+  }
+]
