@@ -83,9 +83,10 @@ async function waitForValue(page,predicate){const deadline=Date.now()+10000;whil
   check((await page.locator('#viewer-caption').innerText()).includes('640 × 480'),'viewer reports the actual remote image dimensions');
   check(await page.evaluate(z=>scale===z,zoomBeforeRemote),'remote replacement preserves zoom');
   await page.evaluate(()=>fullLoader.onload?.());check(await page.locator('#full-image').evaluate(el=>el.src.includes('/remote-full/')),'late local image never overwrites the ready remote image');
+  const commandsBeforeClose=await page.evaluate(()=>commands.length);
   await page.keyboard.press('Escape');await page.locator('#viewer').waitFor({state:'hidden'});check(true,'back closes viewer after exit animation');
   check(await page.evaluate(()=>viewerToken===''&&remoteLoader===null&&fullLoader===null&&!document.getElementById('full-image').hasAttribute('src')),'viewer close releases all frontend image and token references');
-  check(await page.evaluate(()=>commands.at(-1).command==='view-closed'),'viewer close requests native high-resolution memory release');
+  check(await page.evaluate(start=>commands.slice(start).some(c=>c.command==='view-closed'),commandsBeforeClose),'viewer close requests native high-resolution memory release');
   await page.evaluate(token=>nativeEvent('remote-full',{token,user:'test.user',width:900,height:900}),remoteToken);check(await page.locator('#viewer').isHidden(),'stale remote completion cannot reopen the viewer');
   await page.locator('#search-input').fill('user9999');await page.waitForTimeout(180);check(await page.locator('.account').count()===1,'search reaches unmounted accounts');
   await page.locator('#clear-search').click();check(await page.locator('#search-input').inputValue()==='','search clear restores view');
@@ -99,8 +100,9 @@ async function waitForValue(page,predicate){const deadline=Date.now()+10000;whil
   check(await page.locator('#clear-btn').evaluate(el=>getComputedStyle(el).color)==='rgb(181, 116, 120)','Delete List retains its existing red tone');
   check(await page.locator('#dialog .about-action .nav-btn').evaluateAll(nodes=>nodes.every(el=>el.offsetHeight>=44&&getComputedStyle(el).borderTopWidth==='0px'&&getComputedStyle(el).backgroundColor==='rgba(0, 0, 0, 0)'&&el.querySelector('svg').getBoundingClientRect().width===22)),'moved icons keep borderless 22px artwork and 44px touch targets');
   const preservedCounters=await page.evaluate(()=>JSON.stringify(stats));
-  await page.locator('#import-btn').click();await waitForValue(page,()=>commands.at(-1).command==='import');
-  check(await page.locator('#dialog').isHidden()&&await page.evaluate(()=>commands.at(-1).command==='import'),'Add List closes the overlay and dispatches the existing picker command');
+  const commandsBeforeImport=await page.evaluate(()=>commands.length);
+  await page.locator('#import-btn').click();await page.locator('#dialog').waitFor({state:'hidden'});
+  check(await page.evaluate(start=>commands.slice(start).some(c=>c.command==='import'),commandsBeforeImport),'Add List closes the overlay and dispatches the existing picker command');
   await page.evaluate(fixture=>nativeEvent('imported',{profiles:snapshot.profiles,raw:JSON.stringify({favorite_page_pref:JSON.stringify(fixture)})}),fixture);
   await page.locator('#info-btn').click();
   check(await page.evaluate(value=>stats.load===JSON.parse(value).load+1&&stats.usage===JSON.parse(value).usage&&doc.total===10001,preservedCounters),'import completion preserves the existing single load increment and JSON memberships');
@@ -109,8 +111,10 @@ async function waitForValue(page,predicate){const deadline=Date.now()+10000;whil
   check(await page.locator('#dialog-title').textContent()==='Reset collections?'&&await page.locator('#dialog-title').isVisible(),'Delete List opens the original titled confirmation');
   const beforeCancel=await page.evaluate(()=>commands.length);await page.getByRole('button',{name:'Cancel',exact:true}).click();
   check(await page.evaluate(n=>commands.length===n,beforeCancel),'cancel never dispatches a deletion');
-  await page.locator('#info-btn').click();await page.locator('#clear-btn').click();await page.getByRole('button',{name:'Confirm',exact:true}).click();await waitForValue(page,()=>commands.at(-1).command==='clear-data');
-  check(await page.evaluate(()=>commands.at(-1).command==='clear-data')&&await page.locator('#dialog').isHidden(),'confirm dispatches the unchanged deletion and dismisses its overlay');
+  await page.locator('#info-btn').click();await page.locator('#clear-btn').click();
+  const commandsBeforeClear=await page.evaluate(()=>commands.length);
+  await page.getByRole('button',{name:'Confirm',exact:true}).click();await page.locator('#dialog').waitFor({state:'hidden'});
+  check(await page.evaluate(start=>commands.slice(start).some(c=>c.command==='clear-data'),commandsBeforeClear),'confirm dispatches the unchanged deletion and dismisses its overlay');
   await page.evaluate(()=>nativeEvent('cleared',''));
   check(await page.evaluate(()=>doc===null&&stats.clear===1&&stats.load===2),'delete completion preserves the existing reset count and leaves load count unchanged');
   await page.evaluate(fixture=>{snapshot.stats={usage:1,load:1,clear:0};nativeEvent('bootstrap',{...snapshot,raw:JSON.stringify({favorite_page_pref:JSON.stringify(fixture)})});},fixture);

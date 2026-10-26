@@ -160,17 +160,32 @@ final class OutputFolder {
     }
     private static final Object WRITE_LOCK=new Object();
     boolean write(String filename,byte[] bytes)throws IOException{commit(filename,bytes,false);return true;}
+    Uri commitMissingHd(String filename, byte[] source) throws IOException {
+        synchronized (WRITE_LOCK) {
+            // Requery inside the same lock used by all fetcher writes. Never repair or rename an existing file here.
+            files.clear();
+            files.putAll(children(folder));
+            if (files.containsKey(filename)) return null;
+            byte[] thumbnail = HdThumbnailWriter.encode(source);
+            return thumbnail == null ? null : commit(filename, thumbnail, false, true);
+        }
+    }
     Uri commit(String filename,byte[] bytes,boolean replace)throws IOException{
+        return commit(filename, bytes, replace, false);
+    }
+    private Uri commit(String filename, byte[] bytes, boolean replace, boolean missingOnly) throws IOException {
         synchronized(WRITE_LOCK){
             if(!filename.matches("[a-z0-9._]{1,30}\\.webp")||!ThumbnailCodec.valid(bytes))throw new IOException("OUTPUT_INVALID_WEBP");
             lastWriteCreated=false;
             if(catalog!=null){refreshOne(filename);}
             if(catalog==null&&(seenRevision!=CONTENT_REVISION.get()||journal.getBaseFile().exists())){files.clear();files.putAll(children(folder));recoverJournal();files.clear();files.putAll(children(folder));seenRevision=CONTENT_REVISION.get();}
             if(valid(filename))return lookup(filename);
+            if (missingOnly) { files.clear(); files.putAll(children(folder)); if (files.containsKey(filename)) return null; }
             String nonce=java.util.UUID.randomUUID().toString();String pendingName=".insfav-"+nonce+".part",backupName=".insfav-"+nonce+".bak";
             Uri pending=null,old=lookup(filename),backup=null,committed=null;boolean finalVerified=false;
             String writingUser=Identity.normalize(filename.substring(0,filename.length()-5));FetcherCatalog.writing.add(writingUser);
             try{
+                if (missingOnly) saveJournal(filename, pendingName, backupName);
                 pending=DocumentsContract.createDocument(resolver,folder,"application/octet-stream",pendingName);if(pending==null)throw new IOException("OUTPUT_CREATE_FAILED");exactName(pending,pendingName);
                 try(OutputStream output=resolver.openOutputStream(pending,"wt")){if(output==null)throw new IOException("OUTPUT_WRITE_FAILED");output.write(bytes);output.flush();}
                 if(!ThumbnailCodec.valid(read(resolver.openInputStream(pending))))throw new IOException("OUTPUT_READBACK_FAILED");
