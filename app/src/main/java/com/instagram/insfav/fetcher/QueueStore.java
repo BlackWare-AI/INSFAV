@@ -7,7 +7,17 @@ import java.util.*;
 
 final class QueueStore extends SQLiteOpenHelper {
     long pointImageReads;
-    QueueStore(Context context) { super(context, "fetcher-queue.db", null, 5); setWriteAheadLoggingEnabled(true); }
+  private final boolean durableJournal;
+  QueueStore(Context context) { this(context, false); }
+  QueueStore(Context context, boolean durableJournal) {
+    super(context, "fetcher-queue.db", null, 5);
+    this.durableJournal = durableJournal;
+    setWriteAheadLoggingEnabled(true);
+  }
+  @Override public void onConfigure(SQLiteDatabase db) {
+    // An acknowledged index delta must not inherit a device's NORMAL WAL sync default.
+    if (durableJournal) db.execSQL("PRAGMA synchronous=FULL");
+  }
     @Override public void onCreate(SQLiteDatabase db) { db.execSQL("CREATE TABLE accounts (username TEXT PRIMARY KEY, position INTEGER NOT NULL, status TEXT NOT NULL, code TEXT NOT NULL DEFAULT '', eligible INTEGER NOT NULL DEFAULT 1, attempts INTEGER NOT NULL DEFAULT 0)"); db.execSQL("CREATE INDEX account_work_order ON accounts(status,position)");createCatalog(db); }
     @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
         if (oldVersion < 3) db.execSQL("ALTER TABLE accounts ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0");
