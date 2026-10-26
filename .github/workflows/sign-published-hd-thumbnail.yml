@@ -55,10 +55,10 @@ jobs:
             echo '::error::Release or tag already exists; refusing to overwrite.'
             exit 1
           fi
-          gh release create "$RELEASE_TAG" "artifacts/$APK_NAME" artifacts/apk.json artifacts/SHA256SUMS --draft --target "$PLUS_SOURCE_SHA" --title 'INSFAV 5.0.0 — HD thumbnail' --notes-file artifacts/notes.md
+          gh release create "$RELEASE_TAG" "artifacts/$APK_NAME" artifacts/apk.json artifacts/SHA256SUMS --draft --latest=false --target "$PLUS_SOURCE_SHA" --title 'INSFAV 5.0.0 — HD thumbnail' --notes-file artifacts/notes.md
           gh release download "$RELEASE_TAG" --dir candidate-check
           (cd candidate-check && sha256sum --check ../artifacts/SHA256SUMS)
-          gh release edit "$RELEASE_TAG" --draft=false --latest
+          gh release edit "$RELEASE_TAG" --draft=false --latest=false
       - name: Download and verify published signed APK
         run: |
           gh release download "$RELEASE_TAG" --dir downloaded
