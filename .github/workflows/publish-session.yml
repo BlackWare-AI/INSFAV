@@ -17,10 +17,10 @@ jobs:
     permissions:
       contents: write
     env:
-      INSFAV_KEYSTORE_BASE64: ${{ secrets.INSFAV_KEYSTORE_BASE64 }}
-      INSFAV_STORE_PASSWORD: ${{ secrets.INSFAV_STORE_PASSWORD }}
-      INSFAV_KEY_ALIAS: ${{ secrets.INSFAV_KEY_ALIAS }}
-      INSFAV_KEY_PASSWORD: ${{ secrets.INSFAV_KEY_PASSWORD }}
+      INSFAV_KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      INSFAV_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      INSFAV_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      INSFAV_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
@@ -37,8 +37,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for name in INSFAV_KEYSTORE_BASE64 INSFAV_STORE_PASSWORD INSFAV_KEY_ALIAS INSFAV_KEY_PASSWORD; do
-            if [[ -z "${!name}" ]]; then echo "Missing required existing signing secret: $name" >&2; exit 1; fi
+          for binding in KEYSTORE_BASE64:INSFAV_KEYSTORE_BASE64 KEYSTORE_PASSWORD:INSFAV_STORE_PASSWORD KEY_ALIAS:INSFAV_KEY_ALIAS KEY_PASSWORD:INSFAV_KEY_PASSWORD; do
+            secret_name=${binding%%:*}
+            input_variable=${binding#*:}
+            if [[ -z "${!input_variable}" ]]; then echo "Required repository signing secret is unavailable: $secret_name" >&2; exit 1; fi
           done
           umask 077
           printf '%s' "$INSFAV_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/session-release.jks"
