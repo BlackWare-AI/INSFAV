@@ -162,7 +162,7 @@ public final class MainActivity extends Activity {
                         case "fetcher-write-access": grantFetcherWrite();break;
                         case "fetcher-logs": export(Fetcher.diagnostics(),"INSFAV-fetcher-diagnostics.txt","text/plain");break;
                         case "view-remote": Fetcher.view(Store.normalize(input.getString("user")),input.getString("token"));break;
-                        case "view-closed": Fetcher.closeViewer();runOnUiThread(()->{if(web!=null)web.clearCache(true);});break;
+                        case "view-closed": Fetcher.closeViewer();break;
                         case "select-folder": selectFolder(); break;
                         case "rescan": if(Fetcher.running())throw new IOException("Pause the fetcher before rescanning.");
                             startScan(false);break;
