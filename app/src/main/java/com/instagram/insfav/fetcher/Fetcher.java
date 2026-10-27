@@ -20,15 +20,16 @@ public final class Fetcher {
  private static List<String> lastSynced;private static final AtomicLong lastPublished=new AtomicLong();
  private static Context context;private static Host host;private static final CopyOnWriteArraySet<Listener> listeners=new CopyOnWriteArraySet<>();
  private static final AtomicLong generation=new AtomicLong();private static volatile String viewerToken="";private static volatile byte[] fullBytes;private static volatile String fullMime="image/jpeg";private static CompletableFuture<byte[]> viewing;
- public static void initialize(Context c,Host h){context=c.getApplicationContext();host=h;lastSynced=null;ManualRun.reset(SessionState.prefs(context));WorkScheduler.cancel(context);context.getSystemService(android.app.NotificationManager.class).cancel(3);}
+ public static void initialize(Context c,Host h){context=c.getApplicationContext();host=h;lastSynced=null;ManualRun.reset(SessionState.prefs(context));WorkScheduler.cancel(context);if(!running())DownloadNotification.clear(context);}
  static Host host(){if(host==null)throw new IllegalStateException("FETCHER_NOT_READY");return host;}
  public static void addListener(Listener l){listeners.add(l);}public static void removeListener(Listener l){listeners.remove(l);}
  static void publish(){long now=System.nanoTime(),before=lastPublished.get();if(now-before<200000000L||!lastPublished.compareAndSet(before,now))return;for(Listener l:listeners)l.changed();}
  public static synchronized void sync()throws Exception{
+    if (bulkDisabled()) return;
   if(QueueControl.lock.get())throw new IOException("Pause the fetcher before changing collections or folder.");
   SharedPreferences s=SessionState.prefs(context);String tree=host().tree(),dir=host().directory();
   List<String> users=new ArrayList<>(host().users());if(!users.equals(lastSynced)){try(QueueStore q=new QueueStore(context)){q.sync(users);}lastSynced=users;}
-  if(!tree.equals(observerTree)){if(catalogObserver!=null)context.getContentResolver().unregisterContentObserver(catalogObserver);observerTree=tree;if(!tree.isEmpty()){catalogObserver=new android.database.ContentObserver(new android.os.Handler(android.os.Looper.getMainLooper())){@Override public void onChange(boolean self,Uri uri){CompletableFuture.runAsync(()->FetcherCatalog.observe(context,uri));}};context.getContentResolver().registerContentObserver(Uri.parse(tree),true,catalogObserver);}}
+  if(!tree.equals(observerTree)){if(catalogObserver!=null)context.getContentResolver().unregisterContentObserver(catalogObserver);observerTree=tree;if(!tree.isEmpty()){catalogObserver=new android.database.ContentObserver(new android.os.Handler(android.os.Looper.getMainLooper())){@Override public void onChange(boolean self,Uri uri){CompletableFuture.runAsync(()->{if(!bulkDisabled())FetcherCatalog.observe(context,uri);});}};context.getContentResolver().registerContentObserver(Uri.parse(tree),true,catalogObserver);}}
   try(QueueStore q=new QueueStore(context)){FetcherCatalog.seed(q);}
   if(!tree.equals(s.getString("tree",""))||!dir.equals(s.getString("directoryId","")))s.edit().putString("tree",tree).putString("directoryId",dir).putLong("datasetGeneration",s.getLong("datasetGeneration",0)+1).putBoolean("armed",false).putBoolean("userPaused",true).commit();
  }
@@ -48,8 +49,22 @@ public final class Fetcher {
   SessionState.prefs(context).edit().putInt("minimum",min).putInt("maximum",max).putInt("startMinute",RunPolicy.minute(start)).putInt("endMinute",RunPolicy.minute(end)).putBoolean("background",background).putInt("concurrentWebViews",concurrent).putLong("nextRequestAt",Math.max(SessionState.prefs(context).getLong("nextRequestAt",0),System.currentTimeMillis()+min*1000L)).commit();
   WorkScheduler.cancel(context);WorkScheduler.recovery(context);WorkScheduler.plan(context,false);publish();
  }
+
+ public static boolean bulkDisabled() { return BulkControl.disabled(context); }
+ public static synchronized void setBulkDisabled(boolean disabled) {
+  SessionState.prefs(context).edit().putBoolean("bulkDisabled",disabled).putBoolean("armed",false).putBoolean("userPaused",true).commit();
+  QueueControl.pause(context,true);
+  if (disabled) {
+   if (catalogObserver != null) { context.getContentResolver().unregisterContentObserver(catalogObserver); catalogObserver=null; }
+   observerTree=""; lastSynced=null;
+   context.stopService(new Intent(context,FetchService.class));
+  }
+  SessionState.prefs(context).edit().putString("state",disabled?"Thumbnail Fetcher disabled":"Stopped").commit();
+  DownloadNotification.clear(context); publish();
+ }
  public static void action(String action)throws Exception{
   if(action.equals("pause")||action.equals("stop")){QueueControl.pause(context,action.equals("stop"));return;}
+  BulkControl.requireEnabled(context);
   if(!action.equals("missing")&&!action.equals("resume")&&!action.equals("retry_skipped")&&!action.equals("verify_index"))throw new IOException("Unknown fetcher action");
   if(running())return;if(!action.equals("verify_index"))InstagramSession.requireReady(context);sync();if(!action.equals("verify_index")&&!InstagramSession.configured(context))throw new IOException("Sign in through Instagram Login or select and save Manual Cookies first.");
   if(host().tree().isEmpty())throw new IOException("Select the thumbnail folder in Profile Images first.");
@@ -65,9 +80,9 @@ public final class Fetcher {
   int pending=counts.getOrDefault("PENDING",0),retry=counts.getOrDefault("RETRY_LATER",0),failed=counts.getOrDefault("FAILED",0),success=counts.getOrDefault("SUCCESS",0),existing=counts.getOrDefault("EXISTING",0),skipped=counts.getOrDefault("SKIPPED_UNAVAILABLE",0)+counts.getOrDefault("SKIPPED_NO_IMAGE",0);
   FetchBroker broker=FetchBroker.get(context);
   out.put("process",FetchProgress.snapshot(p,running(),QueueControl.activeAccounts,broker.tasks.size(),broker.authenticating!=null,broker.nextDispatchAt(),System.currentTimeMillis()));
-  RunPolicy r=RunPolicy.read(p);long started=p.getLong("startedAt",0),elapsed=p.getLong("elapsedSeconds",0)+(running()&&started>0?Math.max(0,(System.currentTimeMillis()-started)/1000):0);return out.put("total",total).put("success",success).put("existing",existing).put("failed",failed).put("skipped",skipped).put("retry",retry).put("pending",pending).put("processed",total-pending-retry).put("current",QueueControl.current).put("etaSeconds",QueueControl.etaSeconds).put("state",p.getString("state","Idle")).put("scheduleStatus",ScheduleStatus.text(p,running(),QueueControl.activeAccounts)).put("running",running()).put("retryAt",p.getLong("retryAt",0)).put("blockedHttp",p.getInt("blockedHttp",0)).put("automaticResume",WorkScheduler.enabled(p)).put("resolution",resolution(-1)).put("cookiesSaved", InstagramSession.configured(context)).put("manualCookiesSaved", new CookieVault(context).configured()).put("manualSession", InstagramSession.manual(context)).put("instagramSession", InstagramSession.status(context)).put("writable",writable()).put("minimum",r.minimum).put("maximum",r.maximum).put("start",RunPolicy.time(r.start)).put("end",RunPolicy.time(r.end)).put("background",p.getBoolean("background",false)).put("elapsedSeconds",elapsed).put("blocked",p.getString("blocked","")).put("imageRevision",host().revision()).put("requestedViews",p.getInt("concurrentWebViews",1)).put("effectiveViews",running()?QueueControl.effectiveViews:ConcurrencyPolicy.initial(context,p.getInt("concurrentWebViews",1))).put("activeViews",QueueControl.activeViews).put("activeAccounts",QueueControl.activeAccounts).put("peakAccounts",QueueControl.peakAccounts).put("completedPerMinute",QueueControl.completedPerMinute).put("memoryPssKiB",android.os.Debug.getPss()).put("folder",host().tree().isEmpty()?"Not selected":"Current INSFAV thumbnail folder");
+  RunPolicy r=RunPolicy.read(p);long started=p.getLong("startedAt",0),elapsed=p.getLong("elapsedSeconds",0)+(running()&&started>0?Math.max(0,(System.currentTimeMillis()-started)/1000):0);return out.put("total",total).put("success",success).put("existing",existing).put("failed",failed).put("skipped",skipped).put("retry",retry).put("pending",pending).put("processed",total-pending-retry).put("current",QueueControl.current).put("etaSeconds",QueueControl.etaSeconds).put("state",p.getString("state","Idle")).put("scheduleStatus",ScheduleStatus.text(p,running(),QueueControl.activeAccounts)).put("running",running()).put("retryAt",p.getLong("retryAt",0)).put("blockedHttp",p.getInt("blockedHttp",0)).put("automaticResume",WorkScheduler.enabled(p)).put("resolution",resolution(-1)).put("cookiesSaved", InstagramSession.configured(context)).put("manualCookiesSaved", new CookieVault(context).configured()).put("bulkDisabled",bulkDisabled()).put("manualSession", InstagramSession.manual(context)).put("instagramSession", InstagramSession.status(context)).put("writable",writable()).put("minimum",r.minimum).put("maximum",r.maximum).put("start",RunPolicy.time(r.start)).put("end",RunPolicy.time(r.end)).put("background",p.getBoolean("background",false)).put("elapsedSeconds",elapsed).put("blocked",p.getString("blocked","")).put("imageRevision",host().revision()).put("requestedViews",p.getInt("concurrentWebViews",1)).put("effectiveViews",running()?QueueControl.effectiveViews:ConcurrencyPolicy.initial(context,p.getInt("concurrentWebViews",1))).put("activeViews",QueueControl.activeViews).put("activeAccounts",QueueControl.activeAccounts).put("peakAccounts",QueueControl.peakAccounts).put("completedPerMinute",QueueControl.completedPerMinute).put("memoryPssKiB",android.os.Debug.getPss()).put("folder",host().tree().isEmpty()?"Not selected":"Current INSFAV thumbnail folder");
  }
- public static JSONObject resolution(int offset)throws Exception {try(QueueStore q=new QueueStore(context)){if(!running())FetcherCatalog.seed(q);return FetcherCatalog.resolution(q,offset);}}
+ public static JSONObject resolution(int offset)throws Exception {try(QueueStore q=new QueueStore(context)){if(!running()&&!bulkDisabled())FetcherCatalog.seed(q);return FetcherCatalog.resolution(q,offset);}}
  public static String exportSettings(char[] password,JSONObject extra)throws Exception{return SettingsArchive.export(context,password,extra);}
  public static JSONObject inspectSettings(String data,char[] password)throws Exception{return SettingsArchive.inspect(context,data,password);}
  public static void restoreSettings(JSONObject data)throws Exception{

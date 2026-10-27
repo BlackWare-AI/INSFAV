@@ -13,6 +13,7 @@ public final class FetchService extends Service {
     private volatile boolean owns;
     @Override public void onCreate() { super.onCreate(); DownloadNotification.channel(this); }
     @Override public int onStartCommand(Intent intent, int flags, int id) {
+        if (BulkControl.disabled(this)) { stopSelf(id); return START_NOT_STICKY; }
         if (intent == null || !ManualRun.accepts(intent.getStringExtra("manualRun"))) {if(!owns&&!QueueControl.lock.get()){ManualRun.finish(SessionState.prefs(this));WorkScheduler.cancel(this);}stopSelf(id);return START_NOT_STICKY;}
         String action = intent == null ? "resume" : intent.getAction();
         if ("pause".equals(action) || "stop".equals(action)) { QueueControl.pause(this, "stop".equals(action)); if (!owns) stopSelf(id); return START_NOT_STICKY; }
