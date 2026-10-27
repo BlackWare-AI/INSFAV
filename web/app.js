@@ -283,6 +283,7 @@ function closeFetcher(){clearInterval(fetcherPoll);fetcherPoll=0;$('cookie-text'
 function updateFetcher(){
  const f=fetcherState;if($('fetcher-screen').hidden)return;
  $('fetcher-disabled').checked=!!f.bulkDisabled;
+ if(document.activeElement!==$('instagram-engine'))$('instagram-engine').value=f.browserEngine||'native';
  changedText($('instagram-session-state'),f.instagramSession||'Persistent WebView Session · Not verified');
  changedText($('cookie-state'),f.manualCookiesSaved?'Cookies saved · session checked during retrieval':'Not configured');
  changedText($('fetcher-state'),(f.scheduleStatus||'')+' · '+(f.state||'Idle')+(f.blocked==='RATE_LIMITED'?' · '+(f.blockedHttp===429?'HTTP 429':'Instagram restriction')+(f.retryAt?' · Cooldown until '+new Date(f.retryAt).toLocaleTimeString():'')+(f.automaticResume?' · Automatic resume scheduled':' · Manual resume'):''));changedText($('fetcher-folder'),(f.folder||'Not selected')+(f.writable?' · Write access granted':' · Read only'));$('fetcher-write').hidden=!!f.writable;
@@ -304,6 +305,7 @@ function updateFetcher(){
 $('fetcher-menu').onclick=openFetcher;$('fetcher-back').onclick=closeFetcher;
 for(const input of $('fetcher-screen').querySelectorAll('input'))input.addEventListener('input',()=>input.dataset.edited='true');
 $('instagram-webview').onclick=()=>request('instagram-session-method',{manual:false});
+$('instagram-engine').onchange=()=>request('instagram-session-method',{engine:$('instagram-engine').value});
 $('instagram-manual').onclick=()=>request('instagram-session-method',{manual:true});
 $('instagram-login').onclick=()=>request('instagram-session-open');
 $('fetcher-disabled').onchange=()=>request('fetcher-disabled',{disabled:$('fetcher-disabled').checked});
