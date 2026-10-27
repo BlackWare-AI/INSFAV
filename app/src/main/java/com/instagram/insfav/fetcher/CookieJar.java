@@ -20,12 +20,20 @@ final class CookieJar {
     CookieJar(List<Entry> entries) { this.entries = Collections.unmodifiableList(new ArrayList<>(entries)); }
     static CookieJar parse(String input, long now) throws ProfileProvider.Failure {
         if (input == null || input.length() == 0 || input.length() > MAX_INPUT) throw new ProfileProvider.Failure("COOKIE_INVALID");
-        List<Entry> values = new ArrayList<>(); boolean netscape = input.contains("\t"); boolean expiredSession = false;
+        if (input.startsWith("\uFEFF")) input = input.substring(1);
+        List<Entry> values = new ArrayList<>(); boolean netscape = input.contains("\t") || input.trim().startsWith("# Netscape")
+            || java.util.regex.Pattern.compile("(?m)^\\s*(?:#HttpOnly_)?\\.?(?:www\\.)?instagram\\.com[ \\t]+(?:TRUE|FALSE)[ \\t]+/", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(input).find();
+        boolean expiredSession = false;
         if (netscape) {
             for (String original : input.split("\\r?\\n")) {
-                String line = original; if (line.startsWith("#HttpOnly_")) line = line.substring(10);
+                String line = original.replaceFirst("^[ \t]+", ""); if (line.startsWith("#HttpOnly_")) line = line.substring(10);
                 else if (line.startsWith("#") || line.trim().isEmpty()) continue;
-                String[] fields = line.split("\t", -1); if (fields.length != 7) throw new ProfileProvider.Failure("COOKIE_INVALID");
+                String first = line.split("[ \\t]+", 2)[0].toLowerCase(Locale.ROOT).replaceFirst("^\\.", "");
+                if (!first.equals("instagram.com") && !first.equals("www.instagram.com")) continue;
+                String[] fields = line.contains("\t") ? line.split("\t", -1) : line.split(" +", 7);
+                if (fields.length != 7) throw new ProfileProvider.Failure("COOKIE_INVALID");
+                for (int i = 0; i < fields.length; i++) fields[i] = fields[i].trim();
+                fields[1] = fields[1].toUpperCase(Locale.ROOT); fields[3] = fields[3].toUpperCase(Locale.ROOT);
                 String domain = fields[0].toLowerCase(Locale.ROOT).replaceFirst("^\\.", "");
                 if (!domain.equals("instagram.com") && !domain.equals("www.instagram.com")) continue;
                 if (!(fields[1].equals("TRUE") || fields[1].equals("FALSE")) || !(fields[3].equals("TRUE") || fields[3].equals("FALSE"))) throw new ProfileProvider.Failure("COOKIE_INVALID");
