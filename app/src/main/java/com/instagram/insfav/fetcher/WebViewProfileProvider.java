@@ -15,7 +15,7 @@ import java.util.concurrent.*;
 
 /** Bounded reusable pages, one shared cookie lease; browser operations run on the main looper. */
 final class WebViewProfileProvider implements ProfileProvider {
-    interface Pages { void load(WebView view, String url); }
+    interface Pages { void load(WebView view, String url); default void loadHd(WebView view,String url){load(view,url);} }
     interface Resources { WebResourceResponse intercept(String url); }
     private final Pages pages;
     private final Resources resources;
@@ -51,7 +51,7 @@ final class WebViewProfileProvider implements ProfileProvider {
 
     private volatile boolean cancelled;
     private final java.util.concurrent.atomic.AtomicBoolean closing=new java.util.concurrent.atomic.AtomicBoolean();
-    WebViewProfileProvider(Context context, CookieJar cookies) throws Failure { this(context, cookies, (view, url) -> view.loadUrl(url), url -> null);
+    WebViewProfileProvider(Context context, CookieJar cookies) throws Failure { this(context, cookies, new Pages(){public void load(WebView view,String url){view.loadUrl(url);}public void loadHd(WebView view,String url){view.loadUrl(url,java.util.Collections.singletonMap("Cache-Control","no-cache"));}}, url -> null);
         isolatedManual = cookies != null; }
     WebViewProfileProvider(Context context, CookieJar cookies, Pages pages, Resources resources) throws Failure {
         this(context,cookies,pages,resources,() -> new PublicProfileProvider(new File(context.getCacheDir(), "profile-downloads"), null));
@@ -89,7 +89,7 @@ final class WebViewProfileProvider implements ProfileProvider {
                 if (cancelled || barrier != null) throw new Failure("REQUEST_CANCELLED");
                 transfers.add(transfer); userTransfers.put(user,transfer);
                 if (cancelled || barrier != null) { transfer.cancel(); throw new Failure("REQUEST_CANCELLED"); }
-                transfer.userAgent = browserAgent; return transfer.download(image);
+                transfer.userAgent = browserAgent; return highResolution ? HdImageCache.fetch(context,user,image,transfer) : transfer.download(image);
             } finally { transfers.remove(transfer); userTransfers.remove(user,transfer); imageTransfers.release(); }
         } catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new Failure("REQUEST_CANCELLED"); }
         catch (Failure error) { if (FailurePolicy.pause(error)) trip(error); throw error; }
@@ -203,6 +203,8 @@ final class WebViewProfileProvider implements ProfileProvider {
     final class Operation {
         final String user, expectedId;
         final boolean highResolution;
+        final JSONObject cachedHd;
+        final HdImageCache.Entry cachedImage;
         final CountDownLatch done = new CountDownLatch(1);
         final Object token = new Object();
         volatile Failure failure; volatile JSONObject result;
@@ -214,7 +216,11 @@ final class WebViewProfileProvider implements ProfileProvider {
         boolean pageFinished, candidateFound; int http;
         String sessionEvidence = "UNKNOWN";
         Diagnostics.Reason reason = Diagnostics.Reason.UNKNOWN_RESPONSE;
-        Operation(String user, String expectedId, boolean highResolution) { this.user = user; this.expectedId = expectedId; this.highResolution = highResolution; sessionEvidence = verifiedSession ? "VERIFIED" : "UNKNOWN"; }
+        Operation(String user, String expectedId, boolean highResolution) { this.user = user; this.expectedId = expectedId; this.highResolution = highResolution;this.cachedImage=highResolution?HdImageCache.load(context,user):null;this.cachedHd=cachedImage==null?new JSONObject():cachedImage.meta; sessionEvidence = verifiedSession ? "VERIFIED" : "UNKNOWN"; }
+    WebResourceResponse resourceResponse(String url) {
+        WebResourceResponse cached=HdImageCache.resource(cachedImage,user,url);
+        return cached!=null?cached:resources.intercept(url);
+    }
         void later(Runnable action, long delay) { main.postAtTime(action, token, SystemClock.uptimeMillis() + delay); }
         void armWatchdog() {
             if (!timingStarted) { timingStarted = true; later(() -> fail(new Failure("WEBVIEW_TIMEOUT")), user.isEmpty() ? 18000 : 55000); }
@@ -256,7 +262,7 @@ final class WebViewProfileProvider implements ProfileProvider {
                 ServiceWorkerController.getInstance().setServiceWorkerClient(new ServiceWorkerClient() {
                     @Override public WebResourceResponse shouldInterceptRequest(WebResourceRequest request) {
                         String url = request.getUrl().toString();
-                        return WebProfilePolicy.resource(url) ? resources.intercept(url)
+                        return WebProfilePolicy.resource(url) ? resourceResponse(url)
                             : new WebResourceResponse("text/plain", "UTF-8", new ByteArrayInputStream(new byte[0]));
                     }
                 });
@@ -274,7 +280,7 @@ final class WebViewProfileProvider implements ProfileProvider {
                 CookieManager manager = sessionManager;
                 manager.setAcceptCookie(true); manager.setAcceptThirdPartyCookies(view, false);
                 started = true; deadline = SystemClock.uptimeMillis() + (user.isEmpty() ? 10000 : 45000);
-                pages.load(view, "https://www.instagram.com/" + (user.isEmpty() ? "" : user + "/"));
+                if(highResolution)pages.loadHd(view,"https://www.instagram.com/"+user+"/");else pages.load(view,"https://www.instagram.com/"+(user.isEmpty()?"":user+"/"));
                 later(this::poll, 500);
             } catch (OutOfMemoryError error) { fail(new Failure("IMAGE_MEMORY_LIMIT", 0, 0, true)); }
             catch (RuntimeException | LinkageError error) { fail(new Failure("WEBVIEW_UNAVAILABLE", 0, 0, true)); }
@@ -304,7 +310,7 @@ final class WebViewProfileProvider implements ProfileProvider {
                     main.post(() -> fail(new Failure("ACCESS_RESOURCE_LIMIT", 0, 0, true)));
                     return new WebResourceResponse("text/plain", "UTF-8", new ByteArrayInputStream(new byte[0]));
                 }
-                return WebProfilePolicy.resource(request.getUrl().toString()) ? resources.intercept(request.getUrl().toString()) : new WebResourceResponse("text/plain", "UTF-8", 403, "Blocked", Collections.emptyMap(), new ByteArrayInputStream(new byte[0]));
+                return WebProfilePolicy.resource(request.getUrl().toString()) ? resourceResponse(request.getUrl().toString()) : new WebResourceResponse("text/plain", "UTF-8", 403, "Blocked", Collections.emptyMap(), new ByteArrayInputStream(new byte[0]));
             }
             @Override public void onReceivedHttpError(WebView v, WebResourceRequest request, WebResourceResponse response) {
                 String host = request.getUrl().getHost();
@@ -348,7 +354,7 @@ final class WebViewProfileProvider implements ProfileProvider {
                 if (url == null || url.equals("about:blank")) { later(this::poll, 500); return; }
                 String code = WebProfilePolicy.navigation(url, user);
                 if (!code.isEmpty()) { fail(new Failure(code, 0, 0, true)); return; }
-                view.evaluateJavascript("(" + (highResolution ? hdProbe : probe) + ")(" + JSONObject.quote(user) + "," + JSONObject.quote(expectedId) + "," + highResolution + ")", encoded -> {
+                view.evaluateJavascript("(" + (highResolution ? hdProbe : probe) + ")(" + JSONObject.quote(user) + "," + JSONObject.quote(expectedId) + "," + (highResolution?cachedHd.toString():"false") + ")", encoded -> {
                     if (finishing) return;
                     try {
                         JSONObject data = WebProfilePolicy.snapshot(encoded);
