@@ -34,7 +34,9 @@ final class FetchBroker {
   long gate=Math.max(prefs.getLong("nextRequestAt",0),prefs.getLong("retryAt",0));
   return earliest==Long.MAX_VALUE?0:Math.max(gate,earliest);
  }
- CompletableFuture<byte[]> submit(String user,boolean full){Request r=new Request(user,full,sequence.incrementAndGet());tasks.add(r);QueueControl.queuedAccounts=tasks.size();return r.result;}
+ CompletableFuture<byte[]> submit(String user,boolean full){Request r=new Request(user,full,sequence.incrementAndGet());
+    if (!full && BulkControl.disabled(context)) { r.result.completeExceptionally(new ProfileProvider.Failure("FETCHER_DISABLED")); return r.result; }
+tasks.add(r);QueueControl.queuedAccounts=tasks.size();return r.result;}
  void cancelBulk(){cancel(false);}void cancelViewer(){cancel(true);}void cancelAll(){cancel(false);cancel(true);}
  private void cancel(boolean full){Request auth=authenticating;if(auth!=null&&auth.full==full){poisoned=true;cancel(auth,false);ProfileProvider p=provider;if(p!=null)p.cancel();}for(Request r:tasks)if(r.full==full){tasks.remove(r);r.result.cancel(false);}for(Request r:active)if(r.full==full)cancel(r,false);}
  private void cancel(Request r,boolean timeout){if(timeout)r.result.completeExceptionally(new ProfileProvider.Failure("PROFILE_OPERATION_TIMEOUT"));else r.result.cancel(false);ProfileProvider p=provider;if(p!=null)p.cancel(r.user);Thread thread=r.thread;if(thread!=null)thread.interrupt();}
@@ -63,6 +65,7 @@ final class FetchBroker {
   if(provider!=null&&active.isEmpty()&&(poisoned||provider.blockingFailure()!=null||!sessionGeneration.equals(prefs.getString("cookieGeneration","")))){ProfileProvider p=provider;provider=null;p.close();authenticationRequired=true;}
   QueueControl.queuedAccounts=tasks.size();Request r=tasks.peek();if(r==null||active.size()>=limit){Thread.sleep(20);continue;}
   if(r.result.isCancelled()){tasks.remove(r);continue;}
+  if(!r.full&&BulkControl.disabled(context)){tasks.remove(r);r.result.completeExceptionally(new ProfileProvider.Failure("FETCHER_DISABLED"));continue;}
   String blocked=prefs.getString("blocked","");if(!blocked.isEmpty()&&(!r.full||InstagramSession.security(blocked)||(blocked.equals("RATE_LIMITED")&&(prefs.getLong("retryAt",0)<=0||time.now()<prefs.getLong("retryAt",0))))){tasks.remove(r);r.result.completeExceptionally(new ProfileProvider.Failure(blocked,0,prefs.getLong("retryAt",0),true));continue;}
   if(!r.full&&!RunPolicy.read(prefs).contains(java.time.Instant.ofEpochMilli(time.now()).atZone(java.time.ZoneId.systemDefault()))){tasks.remove(r);r.result.completeExceptionally(new ProfileProvider.Failure("OUTSIDE_WORKING_HOURS"));continue;}
   long now=time.now(),gate=r.full?prefs.getLong("retryAt",0):Math.max(prefs.getLong("nextRequestAt",0),prefs.getLong("retryAt",0));if(now<gate){time.sleep(Math.min(50,gate-now));continue;}
@@ -78,7 +81,7 @@ final class FetchBroker {
   workers.execute(()->execute(r));
  }catch(InterruptedException ignored){}catch(OutOfMemoryError e){block(new ProfileProvider.Failure("IMAGE_MEMORY_LIMIT",0,0,true));}catch(RuntimeException e){block(new ProfileProvider.Failure("PROCESSING_ERROR",0,0,true));}}
  private void execute(Request r){r.thread=Thread.currentThread();byte[] bytes=null;try{
-  if(r.result.isCancelled())return;if(!r.full&&!RunPolicy.read(prefs).contains(java.time.Instant.ofEpochMilli(time.now()).atZone(java.time.ZoneId.systemDefault())))throw new ProfileProvider.Failure("OUTSIDE_WORKING_HOURS");ProfileProvider p=provider;bytes=p.fetch(r.user,r.full);if(!r.result.complete(bytes))Arrays.fill(bytes,(byte)0);
+  if(r.result.isCancelled())return;if(!r.full&&!RunPolicy.read(prefs).contains(java.time.Instant.ofEpochMilli(time.now()).atZone(java.time.ZoneId.systemDefault())))throw new ProfileProvider.Failure("OUTSIDE_WORKING_HOURS");ProfileProvider p=provider;if(!r.full&&BulkControl.disabled(context))throw new ProfileProvider.Failure("FETCHER_DISABLED");bytes=p.fetch(r.user,r.full);if(!r.result.complete(bytes))Arrays.fill(bytes,(byte)0);
  }catch(ProfileProvider.Failure e){if(FailurePolicy.pause(e))block(e);r.result.completeExceptionally(e);if(e.code.equals("WEBVIEW_RENDERER_GONE"))QueueControl.memoryPressure=true;}
  catch(OutOfMemoryError e){ProfileProvider.Failure memory=new ProfileProvider.Failure("IMAGE_MEMORY_LIMIT",0,0,true);block(memory);r.result.completeExceptionally(memory);}
  catch(RuntimeException e){r.result.completeExceptionally(new ProfileProvider.Failure("PROFILE_PROCESSING_ERROR"));}

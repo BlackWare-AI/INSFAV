@@ -13,9 +13,11 @@ final class QueueEngine {
  private long lastSignal;private String lastState="";volatile boolean cancelled;volatile String cancelledState="Interrupted; queue preserved";
  QueueEngine(Context c,Reporter r,BooleanSupplier stop){context=c;settings=SessionState.prefs(c);reporter=r;stopped=stop;}
  void cancel(){cancelled=true;FetchBroker.get(context).cancelBulk();}void cancel(String text){cancelledState=text;cancel();}
- boolean interrupted(){return cancelled||stopped.getAsBoolean()||QueueControl.requested||Thread.currentThread().isInterrupted();}
- void state(String value){long now=android.os.SystemClock.elapsedRealtime();if(value.equals(lastState)&&now-lastSignal<250)return;lastState=value;lastSignal=now;QueueControl.phase=value;settings.edit().putString("state",value).apply();reporter.update(value);Fetcher.publish();}
+ boolean interrupted(){return BulkControl.disabled(context) || cancelled||stopped.getAsBoolean()||QueueControl.requested||Thread.currentThread().isInterrupted();}
+ void state(String value){
+    if (BulkControl.disabled(context)) value = "Thumbnail Fetcher disabled";long now=android.os.SystemClock.elapsedRealtime();if(value.equals(lastState)&&now-lastSignal<250)return;lastState=value;lastSignal=now;QueueControl.phase=value;settings.edit().putString("state",value).apply();reporter.update(value);Fetcher.publish();}
  void run(String action,boolean bounded){
+    if (BulkControl.disabled(context)) return;
   long started=System.currentTimeMillis(),generation=settings.getLong("datasetGeneration",0);int finished=0,cached=0;FetchBroker broker=FetchBroker.get(context);Map<String,CompletableFuture<byte[]>> flights=new LinkedHashMap<>();boolean hoursEnded=false;
   QueueControl.completedPerMinute=0;QueueControl.runProcessed=0;QueueControl.lastResult="";QueueControl.etaSeconds=-1;
   settings.edit().putLong("startedAt",started).apply();broker.beginBatch();
