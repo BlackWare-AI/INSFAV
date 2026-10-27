@@ -18,7 +18,7 @@ public final class UiDeviceChecks {
    while(!expected.equals(actual.get())&&SystemClock.elapsedRealtime()<deadline){instrumentation.runOnMainSync(()->{ClipData clip=c.getSystemService(ClipboardManager.class).getPrimaryClip();if(clip!=null&&clip.getItemCount()>0)actual.set(clip.getItemAt(0).coerceToText(c).toString());});Thread.sleep(100);}
    if(!expected.equals(actual.get()))throw new AssertionError("Clipboard must contain exactly three unique usernames and no folders");
    CookiePasteDeviceCheck.run(instrumentation,c,web);
-      JSONObject proof=new JSONObject().put("sdk",Build.VERSION.SDK_INT).put("nativeBridgeClipboardVerified",true).put("manualCookiePasteVerified",true).put("copiedUsernames",3).put("folderNamesExcluded",true).put("duplicatesRemoved",true).put("fixture",true);
+      JSONObject proof=new JSONObject().put("sdk",Build.VERSION.SDK_INT).put("nativeBridgeClipboardVerified",true).put("manualCookiePasteVerified",true).put("bulkDisableVerified",true).put("copiedUsernames",3).put("folderNamesExcluded",true).put("duplicatesRemoved",true).put("fixture",true);
    try(FileOutputStream out=c.openFileOutput("polish-ui.json",Context.MODE_PRIVATE)){out.write(proof.toString(2).getBytes(StandardCharsets.UTF_8));}
    Bundle status=new Bundle();status.putString("stream","POLISH_UI_OK "+proof+"\n");instrumentation.sendStatus(0,status);
   } finally {

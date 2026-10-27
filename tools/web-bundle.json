@@ -12,10 +12,10 @@
     "bundleSha256": "fcd8b493f15898d8c792c7ad1a5162e232fc6251ef23494c6276c06282a1cb22"
   },
   "app.js": {
-    "sourceBytes": 51967,
-    "bundleBytes": 44443,
-    "sourceSha256": "543ed534e1a43d65dec564e16246616a48d78c7cecdf8272734758d1ae1a0ea7",
-    "bundleSha256": "1ea0bf8294c431364e78a6a13d86d9cdd1d2ba8de527d88454d1324464f9d534",
+    "sourceBytes": 52130,
+    "bundleBytes": 44604,
+    "sourceSha256": "32d79622d3678a76fc637250eb7c7d474f7b7f1929f7d49daf293c0812d47324",
+    "bundleSha256": "50202963565034847d11b9b23a1edec7e77c7d096024f4aafe27c4bf5e2d6c58",
     "includedSources": {
       "avatar-loader.js": {
         "sourceSha256": "07280dd8ccd4f7ad98cc5da80c7c6ff271c03e9543946382424d5a10a2462e43"
