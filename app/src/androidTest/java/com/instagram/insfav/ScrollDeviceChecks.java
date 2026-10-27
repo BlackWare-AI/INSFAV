@@ -43,7 +43,7 @@ public final class ScrollDeviceChecks {
                 require(layout.getBoolean("noTextOverlap")&&!layout.getBoolean("horizontalOverflow"),"Large font title overflows");
                 require(layout.getDouble("rowHeight")==68&&layout.getDouble("avatarSize")==67.5&&layout.getString("avatarRadius").equals("14px")&&layout.getString("folderRadius").equals("26px"),"List geometry changed");
                 tap(test,web,point(test,web,"scroll-end"));await(test,web,"Math.abs(scrollY-(document.scrollingElement.scrollHeight-document.documentElement.clientHeight))<=1");
-                require("true".equals(js(test,web,"document.querySelector('.card-user:last-child')!==null && [...document.querySelectorAll('.card-user')].at(-1).textContent==='@scroll_b1999'")),"End did not include both open folders");
+                await(test,web,"document.querySelector('.card-user:last-child')!==null && [...document.querySelectorAll('.card-user')].at(-1).textContent==='@scroll_b1999'");
                 tap(test,web,point(test,web,"scroll-start"));await(test,web,"Math.abs(scrollY)<=1");
                 js(test,web,"window.thumbEarlyArmed=null;document.addEventListener('pointerdown',()=>setTimeout(()=>window.thumbEarlyArmed=document.getElementById('scroll-thumb').classList.contains('armed'),50),{once:true,capture:true});true");
                 float[] p=point(test,web,"scroll-grip");long down=SystemClock.uptimeMillis();touch(test,down,MotionEvent.ACTION_DOWN,p[0],p[1]);
