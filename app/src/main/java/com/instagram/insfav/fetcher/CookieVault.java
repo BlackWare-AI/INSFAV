@@ -24,12 +24,20 @@ final class CookieVault {
         }
         return (SecretKey)store.getKey(ALIAS, null);
     }); }
-    CookieVault(Context context, Keys keys) { file = new AtomicFile(new File(context.getFilesDir(), "fetcher-cookies.enc")); this.keys = keys; }
+    CookieVault(Context context, Keys keys) { this(context, keys, "fetcher-cookies.enc"); }
+    CookieVault(Context context, Keys keys, String name) { file = new AtomicFile(new File(context.getFilesDir(), name)); this.keys = keys; }
+    static CookieVault browser(Context c) {
+        CookieVault original = new CookieVault(c);
+        return new CookieVault(c, original.keys, "instagram-webview-cookies.enc");
+    }
+    private SecretKey key() throws GeneralSecurityException, IOException {
+        synchronized(CookieVault.class) { return keys.get(); }
+    }
     synchronized boolean configured() { return file.getBaseFile().isFile(); }
     synchronized void save(CookieJar jar) throws Exception {
         byte[] plain = jar.encode().getBytes(StandardCharsets.UTF_8); FileOutputStream output = null;
         try {
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.ENCRYPT_MODE, keys.get()); cipher.updateAAD("INSFAV_COOKIE_V1".getBytes(StandardCharsets.US_ASCII));
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.ENCRYPT_MODE, key()); cipher.updateAAD("INSFAV_COOKIE_V1".getBytes(StandardCharsets.US_ASCII));
             byte[] iv = cipher.getIV(), encrypted = cipher.doFinal(plain);
             output = file.startWrite(); output.write(1); output.write(iv.length); output.write(iv); output.write(encrypted); file.finishWrite(output); output = null;
         } finally { Arrays.fill(plain, (byte)0); if (output != null) file.failWrite(output); }
@@ -38,7 +46,7 @@ final class CookieVault {
         byte[] plain=null;
         try {
             byte[] bytes=file.readFully();if(bytes.length<30||bytes.length>131072||bytes[0]!=1||bytes[1]!=12)throw new GeneralSecurityException();
-            Cipher cipher=Cipher.getInstance("AES/GCM/NoPadding");cipher.init(Cipher.DECRYPT_MODE,keys.get(),new GCMParameterSpec(128,Arrays.copyOfRange(bytes,2,14)));cipher.updateAAD("INSFAV_COOKIE_V1".getBytes(StandardCharsets.US_ASCII));
+            Cipher cipher=Cipher.getInstance("AES/GCM/NoPadding");cipher.init(Cipher.DECRYPT_MODE,key(),new GCMParameterSpec(128,Arrays.copyOfRange(bytes,2,14)));cipher.updateAAD("INSFAV_COOKIE_V1".getBytes(StandardCharsets.US_ASCII));
             plain=cipher.doFinal(bytes,14,bytes.length-14);String value=new String(plain,StandardCharsets.UTF_8);CookieJar.decode(value);return value;
         }finally{if(plain!=null)Arrays.fill(plain,(byte)0);}
     }
