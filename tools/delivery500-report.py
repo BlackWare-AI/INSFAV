@@ -16,14 +16,15 @@ rows = json.loads((proof / "pool-matrix.json").read_text())
 assert all(r["sdk"] == 34 and r["errors"] == 0 for r in rows)
 assert any(r["requested"] == 5 and r["intervalOverlap"] and r["maxActiveWebViews"] >= 2 for r in rows)
 background = json.loads((proof / "background-fixture.json").read_text())
-active_only_notifications = "downloaded" in background
-if active_only_notifications:
+if "downloaded" in background:
     assert background["validFiles"] == background["downloaded"] == background["queueProcessed"] == background["completed"] == 8
-    assert background["activeDownloadNotificationVerified"] is True
     if "notificationDownloaded" in background:
         assert background["notificationDownloaded"] == background["downloaded"]
 else:
     assert background["validFiles"] == background["notificationDownloaded"] == background["completed"] == 8
+    if "notificationProgress" in background:
+        assert background["notificationProgress"] == background["completed"]
+assert background["activeDownloadNotificationVerified"] is True
 assert background["completionNotificationRemoved"]
 assert background["screenWasOff"] and background["screenOffAfter"] > background["screenOffBefore"]
 rescan = json.loads((proof / "rescan-15000.json").read_text())
@@ -48,15 +49,8 @@ record = dict(version=versions["VERSION_NAME"], build=int(versions["VERSION_CODE
 for name, p in (("debug", target / "INSFAV-debug.apk"), ("unsignedRelease", build / "app/build/outputs/apk/release/app-release-unsigned.apk")):
     record[name] = dict(bytes=p.stat().st_size, sha256=hashlib.sha256(p.read_bytes()).hexdigest())
 (target / "Verification.json").write_text(json.dumps(record, indent=2) + "\n")
-notification_evidence = (
-    "Aktif indirme bildirimi doğrulandı; iş bittiğinde indirme bildirimleri kaldırıldı."
-    if active_only_notifications else "Downloaded bildirimi 8 olarak doğrulandı."
-)
-notification_lifecycle = (
-    "Bildirim yalnız aktif arka plan indirmesinde gösterilir; tamamlanma sonrasında indirme bildirimi kalmaz."
-    if active_only_notifications else
-    "Tamamlandı bildirimi 6 saniye zaman aşımıyla kaldırılır; fatal hata ve rate-limit bildirimi kalır. Platform timeout yapılandırması otomatik testlidir."
-)
+notification_evidence = "Aktif indirme bildirimi doğrulandı; iş bittiğinde indirme bildirimleri kaldırıldı."
+notification_lifecycle = "Bildirim yalnız aktif arka plan indirmesinde gösterilir; tamamlanma sonrasında indirme bildirimi kalmaz."
 report = f"""# INSFAV {versions["VERSION_NAME"]} — Geliştirme ve test raporu
 
 Fetcher için ayrı SQLite metadata indeksi ve kalıcı işlem durumları korunur. LocalImages taraması ve ImageCodec doğrulaması salt okunur, kontrol noktalı Rescan için optimize edildi. Store JSON biçimi, thumbnail görüntüleme, sanal liste çekirdeği ve CSS korunur. HD edinme ve RAM görüntüleme zinciri korunmuştur.
