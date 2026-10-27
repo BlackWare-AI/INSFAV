@@ -22,3 +22,12 @@ for(const columns of [2,3,4,5])test(`matrix ${columns}: complete memberships, sq
 test('matrix reserves measured enlarged-text height without changing image shape',()=>{const d=C.parseDocument(JSON.stringify(sample));const rows=C.rowsFor(d.indexed,new Set([0]),false,{columns:2,width:300,labelHeight:30});for(const r of rows.filter(r=>r.type==='matrix'))assert.equal(r.height,r.cell+52+(r.last?1:0));});
 
 test('matrix offsets accept measured renderer geometry rather than assuming border rounding',()=>{const d=C.parseDocument(JSON.stringify(sample));const rows=C.rowsFor(d.indexed,new Set([0]),false,{columns:2,width:382.19049,cellSize:178.33334,rowHeight:220.33334,lastRowHeight:221.09524});const matrix=rows.filter(r=>r.type==='matrix');assert.equal(matrix[0].cell,178.33334);assert.equal(matrix[0].height,220.33334);assert.equal(matrix[1].height,221.09524);assert.equal(C.offsets(rows)[3],68+220.33334+221.09524);});
+
+test('repeated normalized searches reuse results without crossing documents or changing matches',()=>{
+ const raw=JSON.stringify([{name:'Synthetic',items:[{pageId:'one',name:'Name 1'},{pageId:'two',name:'Name 2'}]}]);
+ const doc=C.parseDocument(raw),first=C.filterCollections(doc,'Name 1');
+ assert.strictEqual(C.filterCollections(doc,'  NAME 1  '),first);
+ assert.notStrictEqual(C.filterCollections(C.parseDocument(raw),'Name 1'),first);
+ assert.deepEqual(C.filterCollections(doc,'Name 2')[0].items.map(i=>i.user),['two']);
+ assert.deepEqual(C.filterCollections(doc,'Name 1')[0].items.map(i=>i.user),['one']);
+});

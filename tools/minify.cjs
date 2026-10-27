@@ -7,12 +7,15 @@ const sha=data=>crypto.createHash('sha256').update(data).digest('hex');
  const result={};
  for(const file of ['core.js','i18n.js','app.js','style.css','fonts.css']){
   const input=fs.readFileSync(path.join(source,file),'utf8');let output;
+  const included=file==='app.js'?fs.readFileSync(path.join(source,'avatar-loader.js'),'utf8'):null;
+  const inputs=included?{'avatar-loader.js':included,[file]:input}:{[file]:input};
   if(file.endsWith('.js')){
-   const bundle=await minify({[file]:input},{ecma:2020,toplevel:false,compress:{passes:2,toplevel:false},mangle:{toplevel:false},format:{comments:false},sourceMap:{filename:file,includeSources:false}});
+   const bundle=await minify(inputs,{ecma:2020,toplevel:false,compress:{passes:2,toplevel:false},mangle:{toplevel:false},format:{comments:false},sourceMap:{filename:file,includeSources:false}});
    output=bundle.code+'\n';fs.writeFileSync(path.join(source,'maps',file+'.map'),bundle.map+'\n');
   }else{const bundle=new CleanCSS({level:1}).minify(input);if(bundle.errors.length)throw Error(bundle.errors.join('; '));output=bundle.styles+'\n';}
   fs.writeFileSync(path.join(assets,file),output);
   result[file]={sourceBytes:Buffer.byteLength(input),bundleBytes:Buffer.byteLength(output),sourceSha256:sha(input),bundleSha256:sha(output)};
+  if(included){result[file].sourceBytes+=Buffer.byteLength(included);result[file].includedSources={'avatar-loader.js':{sourceSha256:sha(included)}};}
  }
  fs.writeFileSync(path.join(root,'tools/web-bundle.json'),JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result,null,2));
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -5,8 +5,12 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
 /** Shared cookie lease and reusable WebViews; dispatch pacing never holds active operations. */
 final class FetchBroker {
- interface Time{long now();void sleep(long millis)throws InterruptedException;}
+ interface Time{long now();void sleep(long millis)throws InterruptedException;default void await(Object monitor,long millis)throws InterruptedException{if(millis==0)monitor.wait();else sleep(millis);}}
  interface Factory{ProfileProvider open(boolean full)throws ProfileProvider.Failure;}
+ private final Object signal=new Object();
+ private final AtomicLong signals=new AtomicLong();
+ final AtomicLong loopPasses=new AtomicLong(),waits=new AtomicLong();
+ private final SharedPreferences.OnSharedPreferenceChangeListener preferenceWake=(p,key)->wakeup();
  private static FetchBroker instance;
  static synchronized FetchBroker get(Context c){if(instance==null){Context app=c.getApplicationContext();instance=new FetchBroker(app,full->InstagramSession.open(app));}return instance;}
  final SharedPreferences prefs;final Factory factory;final Time time;final Context context;final java.util.function.IntUnaryOperator admission;
@@ -20,11 +24,11 @@ final class FetchBroker {
   Request(String user,boolean full,long sequence){this.user=user;this.full=full;this.sequence=sequence;}
   public int compareTo(Request other){int n=Boolean.compare(other.full,full);return n!=0?n:Long.compare(sequence,other.sequence);}
  }
- FetchBroker(Context c,Factory f){this(c,f,new Time(){public long now(){return System.currentTimeMillis();}public void sleep(long m)throws InterruptedException{Thread.sleep(m);}});}
+ FetchBroker(Context c,Factory f){this(c,f,new Time(){public long now(){return System.currentTimeMillis();}public void sleep(long m)throws InterruptedException{Thread.sleep(m);}public void await(Object monitor,long millis)throws InterruptedException{monitor.wait(millis);}});}
  FetchBroker(Context c,Factory f,Time t){this(c,f,t,requested->ConcurrencyPolicy.initial(c,requested));}
- FetchBroker(Context c,Factory f,Time t,java.util.function.IntUnaryOperator admission){this.admission=admission;context=c.getApplicationContext();prefs=SessionState.prefs(c);factory=f;time=t;Thread thread=new Thread(this::loop,"insfav-profile-dispatcher");thread.setDaemon(true);thread.start();}
+ FetchBroker(Context c,Factory f,Time t,java.util.function.IntUnaryOperator admission){this.admission=admission;context=c.getApplicationContext();prefs=SessionState.prefs(c);prefs.registerOnSharedPreferenceChangeListener(preferenceWake);factory=f;time=t;Thread thread=new Thread(this::loop,"insfav-profile-dispatcher");thread.setDaemon(true);thread.start();}
  void beginBatch(){authenticationRequired=true;prefs.edit().putString("sessionEvidence","UNKNOWN").putLong("diagnosticBatch",prefs.getLong("diagnosticBatch",0)+1).commit();new Diagnostics(context).log("BATCH","STARTED",prefs.getLong("diagnosticBatch",0));batch=true;limit=admission.applyAsInt(prefs.getInt("concurrentWebViews",1));QueueControl.effectiveViews=limit;QueueControl.peakAccounts=0;QueueControl.memoryPressure=false;Diagnostics d=new Diagnostics(context);d.log("POOL","REQUESTED_LIMIT",prefs.getInt("concurrentWebViews",1));d.log("POOL","EFFECTIVE_LIMIT",limit);}
- void endBatch(){batch=false;}
+ void endBatch(){batch=false;wakeup();}
  int capacity(){return limit;}
  // Dispatch waits are visible without changing the user's delay or worker setting.
  long nextDispatchAt(){
@@ -34,10 +38,8 @@ final class FetchBroker {
   long gate=Math.max(prefs.getLong("nextRequestAt",0),prefs.getLong("retryAt",0));
   return earliest==Long.MAX_VALUE?0:Math.max(gate,earliest);
  }
- CompletableFuture<byte[]> submit(String user,boolean full){Request r=new Request(user,full,sequence.incrementAndGet());
-    if (!full && BulkControl.disabled(context)) { r.result.completeExceptionally(new ProfileProvider.Failure("FETCHER_DISABLED")); return r.result; }
-tasks.add(r);QueueControl.queuedAccounts=tasks.size();return r.result;}
- void cancelBulk(){cancel(false);}void cancelViewer(){cancel(true);}void cancelAll(){cancel(false);cancel(true);}
+ CompletableFuture<byte[]> submit(String user,boolean full){Request r=new Request(user,full,sequence.incrementAndGet());if(!full&&BulkControl.disabled(context)){r.result.completeExceptionally(new ProfileProvider.Failure("FETCHER_DISABLED"));return r.result;}tasks.add(r);wakeup();QueueControl.queuedAccounts=tasks.size();return r.result;}
+ void cancelBulk(){cancel(false);wakeup();}void cancelViewer(){cancel(true);wakeup();}void cancelAll(){cancel(false);cancel(true);wakeup();}
  private void cancel(boolean full){Request auth=authenticating;if(auth!=null&&auth.full==full){poisoned=true;cancel(auth,false);ProfileProvider p=provider;if(p!=null)p.cancel();}for(Request r:tasks)if(r.full==full){tasks.remove(r);r.result.cancel(false);}for(Request r:active)if(r.full==full)cancel(r,false);}
  private void cancel(Request r,boolean timeout){if(timeout)r.result.completeExceptionally(new ProfileProvider.Failure("PROFILE_OPERATION_TIMEOUT"));else r.result.cancel(false);ProfileProvider p=provider;if(p!=null)p.cancel(r.user);Thread thread=r.thread;if(thread!=null)thread.interrupt();}
  private void block(ProfileProvider.Failure e){poisoned=true;prefs.edit().putString("sessionEvidence",SessionState.invalid(e)?"UNVERIFIED":SessionState.evidence(prefs)).putString("blocked",e.code).putInt("blockedHttp",e.http).putLong("retryAt",Math.max(prefs.getLong("retryAt",0),e.retryAt)).putString("state",SessionState.pausedText(e.code)).commit();ProfileProvider p=provider;if(p!=null)p.cancel();for(Request a:active)if(a.thread!=Thread.currentThread())cancel(a,false);}
@@ -58,23 +60,69 @@ tasks.add(r);QueueControl.queuedAccounts=tasks.size();return r.result;}
    throw new ProfileProvider.Failure("COOKIE_AUTH_UNVERIFIED",e.http,retry,false);
   } finally {authenticating=null;r.thread=null;Thread.interrupted();}
  }
- private void loop(){for(;;)try{
+  private long nextDeadlineDelay() {
+    long nearest = Long.MAX_VALUE;
+    for (Request request : active)
+      if (!request.result.isDone())
+        nearest = Math.min(nearest, request.deadline - System.nanoTime());
+    return nearest == Long.MAX_VALUE ? 0 : Math.max(1, TimeUnit.NANOSECONDS.toMillis(nearest) + 1);
+  }
+
+  private long boundedWait(long requested, boolean bulk) {
+    long deadline = nextDeadlineDelay();
+    long delay =
+        requested == 0 ? deadline : deadline == 0 ? requested : Math.min(requested, deadline);
+    if (bulk) {
+      long now = time.now(),
+          end = RunPolicy.read(prefs).windowEnd(now, java.time.ZoneId.systemDefault());
+      long boundary = Math.max(1, end - now);
+      delay = delay == 0 ? boundary : Math.min(delay, boundary);
+    }
+    return delay;
+  }
+
+  private void awaitEvent(long observed, long millis) throws InterruptedException {
+    synchronized (signal) {
+      if (signals.get() == observed) {
+        waits.incrementAndGet();
+        signal.wait(millis);
+      }
+    }
+  }
+
+  private void awaitPacing(long observed, long millis) throws InterruptedException {
+    synchronized (signal) {
+      if (signals.get() == observed) {
+        waits.incrementAndGet();
+        time.await(signal, millis);
+      }
+    }
+  }
+
+  void wakeup() {
+    synchronized (signal) {
+      signals.incrementAndGet();
+      signal.notifyAll();
+    }
+  }
+
+ private void loop(){for(;;)try{long observed=signals.get();loopPasses.incrementAndGet();
   for(Request r:active)if(System.nanoTime()>r.deadline&&!r.result.isDone())cancel(r,true);
   if(QueueControl.memoryPressure){limit=ConcurrencyPolicy.reduced(limit);QueueControl.effectiveViews=limit;QueueControl.memoryPressure=false;ProfileProvider p=provider;if(p!=null)p.trim(limit);new Diagnostics(context).log("POOL","MEMORY_PRESSURE_LIMIT",limit);Fetcher.publish();}
   if(active.isEmpty()&&tasks.isEmpty()&&!batch){ProfileProvider p=provider;provider=null;if(p!=null)p.close();}
   if(provider!=null&&active.isEmpty()&&(poisoned||provider.blockingFailure()!=null||!sessionGeneration.equals(prefs.getString("cookieGeneration","")))){ProfileProvider p=provider;provider=null;p.close();authenticationRequired=true;}
-  QueueControl.queuedAccounts=tasks.size();Request r=tasks.peek();if(r==null||active.size()>=limit){Thread.sleep(20);continue;}
+  QueueControl.queuedAccounts=tasks.size();Request r=tasks.peek();if(r==null||active.size()>=limit){awaitEvent(observed,boundedWait(0,r!=null&&!r.full));continue;}
   if(r.result.isCancelled()){tasks.remove(r);continue;}
   if(!r.full&&BulkControl.disabled(context)){tasks.remove(r);r.result.completeExceptionally(new ProfileProvider.Failure("FETCHER_DISABLED"));continue;}
   String blocked=prefs.getString("blocked","");if(!blocked.isEmpty()&&(!r.full||InstagramSession.security(blocked)||(blocked.equals("RATE_LIMITED")&&(prefs.getLong("retryAt",0)<=0||time.now()<prefs.getLong("retryAt",0))))){tasks.remove(r);r.result.completeExceptionally(new ProfileProvider.Failure(blocked,0,prefs.getLong("retryAt",0),true));continue;}
   if(!r.full&&!RunPolicy.read(prefs).contains(java.time.Instant.ofEpochMilli(time.now()).atZone(java.time.ZoneId.systemDefault()))){tasks.remove(r);r.result.completeExceptionally(new ProfileProvider.Failure("OUTSIDE_WORKING_HOURS"));continue;}
-  long now=time.now(),gate=r.full?prefs.getLong("retryAt",0):Math.max(prefs.getLong("nextRequestAt",0),prefs.getLong("retryAt",0));if(now<gate){time.sleep(Math.min(50,gate-now));continue;}
+  long now=time.now(),gate=r.full?prefs.getLong("retryAt",0):Math.max(prefs.getLong("nextRequestAt",0),prefs.getLong("retryAt",0));if(now<gate){awaitPacing(observed,boundedWait(gate-now,!r.full));continue;}
   boolean[] busy=new boolean[30];for(Request a:active)if(a.slot>=0)busy[a.slot]=true;
   int slot=-1;long earliest=Long.MAX_VALUE;for(int i=0;i<limit;i++)if(!busy[i]){long ready=r.full?0:WorkerPacing.ready(prefs,i);if(ready<=now){slot=i;break;}earliest=Math.min(earliest,ready);}
-  if(slot<0){time.sleep(Math.min(50,Math.max(1,earliest-now)));continue;}
+  if(slot<0){awaitPacing(observed,boundedWait(Math.max(1,earliest-now),!r.full));continue;}
   // Interactive work drains existing batch operations, then owns the same session at a safe boundary.
-  if((r.full&&!active.isEmpty())||active.stream().anyMatch(a->a.full)){Thread.sleep(20);continue;}
-  if(!r.full&&batch&&authenticationRequired&&!active.isEmpty()){Thread.sleep(20);continue;}
+  if((r.full&&!active.isEmpty())||active.stream().anyMatch(a->a.full)){awaitEvent(observed,boundedWait(0,r!=null&&!r.full));continue;}
+  if(!r.full&&batch&&authenticationRequired&&!active.isEmpty()){awaitEvent(observed,boundedWait(0,r!=null&&!r.full));continue;}
   tasks.remove(r);r.slot=slot;if(!r.full)WorkerPacing.reserve(prefs,slot,now,RunPolicy.read(prefs));
   try{if(provider==null){provider=factory.open(false);authenticationRequired=true;poisoned=false;sessionGeneration=prefs.getString("cookieGeneration","");}provider.trim(limit);authenticateBatch(r,provider);if(r.result.isCancelled())continue;}catch(ProfileProvider.Failure e){if(FailurePolicy.pause(e))block(e);r.result.completeExceptionally(e);continue;}catch(OutOfMemoryError e){ProfileProvider.Failure error=new ProfileProvider.Failure("IMAGE_MEMORY_LIMIT",0,0,true);block(error);r.result.completeExceptionally(error);continue;}catch(RuntimeException e){ProfileProvider.Failure error=new ProfileProvider.Failure("PROCESSING_ERROR",0,0,true);block(error);r.result.completeExceptionally(error);continue;}
   r.deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(110);active.add(r);QueueControl.activeAccounts=active.size();QueueControl.peakAccounts=Math.max(QueueControl.peakAccounts,active.size());
@@ -85,5 +133,5 @@ tasks.add(r);QueueControl.queuedAccounts=tasks.size();return r.result;}
  }catch(ProfileProvider.Failure e){if(FailurePolicy.pause(e))block(e);r.result.completeExceptionally(e);if(e.code.equals("WEBVIEW_RENDERER_GONE"))QueueControl.memoryPressure=true;}
  catch(OutOfMemoryError e){ProfileProvider.Failure memory=new ProfileProvider.Failure("IMAGE_MEMORY_LIMIT",0,0,true);block(memory);r.result.completeExceptionally(memory);}
  catch(RuntimeException e){r.result.completeExceptionally(new ProfileProvider.Failure("PROFILE_PROCESSING_ERROR"));}
- finally{active.remove(r);QueueControl.activeAccounts=active.size();r.thread=null;Thread.interrupted();Fetcher.publish();}}
+ finally{active.remove(r);QueueControl.activeAccounts=active.size();r.thread=null;Thread.interrupted();wakeup();Fetcher.publish();}}
 }

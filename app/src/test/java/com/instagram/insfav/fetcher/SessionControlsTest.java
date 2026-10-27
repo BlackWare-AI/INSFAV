@@ -39,8 +39,8 @@ public class SessionControlsTest {
         }finally{broker.cancelAll();}
         assertTrue(manager.getCookie(InstagramSession.ORIGIN).contains("OFFLINE_CONTROLS%3AFIXTURE"));assertArrayEquals(new byte[]{1,2,3},Files.readAllBytes(image.toPath()));
         try(QueueStore q=new QueueStore(c)){assertEquals(Integer.valueOf(1),q.counts().get("SUCCESS"));}
-        Fetcher.initialize(c,new Fetcher.Host(){public Collection<String> users(){throw new AssertionError("Disabled fetcher must not scan source");}public String tree(){return "";}public String directory(){return "";}public long revision(){return 0;}public boolean hasImage(String user){return false;}public void imageWritten(String user,Uri uri,String tree){}});
-        assertTrue(BulkControl.disabled(c));Fetcher.sync();
+        Fetcher.initialize(c,new Fetcher.Host(){public Collection<String> users(){throw new AssertionError("Disabled fetcher must not scan source");}public String tree(){throw new AssertionError("Disabled fetcher must not observe source");}public String directory(){return "";}public long revision(){return 0;}public boolean hasImage(String user){return false;}public void imageWritten(String user,Uri uri,String tree){}});
+        assertTrue(BulkControl.disabled(c));Fetcher.sync();Fetcher.watchSource();
         Fetcher.setBulkDisabled(false);assertFalse(p.getBoolean("armed",true));assertTrue(p.getBoolean("userPaused",false));assertFalse(WorkScheduler.enabled(p));
     }
     @Test public void idleAndTerminalNotificationsAreRemoved() {

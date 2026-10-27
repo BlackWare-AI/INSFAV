@@ -10,12 +10,21 @@ final class QueueEngine {
  static int terminalCount(Map<String,Integer> counts){return counts.getOrDefault("SUCCESS",0)+counts.getOrDefault("FAILED",0)+counts.getOrDefault("SKIPPED_UNAVAILABLE",0)+counts.getOrDefault("SKIPPED_NO_IMAGE",0);}
  interface Reporter{void update(String state);}
  final Context context;final SharedPreferences settings;final Reporter reporter;final BooleanSupplier stopped;
+ private final Object completionSignal=new Object();
+ private final java.util.concurrent.atomic.AtomicLong completions=new java.util.concurrent.atomic.AtomicLong();
+ private void wakeup(){synchronized(completionSignal){completions.incrementAndGet();completionSignal.notifyAll();}}
  private long lastSignal;private String lastState="";volatile boolean cancelled;volatile String cancelledState="Interrupted; queue preserved";
  QueueEngine(Context c,Reporter r,BooleanSupplier stop){context=c;settings=SessionState.prefs(c);reporter=r;stopped=stop;}
- void cancel(){cancelled=true;FetchBroker.get(context).cancelBulk();}void cancel(String text){cancelledState=text;cancel();}
- boolean interrupted(){return BulkControl.disabled(context) || cancelled||stopped.getAsBoolean()||QueueControl.requested||Thread.currentThread().isInterrupted();}
+ void cancel(){cancelled=true;wakeup();FetchBroker.get(context).cancelBulk();}void cancel(String text){cancelledState=text;cancel();}
+ boolean interrupted(){return BulkControl.disabled(context)||cancelled||stopped.getAsBoolean()||QueueControl.requested||Thread.currentThread().isInterrupted();}
  void state(String value){
-    if (BulkControl.disabled(context)) value = "Thumbnail Fetcher disabled";long now=android.os.SystemClock.elapsedRealtime();if(value.equals(lastState)&&now-lastSignal<250)return;lastState=value;lastSignal=now;QueueControl.phase=value;settings.edit().putString("state",value).apply();reporter.update(value);Fetcher.publish();}
+  if(BulkControl.disabled(context))value="Thumbnail Fetcher disabled";
+  long now=android.os.SystemClock.elapsedRealtime();
+  boolean critical=value.equals("Thumbnail Fetcher disabled")||value.startsWith("Paused")||value.startsWith("Stopped")||value.startsWith("Interrupted")||value.startsWith("Finished")||value.equals("Completed")||value.equals("Rate Limited");
+  if(!critical&&value.equals(lastState)&&now-lastSignal<250)return;
+  if(!value.equals(lastState)){if(critical)settings.edit().putString("state",value).commit();else settings.edit().putString("state",value).apply();}
+  lastState=value;lastSignal=now;QueueControl.phase=value;reporter.update(value);Fetcher.publish(critical);
+ }
  void run(String action,boolean bounded){
     if (BulkControl.disabled(context)) return;
   long started=System.currentTimeMillis(),generation=settings.getLong("datasetGeneration",0);int finished=0,cached=0;FetchBroker broker=FetchBroker.get(context);Map<String,CompletableFuture<byte[]>> flights=new LinkedHashMap<>();boolean hoursEnded=false;
@@ -31,7 +40,7 @@ final class QueueEngine {
    if(action.equals("verify_index")){state("Paused — Fetcher index verified");return;}
    if("RATE_LIMITED".equals(settings.getString("blocked",""))&&System.currentTimeMillis()>=settings.getLong("retryAt",0))settings.edit().putString("blocked","").commit();
    ArrayDeque<String> targets=new ArrayDeque<>(queue.eligible());
-   while(!interrupted()){
+   while(!interrupted()){long observed=completions.get();
     if(generation!=settings.getLong("datasetGeneration",0)){state("Paused: collections or folder changed");return;}
     if(!settings.getString("blocked","").isEmpty()){for(String user:flights.keySet())queue.mark(user,"RETRY_LATER",settings.getString("blocked",""));state("RATE_LIMITED".equals(settings.getString("blocked",""))?"Rate Limited":SessionState.pausedText(settings.getString("blocked","")));return;}
     if(!RunPolicy.read(settings).contains(ZonedDateTime.now()))hoursEnded=true;
@@ -40,7 +49,7 @@ final class QueueEngine {
      if(!RunPolicy.read(settings).contains(ZonedDateTime.now())){hoursEnded=true;break;}
      String user=targets.remove();String filename=Identity.outputFilename(user);boolean validOutput=output.valid(filename);
      if(validOutput){queue.mark(user,"EXISTING","LOCAL_IMAGE");state("Checking existing thumbnails");if(bounded&&++cached>=128&&flights.isEmpty())return;continue;}
-     if(!queue.claim(user))continue;QueueControl.current=user;flights.put(user,broker.submit(user,false));state("Downloading");
+     if(!queue.claim(user))continue;QueueControl.current=user;CompletableFuture<byte[]> future=broker.submit(user,false);flights.put(user,future);future.whenComplete((bytes,error)->wakeup());state("Downloading");
     }
     if(flights.isEmpty()){
      if(hoursEnded){state("Paused — Outside Schedule");return;}
@@ -69,7 +78,7 @@ final class QueueEngine {
      finally{if(original!=null)Arrays.fill(original,(byte)0);it.remove();}
      Map<String,Integer> totals=queue.counts();finished=++QueueControl.runProcessed;long elapsed=Math.max(1,System.currentTimeMillis()-started);QueueControl.completedPerMinute=finished*60000.0/elapsed;QueueControl.etaSeconds=finished>=3?(long)(Math.max(0,totals.getOrDefault("PENDING",0)+totals.getOrDefault("RETRY_LATER",0)-queue.held())*60.0/QueueControl.completedPerMinute):-1;state("Downloading");
     }
-    if(!completed){if(android.os.SystemClock.elapsedRealtime()-lastSignal>=1000)state(broker.authenticating!=null?"Verifying session":QueueControl.activeAccounts==0?"Waiting for worker delay":"Downloading");Thread.sleep(25);}
+    if(!completed){if(android.os.SystemClock.elapsedRealtime()-lastSignal>=1000)state(broker.authenticating!=null?"Verifying session":QueueControl.activeAccounts==0?"Waiting for worker delay":"Downloading");long now=System.currentTimeMillis(),until=RunPolicy.read(settings).windowEnd(now,ZoneId.systemDefault());synchronized(completionSignal){if(completions.get()==observed)completionSignal.wait(Math.max(1,Math.min(1000,until-now)));}}
    }
    state(QueueControl.requested?QueueControl.requestedState:cancelledState);
   }catch(SecurityException e){settings.edit().putString("blocked","STORAGE_PERMISSION_LOST").commit();state("Paused: folder write permission required");}
@@ -78,6 +87,6 @@ final class QueueEngine {
   catch(OutOfMemoryError e){broker.cancelBulk();settings.edit().putString("blocked","IMAGE_MEMORY_LIMIT").commit();state("Paused: memory limit; queue preserved");}
   catch(InterruptedException e){Thread.currentThread().interrupt();state(cancelledState);}
   catch(Exception e){settings.edit().putString("blocked","PROCESSING_ERROR").commit();state("Paused: processing error; queue preserved");}
-  finally{broker.cancelBulk();try(QueueStore q=new QueueStore(context)){q.deferClaims("REQUEST_CANCELLED");q.meta("sourceRevision",Long.toString(Fetcher.host().revision()));}catch(Exception ignored){}broker.endBatch();settings.edit().putLong("elapsedSeconds",settings.getLong("elapsedSeconds",0)+Math.max(0,(System.currentTimeMillis()-started)/1000)).putLong("startedAt",0).apply();QueueControl.current="";QueueControl.etaSeconds=-1;Fetcher.publish();}
+  finally{try{Fetcher.host().flushImages();}catch(Exception failure){Fetcher.indexPersistenceFailure();}broker.cancelBulk();try(QueueStore q=new QueueStore(context)){q.deferClaims("REQUEST_CANCELLED");q.meta("sourceRevision",Long.toString(Fetcher.host().revision()));}catch(Exception ignored){}broker.endBatch();settings.edit().putLong("elapsedSeconds",settings.getLong("elapsedSeconds",0)+Math.max(0,(System.currentTimeMillis()-started)/1000)).putLong("startedAt",0).apply();QueueControl.current="";QueueControl.etaSeconds=-1;Fetcher.publish();}
  }
 }

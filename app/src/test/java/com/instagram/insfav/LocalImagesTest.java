@@ -206,6 +206,8 @@ public class LocalImagesTest {
     }
 
     public static final class FixtureProvider extends ContentProvider {
+        Store mustNotHold;
+        Runnable beforeOpen;
         volatile long delayMs; File directory; final Map<String,File> files = new LinkedHashMap<>(); final Map<String,String> names = new HashMap<>();
         int childQueries, opens, writes, deletes; boolean available = true, parentHasThumbnailChild;
         int failMoveAt=-1; boolean loading, unknownMetadata; String failOnceId="", memoryFailureId="";
@@ -242,6 +244,9 @@ public class LocalImagesTest {
             cursor.addRow(values);
         }
         @Override public ParcelFileDescriptor openFile(Uri uri,String mode) throws FileNotFoundException {
+            if(mustNotHold!=null)assertFalse("Provider IO must not hold Store monitor",Thread.holdsLock(mustNotHold));
+            Runnable hook=beforeOpen;if(hook!=null){beforeOpen=null;hook.run();}
+
             if(delayMs>0)try{Thread.sleep(delayMs);}catch(InterruptedException e){Thread.currentThread().interrupt();}
             if(!"r".equals(mode)){writes++;throw new FileNotFoundException("Read only");}synchronized(this){opens++;}
             String id=DocumentsContract.getDocumentId(uri);

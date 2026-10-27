@@ -1,0 +1,157 @@
+{
+  "baselineCommit": "db9fc68d5579fdc8feba3853fbe49364359d61c0",
+  "candidateSourceSha256": "8a61f98e485e38094d135948f3e31e09ae7d697e77a2a4c89d655e187100e474",
+  "baselineSourceSha256": "7553dca1bc6d2cad47343eacbe5dfbe65f3890bfbccb4c72a6baf59bff3138e8",
+  "physicalDevice": false,
+  "records": [
+    {
+      "variant": "before",
+      "round": 0,
+      "measurements": [
+        {
+          "kind": "RESCAN_SCALE",
+          "environment": "Robolectric API34; real synthetic 128/256 WebP files; 1 ms simulated SAF open latency",
+          "files": 5000,
+          "coldMs": 5194,
+          "warmMs": 251,
+          "coldOpens": 5000,
+          "warmOpens": 0,
+          "coldQueries": 2,
+          "warmQueries": 2,
+          "peakOpenCalls": 2,
+          "coldIO": {
+            "metadataQueries": 1,
+            "inspected": 5000,
+            "reused": 0,
+            "workers": 2,
+            "peakValidations": 2,
+            "batchSize": 256,
+            "transactions": 22,
+            "resumed": false
+          },
+          "warmIO": {
+            "metadataQueries": 1,
+            "inspected": 0,
+            "reused": 5000,
+            "workers": 2,
+            "peakValidations": 0,
+            "batchSize": 256,
+            "transactions": 2,
+            "resumed": false
+          },
+          "sourceBytesAndDatesUnchanged": true,
+          "sourceWrites": 0
+        },
+        {
+          "kind": "RESCAN_SCALE",
+          "environment": "Robolectric API34; real synthetic 128/256 WebP files; 1 ms simulated SAF open latency",
+          "files": 20000,
+          "coldMs": 15856,
+          "warmMs": 491,
+          "coldOpens": 20000,
+          "warmOpens": 0,
+          "coldQueries": 2,
+          "warmQueries": 2,
+          "peakOpenCalls": 2,
+          "coldIO": {
+            "metadataQueries": 1,
+            "inspected": 20000,
+            "reused": 0,
+            "workers": 2,
+            "peakValidations": 2,
+            "batchSize": 256,
+            "transactions": 81,
+            "resumed": false
+          },
+          "warmIO": {
+            "metadataQueries": 1,
+            "inspected": 0,
+            "reused": 20000,
+            "workers": 2,
+            "peakValidations": 0,
+            "batchSize": 256,
+            "transactions": 2,
+            "resumed": false
+          },
+          "sourceBytesAndDatesUnchanged": true,
+          "sourceWrites": 0
+        }
+      ]
+    },
+    {
+      "variant": "after",
+      "round": 0,
+      "measurements": [
+        {
+          "kind": "RESCAN_SCALE",
+          "environment": "Robolectric API34; real synthetic 128/256 WebP files; 1 ms simulated SAF open latency",
+          "files": 5000,
+          "coldMs": 5179,
+          "warmMs": 232,
+          "coldOpens": 5000,
+          "warmOpens": 0,
+          "coldQueries": 2,
+          "warmQueries": 2,
+          "peakOpenCalls": 2,
+          "coldIO": {
+            "metadataQueries": 1,
+            "inspected": 5000,
+            "reused": 0,
+            "workers": 2,
+            "peakValidations": 2,
+            "batchSize": 256,
+            "transactions": 22,
+            "resumed": false
+          },
+          "warmIO": {
+            "metadataQueries": 1,
+            "inspected": 0,
+            "reused": 5000,
+            "workers": 2,
+            "peakValidations": 0,
+            "batchSize": 256,
+            "transactions": 2,
+            "resumed": false
+          },
+          "sourceBytesAndDatesUnchanged": true,
+          "sourceWrites": 0
+        },
+        {
+          "kind": "RESCAN_SCALE",
+          "environment": "Robolectric API34; real synthetic 128/256 WebP files; 1 ms simulated SAF open latency",
+          "files": 20000,
+          "coldMs": 15873,
+          "warmMs": 410,
+          "coldOpens": 20000,
+          "warmOpens": 0,
+          "coldQueries": 2,
+          "warmQueries": 2,
+          "peakOpenCalls": 2,
+          "coldIO": {
+            "metadataQueries": 1,
+            "inspected": 20000,
+            "reused": 0,
+            "workers": 2,
+            "peakValidations": 2,
+            "batchSize": 256,
+            "transactions": 81,
+            "resumed": false
+          },
+          "warmIO": {
+            "metadataQueries": 1,
+            "inspected": 0,
+            "reused": 20000,
+            "workers": 2,
+            "peakValidations": 0,
+            "batchSize": 256,
+            "transactions": 2,
+            "resumed": false
+          },
+          "sourceBytesAndDatesUnchanged": true,
+          "sourceWrites": 0
+        }
+      ]
+    }
+  ],
+  "measuredCandidateCommit": "5c7e60f4127132919cf0c62e22eea30455ab5aa4"
+}
