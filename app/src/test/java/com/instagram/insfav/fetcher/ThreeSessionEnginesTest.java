@@ -62,6 +62,6 @@ public class ThreeSessionEnginesTest {
     @Test public void browserProviderBulkSkipsAuthenticationAndFetchesRealTask()throws Exception {
         ProfileProvider p=new ProfileProvider(){public boolean requiresAuthentication(){return false;}public void authenticate(){throw new AssertionError("No mandatory cookie test");}public byte[] fetch(String user){return new byte[]{7};}public void cancel(){}};
         FetchBroker broker=new FetchBroker(c,full->p);SessionState.prefs(c).edit().putBoolean("bulkDisabled",false).commit();
-        try{broker.beginBatch();assertArrayEquals(new byte[]{7},broker.submit("example",false).get(5,TimeUnit.SECONDS));}finally{broker.endBatch();broker.cancelAll();}
+        try{broker.beginBatch();assertArrayEquals(new byte[]{7},broker.submit("example",false).get(5,TimeUnit.SECONDS));assertFalse((Boolean)org.robolectric.util.ReflectionHelpers.getField(broker,"authenticationRequired"));}finally{broker.endBatch();broker.cancelAll();}
     }
 }
