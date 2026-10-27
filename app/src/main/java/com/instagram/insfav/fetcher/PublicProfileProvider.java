@@ -72,7 +72,7 @@ final class PublicProfileProvider implements ProfileProvider {
         if (value.startsWith(prefix)) { value = value.substring(prefix.length()).trim(); if (value.endsWith(";")) value = value.substring(0, value.length() - 1); }
         return value;
     }
-    private static void rejectWall(String html, boolean configured) throws Failure {
+    static void rejectWall(String html, boolean configured) throws Failure {
         String wall = AccessWall.detect(html);
         if (wall.equals("CHALLENGE_REQUIRED")) throw new Failure(wall, 200, 0, true);
         if (wall.equals("LOGIN_REQUIRED")) throw new Failure(configured ? "COOKIE_INVALID_EXPIRED" : wall, 200, 0, true);
@@ -175,6 +175,13 @@ final class PublicProfileProvider implements ProfileProvider {
         }
         throw new Failure("REDIRECT_LIMIT", 0, 0, true);
     }
+    static URL photoJson(JSONObject json,String user) throws Failure {
+        Set<String> found=new LinkedHashSet<>();boolean[] restricted={false};
+        find(json,user,found,0,new int[]{0},restricted);
+        if(found.size()!=1)throw new Failure(found.isEmpty()?"PROFILE_IMAGE_URL_MISSING":"PROFILE_DATA_AMBIGUOUS");
+        try{URL url=new URL(found.iterator().next());if(!trusted(url,true)||placeholder(url.toString()))throw new Failure("UNTRUSTED_SOURCE");return url;}
+        catch(MalformedURLException e){throw new Failure("INVALID_IMAGE_URL");}
+    }
     static URL photo(String html, String user) throws Failure {
         Matcher matcher = SCRIPT.matcher(html); LinkedHashSet<String> found = new LinkedHashSet<>(); boolean[] restricted = {false}; boolean errorPage = false; int scripts = 0;
         while (matcher.find() && ++scripts <= 512) {
@@ -214,9 +221,10 @@ final class PublicProfileProvider implements ProfileProvider {
             if (user.equals(Identity.normalize(object.optString("username"))) && object.optString("id", object.optString("pk")).matches("[0-9]+") && Boolean.TRUE.equals(object.opt("is_private"))) restricted[0] = true;
             // Accept only a bound account object; never promote a generic og:image fallback.
             if (object.opt("username") instanceof String && user.equals(Identity.normalize(object.optString("username"))) && object.optString("id", object.optString("pk")).matches("[0-9]+") && (!object.has("has_anonymous_profile_picture") || object.opt("has_anonymous_profile_picture") instanceof Boolean) && !Boolean.TRUE.equals(object.opt("has_anonymous_profile_picture")) && !"true".equals(object.optString("has_anonymous_profile_picture")) && !Boolean.FALSE.equals(object.opt("has_profile_pic"))) {
-                String picture = object.optString("profile_pic_url_hd"); if (picture.isEmpty()) picture = object.optString("profile_pic_url");
+                String picture = object.optString("profile_pic_url_hd");
                 if (picture.isEmpty()) { JSONObject info = object.optJSONObject("hd_profile_pic_url_info"); if (info == null) info = object.optJSONObject("profile_pic_url_info"); if (info != null) picture = info.optString("url"); }
-                if (!picture.isEmpty() && !placeholder(picture)) found.add(picture);
+                if (picture.isEmpty()) picture = object.optString("profile_pic_url");
+        if (!picture.isEmpty() && !placeholder(picture)) found.add(picture);
             }
             Iterator<String> keys = object.keys(); while (keys.hasNext()) find(object.opt(keys.next()), user, found, depth + 1, visits, restricted);
         } else if (value instanceof JSONArray) { JSONArray array = (JSONArray)value; for (int i = 0; i < array.length(); i++) find(array.opt(i), user, found, depth + 1, visits, restricted); }
