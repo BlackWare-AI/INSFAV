@@ -19,15 +19,9 @@ public final class SettingsBackupUi {
   else activity.startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE),OPEN);
  });}
  private interface PasswordAction{void run(char[] password);}
- private void password(boolean confirm,PasswordAction action){
-  LinearLayout layout=new LinearLayout(activity);layout.setOrientation(LinearLayout.VERTICAL);layout.setPadding(32,8,32,8);layout.setBackgroundColor(android.graphics.Color.BLACK);
-  EditText first=input(confirm?"Password (at least 8 characters)":"Backup password");layout.addView(first);EditText second=input("Confirm password");if(confirm)layout.addView(second);
-  boolean secure=(activity.getWindow().getAttributes().flags&WindowManager.LayoutParams.FLAG_SECURE)!=0;activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
-  AlertDialog dialog=new AlertDialog.Builder(activity).setTitle(confirm?"Export All Settings":"Import All Settings").setMessage("Encrypted settings and cookies only. Favorites and account lists are excluded. Keep the password separately.").setView(layout).setPositiveButton("Continue",null).setNegativeButton("Cancel",null).create();
-  dialog.setOnDismissListener(d->{first.setText("");second.setText("");if(!secure)activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);});
-  dialog.setOnShowListener(d->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{char[] pass=first.getText().toString().toCharArray();if(pass.length<8||confirm&&!first.getText().toString().equals(second.getText().toString())){Arrays.fill(pass,'\0');first.setError("Use matching passwords of at least 8 characters.");return;}dialog.dismiss();action.run(pass);}));dialog.show();
+ private void password(boolean confirm, PasswordAction action) {
+  BackupPinUi.show(activity, confirm ? "Export All Settings" : "Import All Settings", confirm, action::run);
  }
- private EditText input(String hint){EditText x=new EditText(activity);x.setHint(hint);x.setTextColor(android.graphics.Color.WHITE);x.setHintTextColor(0xff888888);x.setSingleLine(true);x.setInputType(129);x.setSaveEnabled(false);x.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);x.setImeOptions(android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING);return x;}
  public boolean result(int request,int result,Intent intent){
   if(request!=SAVE&&request!=OPEN)return false;
   if(result!=Activity.RESULT_OK||intent==null||intent.getData()==null){encryptedExport=null;return true;}

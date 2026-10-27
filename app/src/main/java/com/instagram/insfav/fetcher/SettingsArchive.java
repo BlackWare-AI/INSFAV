@@ -22,7 +22,7 @@ public final class SettingsArchive {
         return encrypt(c.getPackageName(),data,password);
     }
     static String encrypt(String app,JSONObject data,char[] password)throws Exception {
-        if(password.length<8)throw new IOException("Use a password with at least 8 characters.");
+        if (!BackupPinUi.valid(password) && password.length < 8) throw new IOException("Use a four-digit PIN.");
         byte[] salt=new byte[16],iv=new byte[12],plain=data.toString().getBytes(StandardCharsets.UTF_8);
         SecureRandom random=new SecureRandom();random.nextBytes(salt);random.nextBytes(iv);
         try {

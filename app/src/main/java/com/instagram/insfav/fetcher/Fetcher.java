@@ -98,6 +98,13 @@ public final class Fetcher {
   if(!tree.equals(s.getString("tree",""))||!dir.equals(s.getString("directoryId","")))s.edit().putString("tree",tree).putString("directoryId",dir).putLong("datasetGeneration",s.getLong("datasetGeneration",0)+1).putBoolean("armed",false).putBoolean("userPaused",true).commit();
  }
  public static void memoryPressure(){QueueControl.memoryPressure=true;FetchBroker.get(context).wakeup();}
+ public static JSONObject exportSessionBackup() throws Exception {
+  JSONObject out=new JSONObject();CookieVault manual=new CookieVault(context),browser=CookieVault.browser(context),netscape=NetscapeBrowserCookies.vault(context);
+  if(manual.configured())out.put("manual",manual.stored());if(browser.configured())out.put("legacy",browser.stored());if(netscape.configured())out.put("netscape",netscape.stored());return out;
+ }
+ public static void requireBackupIdle() throws java.io.IOException {
+  if (running() || !viewerToken.isEmpty() || HdThumbnailJobs.anyBusy() || !FetchBroker.get(context).active.isEmpty()) throw new java.io.IOException("Pause retrieval and wait for HD conversion before updating.");
+ }
  public static boolean running(){return QueueControl.lock.get();}
  public static boolean writable(){String tree=host().tree();for(UriPermission p:context.getContentResolver().getPersistedUriPermissions())if(p.getUri().toString().equals(tree)&&p.isWritePermission()&&p.isReadPermission())return true;return false;}
  public static void saveCookies(String text)throws Exception{

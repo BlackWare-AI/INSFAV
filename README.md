@@ -1,59 +1,59 @@
 # INSFAV
 
-**Required:** A JSON backup exported from SamMods InstaPro version 15.30 or earlier. INSFAV reads and displays the `favorite_page_pref` (Favorites) section. Without a compatible backup, the app cannot show your InstaPro favorites.
+[Son yayımlanan imzalı APK](https://github.com/BlackWare-AI/INSFAV/releases/latest)
 
-[Download the signed INSFAV 5.0.0 release](https://github.com/BlackWare-AI/INSFAV/releases/latest).
+INSFAV, InstaPro’dan dışa aktarılmış Instagram Favoriler koleksiyonlarını Android’de görüntülemek ve yönetmek için bağımsız bir uygulamadır. Instagram ile favori eşitlemesi yapmaz. [INSFAV Plus](https://github.com/BlackWare-AI/INSFAV-Plus) ayrı bir uygulamadır; paketleri, verileri ve Instagram oturumları birbirinden bağımsızdır.
 
-INSFAV is a local Android viewer and organizer for Instagram profiles saved in an InstaPro Favorites backup. It presents the original collections in an AMOLED-black interface, with search, account counts, optional local profile pictures and a high-resolution image viewer. It does not access your InstaPro installation or synchronize favorites with Instagram.
+## Başlarken
 
-## What it does
+1. SamMods InstaPro 15.30 veya daha eski, uyumlu bir sürümden alınmış JSON yedeğini içe aktarın. Uygulama `favorite_page_pref` alanındaki koleksiyonları okur ve özgün JSON’u korur.
+2. Yerel profil görselleri için `.thumbnails` klasörünüzü Android’in klasör seçicisinden seçin. Paylaşımlı depolamanın tamamına erişim gerekmez.
+3. Çevrimiçi HD görüntüleme için Ayarlar → Thumbnail Fetcher → Instagram bölümünden giriş yapın. İki aşamalı doğrulama ve güvenlik kontrollerini görünür giriş sayfasında kendiniz tamamlayın.
+4. Toplu thumbnail indirmek isterseniz klasöre yazma izni verin ve **Eksikleri Başlat** veya **Devam Et** seçin. Uygulamayı açmak kendi başına toplu indirmeyi başlatmaz.
 
-- Imports a compatible InstaPro Favorites JSON backup and preserves the original JSON for export.
-- Shows favorite collections, saved profiles, search, collection membership and account statistics.
-- Displays local profile photos stored in a user-selected `.thumbnails/<username>.webp` folder using Android's Storage Access Framework (SAF).
-- Offers an integrated, optional Thumb Fetcher for collecting profile images, with a persisted queue, pause/resume, progress notifications and Android-permitted background processing.
-- Opens a profile image locally first, then attempts to retrieve the original Instagram image for the in-memory HD viewer, where available. The HD image is not permanently saved.
+## Neler yapabilir?
 
-## How to use
+- Koleksiyonları, hesapları ve koleksiyon üyeliklerini gösterir; arama ve liste / 2–5 sütunlu matris görünümü sunar.
+- AMOLED siyah tasarım, Türkçe / İngilizce arayüz ve kalıcı görünüm ayarları kullanır.
+- Yerel WebP thumbnail’ları ve çevrimiçi HD profil görsellerini görüntüler. HD için önceden thumbnail dosyası bulunması gerekmez.
+- HD görselden 256×256 WebP thumbnail’ı bağımsız arka plan işiyle kaydeder; eksik thumbnail için dönüşüm göstergesi sunar. Görüntüleyicide başka profile geçmek yerel dönüşümü iptal etmez.
+- İsteğe bağlı Thumbnail Fetcher’da kalıcı kuyruk, zamanlama, eşzamanlılık, duraklatma/devam etme, başarısızları yeniden deneme ve tanılama dışa aktarma bulunur.
+- Fetcher tamamen kapatılabilir; toplu bağlantılar, zamanlama ve indirme bildirimleri durur. HD görüntüleme ve onun thumbnail dönüşümü kullanılabilir.
+- JSON dışa aktarma ve uygulamaya özgü AES-GCM şifreli ayar/çerez yedeği bulunur. Normal ayar yedeği, Favoriler JSON yedeğinden ayrıdır.
 
-1. In SamMods InstaPro 15.30 or earlier, export its settings/backup as a `.json` file. The backup must contain the `favorite_page_pref` Favorites data. An arbitrary Instagram data export or a newer incompatible backup is not a substitute.
-2. Open INSFAV and choose **Import JSON**. Your Favorites collections and accounts appear.
-3. Browse the collections, search for profiles and open their links.
-4. Optional local avatars: select the `.thumbnails` folder in Settings, grant read access, then tap **Rescan Thumbnails**.
-5. Optional Thumb Fetcher: grant the chosen folder write access, configure Instagram cookies and concurrency in Fetcher settings, then start the missing-images queue. Instagram authentication, restrictions and connectivity may limit retrieval.
-6. Export your collection JSON as a backup whenever needed.
+## Instagram oturumu
 
-### Read-only thumbnail rescan
+- **Legacy · Kalıcı WebView:** Uygulamanın kendi kalıcı WebView oturumunu kullanır; varsayılan yöntemdir.
+- **YTDLnis tarzı · Netscape / HTTP:** Aynı uygulamanın WebView çerezlerini Netscape biçimine dönüştürerek HTTP sağlayıcısına aktarır. YTDLnis’ten bağımsız uygulanmıştır; Instagram’ın tüm hesaplar için bu yolu kabul edeceği garanti edilmez.
+- **Manuel çerezler:** `cookies.txt` veya HTTP Cookie Header yapıştırma, kaydetme ve kaldırma korunur. Alternatif yöntemler birbirlerinin kayıtlarını silmez.
 
-Rescan enumerates the folder once to discover added, changed and removed entries. A private SQLite checkpoint stores every candidate, including duplicates and validated unreadable images. Reliable, unchanged size and modification time allow reuse without opening or decoding images. Missing provider metadata requires validation again. Small thumbnails are opened once for bounded header and pixel validation; at most two validation workers run concurrently. Completed batches survive interruption; retry re-enumerates metadata and reuses saved work. The existing JSON index remains available until a full scan finishes. Rescan never writes, renames or deletes source files, even with write permission. See [rescan measurements and limitations](docs/RESCAN-PERFORMANCE.md).
+Giriş ekranında yenileme, çerezi görüntüleme ve çıkış seçenekleri bulunur. Zorunlu **Test Session** adımı yoktur. Çerezler tanılama raporlarına eklenmez; başka uygulamalarla paylaşılmaz. Uygulama açılışında WebView verileri temizlenmez. Instagram sunucusunda iptal edilmiş veya süresi dolmuş bir oturum uygulama tarafından korunamaz. Güvenlik doğrulaması gerektiğinde yeni istekler durur; kullanıcı tamamlamadan otomatik devam edilmez.
 
-## Requirements and privacy
+## Hazırlanan, henüz APK olarak yayımlanmamış değişiklikler
 
-- Android 8.0 (API 26) or newer.
-- A compatible InstaPro `.json` backup is required to view favorites.
-- Local image folders are user-selected; scanning is read-only. The Fetcher writes only when explicitly granted access.
-- Original source thumbnails are not re-encoded into a second private thumbnail archive.
-- HD photos are kept in memory, not saved by INSFAV.
-- The Fetcher depends on Instagram availability and account access; live retrieval and uninterrupted background work are not guaranteed. Android Force Stop and operating-system restrictions still apply.
-- INSFAV is an independent project and is not affiliated with Instagram, Meta or SamMods.
+Bu bölüm kaynak daldaki hazırlıkları anlatır. Yukarıdaki son yayımlanan APK bu değişiklikleri henüz içermeyebilir; bu çalışma sürüm/build numarasını yükseltmez.
 
-## Open source and development
+- **Tekrarlanan HD işlemlerini doğrulama:** Her açılışta güncel profil kimliği kontrol edilir. Aynı fotoğrafın kimliği ve doğrulanmış HD önbelleği eşleşirse görsel gövdesi yeniden indirilmez. Thumbnail’ın gerçek SHA-256 değeri de eşleşiyorsa dönüşüm/yazma atlanır. Eksik/değiştirilmiş dosya onarılır; yeni fotoğraf eskisini günceller. Önbellek kaybında veya doğrulanamayan değişken URL’lerde yeni indirme gerekebilir.
+- **Uygulama içi güncelleme:** Ayarlar’ın en altında yalnızca bu uygulamanın [kendi GitHub Releases sayfası](https://github.com/BlackWare-AI/INSFAV/releases) kontrol edilir. Otomatik kontrol, indirme ve inceleme sonrası kurulum ekranını açma izinleri ayrı ve kalıcıdır; başlangıçta kapalıdır. Kontrol yaklaşık 12 saatte birdir; Android zamanlamayı geciktirebilir.
+- **İncelenebilir yayın notları:** Güncelleme butonuna ilk dokunuşta yenilikler/düzeltmeler gösterilir. Son 50 görülen sürümün notları aynı panelden yeniden açılabilir. Notlar çalıştırılabilir HTML olarak işlenmez.
+- **Güvenli güncelleme yolu:** İndirilen APK’nın boyutu, varsa GitHub SHA-256 özeti, paket kimliği, artan versionCode’u ve mevcut kurulumla aynı imzası kontrol edilir. Hatalı/eksik paket kuruluma gönderilmez. Android’in kaynak izni ve kurulum onayı korunur; sıradan Android uygulaması arka planda sessiz kurulum yapamaz. Otomatik indirme arka planda yapılabilir; inceleme, yedek PIN’i ve kurulum ekranı için uygulamaya dönülür.
+- **Kurulum öncesi tam veri yedeği:** Seçilen klasöre favoriler, tüm özel ayarlar, manuel/WebView çerezleri, indeksler, SQLite verileri, kuyruk, geçmiş ve loglardan şifreli `.ifbackup` arşivi yazılır ve geri okunarak doğrulanır. Başarısız yedek kurulumu engeller. Aktif tarama/indirme/dönüşüm bitmeden yedek alınmaz. Harici thumbnail dosyaları, HD önbelleği ve WebView site depolaması kopyalanmaz; mevcut dosyalar yerinde kalır. Oturumun sunucuda geçersizleşmesini bu yedek engellemez.
+- **Dört rakamlı PIN:** Yeni ayar yedekleri ve güncelleme yedekleri, yan yana ve görünür dört rakam kutusu kullanır. Eski 8+ karakterli parolalı ayar yedekleri açılabilir. AES-GCM ve PBKDF2 yapısı korunur; kısa PIN nedeniyle yedeği güvenli klasörde saklayın.
+- **AMOLED seçim penceresi:** Legacy/YTDLnis seçimi, aynı konumdaki düğmeden siyah seçim penceresiyle açılır.
 
-This public MIT-licensed repository can be forked to study, modify and extend INSFAV. Third-party contributions are welcome through pull requests. Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes.
+Tam veri yedeği ve kurtarma ayrıntıları: [docs/app-updates.md](docs/app-updates.md).
 
-The current published application is **INSFAV 5.0.0, build 10**. The current source is preserved on the `preservation/current-main-2026-10-24` branch. The earlier pre-4.0.0 mainline is preserved on `backup/pre-4.0.0-main-2026-10-21`. Published release history and assets are retained.
+## Derleme ve doğrulama
 
-Build using JDK 17, Android SDK Platform 35 and the Gradle wrapper:
+JDK 17, Android SDK 35 / build-tools 35.0.0 ve Node.js kullanılır.
 
 ```sh
-./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
-./gradlew :app:assembleRelease
+npm ci
+npm run web
+npm test
+./gradlew :app:testDebugUnitTest :app:lintDebug
 ```
 
-The `release` build requires the original private signing key to produce an installable, update-compatible APK. Configure `INSFAV_KEYSTORE`, `INSFAV_STORE_PASSWORD`, `INSFAV_KEY_ALIAS` and `INSFAV_KEY_PASSWORD` locally or as secured CI secrets. **Never publish the keystore or passwords.** Unsigned APKs are not an installable public release, and replacing an installed APK signed with another certificate is not a safe in-place upgrade.
+Arayüz kaynakları `web/` içindedir; `npm run web` paketlenmiş varlıkları yeniden üretir. Paket kimliği `com.instagram.insfav` olarak korunur. Release APK’ları mevcut GitHub Actions imzalama akışıyla üretilir. Yeni sürüm yayımlanmadan sürüm numarası/build değiştirilmez ve imzasız paket dağıtılmaz.
 
-For the guarded GitHub Actions publication workflow, required secret names, certificate pinning and verification steps, see [Official release signing](docs/RELEASE-SIGNING.md). Missing configuration blocks publication; the workflow never generates a replacement key or claims compatibility with an unverified previous APK.
-
-Source files: `web/` (UI), `app/src/main/java/` (Android, SAF and Fetcher), `app/src/test/` and `tests/` (verification). Web bundles in `app/src/main/assets/` are generated via `npm ci --ignore-scripts && npm run web`.
-
-For technical verification and limitations, see [Thumbnail verification](docs/THUMBNAIL-VERIFICATION-TR.md) and [Fetcher integration](docs/FETCHER-040.md).
+Gerçek Instagram erişimi, hesap kısıtları, Android WebView sürümü ve ağ koşullarına bağlıdır. Kontrollü otomatik testlerin geçmesi her hesapta canlı erişimin doğrulandığı anlamına gelmez.
