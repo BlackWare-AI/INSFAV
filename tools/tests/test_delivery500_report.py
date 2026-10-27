@@ -28,7 +28,7 @@ class DeliveryTest(unittest.TestCase):
         self.write("builds/delivery/INSFAV-debug.apk", "mock debug bytes")
         self.write("builds/app/build/outputs/apk/release/app-release-unsigned.apk", "mock unsigned bytes")
         self.write_json("emulator-pool/pool-matrix.json", [dict(sdk=34, errors=0, requested=5, intervalOverlap=True, maxActiveWebViews=2)])
-        self.write_json("emulator-pool/background-fixture.json", dict(validFiles=8, notificationDownloaded=8, completed=8, completionNotificationRemoved=True, screenWasOff=True, screenOffBefore=0, screenOffAfter=1))
+        self.write_json("emulator-pool/background-fixture.json", dict(validFiles=8, notificationDownloaded=8, completed=8, activeDownloadNotificationVerified=True, completionNotificationRemoved=True, screenWasOff=True, screenOffBefore=0, screenOffAfter=1))
         self.rescan = dict(coldOpens=15000, warmOpens=0, sourceWrites=0, sourceBytesAndDatesUnchanged=True, restartRelistedFolder=False, coldMs=12000, warmMs=1000, pssBeforeKiB=50000, pssAfterKiB=60000)
         self.write_json("emulator-pool/rescan-15000.json", self.rescan)
         self.write_json("builds/measurements/rescan-before-after.json", dict(before=dict(coldMs=40000, warmMs=1500), after=dict(coldMs=12000, warmMs=1000)))

@@ -17,6 +17,7 @@ assert all(r["sdk"] == 34 and r["errors"] == 0 for r in rows)
 assert any(r["requested"] == 5 and r["intervalOverlap"] and r["maxActiveWebViews"] >= 2 for r in rows)
 background = json.loads((proof / "background-fixture.json").read_text())
 assert background["validFiles"] == background["notificationDownloaded"] == background["completed"] == 8
+assert background["activeDownloadNotificationVerified"]
 assert background["completionNotificationRemoved"]
 assert background["screenWasOff"] and background["screenOffAfter"] > background["screenOffBefore"]
 rescan = json.loads((proof / "rescan-15000.json").read_text())
