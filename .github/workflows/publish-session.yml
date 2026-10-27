@@ -9,8 +9,10 @@ permissions:
 jobs:
   checks:
     uses: ./.github/workflows/instagram-session.yml
+  android-checks:
+    uses: ./.github/workflows/android.yml
   publish:
-    needs: checks
+    needs: [checks, android-checks]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -60,7 +62,7 @@ jobs:
           apk=app/build/outputs/apk/release/app-release.apk
           tools="$ANDROID_HOME/build-tools/35.0.0"
           "$tools/aapt2" dump badging "$apk" > "$RUNNER_TEMP/badging.txt"
-          grep -F "package: name='com.instagram.insfav' versionCode='15' versionName='5.0.0'" "$RUNNER_TEMP/badging.txt"
+          grep -F "package: name='com.instagram.insfav' versionCode='16' versionName='5.0.0'" "$RUNNER_TEMP/badging.txt"
           if grep -q application-debuggable "$RUNNER_TEMP/badging.txt"; then exit 1; fi
           "$tools/apksigner" verify --verbose --print-certs "$apk" > "$RUNNER_TEMP/current-cert.txt"
           python3 - <<'PY'
@@ -72,15 +74,15 @@ jobs:
           assert fingerprints==['8c0dbdeea6c381fe6cbad23931d86c4e74792f324cf02cd52b26678273dac808'],'APK must use the owner-approved signing certificate'
           print('Owner-approved signing certificate verified')
           PY
-          cp "$apk" INSFAV-5.0.0-build15.apk
-          sha256sum INSFAV-5.0.0-build15.apk > SHA256SUMS
+          cp "$apk" INSFAV-5.0.0-build16.apk
+          sha256sum INSFAV-5.0.0-build16.apk > SHA256SUMS
       - name: Publish only the verified session update
         shell: bash
         run: |
           set -euo pipefail
           test "$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)" = "$GITHUB_SHA"
-          if gh release view v5.0.0-build.15-session-controls >/dev/null 2>&1; then echo 'Release already exists; refusing to overwrite.'; exit 1; fi
-          gh release create v5.0.0-build.15-session-controls INSFAV-5.0.0-build15.apk SHA256SUMS --target "$GITHUB_SHA" --title 'INSFAV 5.0.0 (build 15)' --notes-file INSTAGRAM-SESSION-RELEASE.md
+          if gh release view v5.0.0-build.16-session-controls >/dev/null 2>&1; then echo 'Release already exists; refusing to overwrite.'; exit 1; fi
+          gh release create v5.0.0-build.16-session-controls INSFAV-5.0.0-build16.apk SHA256SUMS --target "$GITHUB_SHA" --title 'INSFAV 5.0.0 (build 16)' --notes-file INSTAGRAM-SESSION-RELEASE.md
       - name: Remove temporary signing file
         if: always()
         run: rm -f "$RUNNER_TEMP/session-release.jks"
