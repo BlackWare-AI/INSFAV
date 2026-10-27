@@ -67,7 +67,7 @@ public final class PoolInstrumentation extends Instrumentation{
   if(progress.downloaded!=validFiles||validFiles!=8||progress.existing!=0||progress.pending!=0)throw new AssertionError("Queue/files mismatch");
   assertNoDownloadNotifications(c);
     boolean completionVisible=false;
-    JSONObject out=new JSONObject().put("screenWasOff",screenWasOff).put("screenOffBefore",beforeScreenOff).put("screenOffAfter",afterScreenOff).put("validFiles",validFiles).put("downloaded",progress.downloaded).put("queueProcessed",progress.done).put("homeBefore",beforeHome).put("homeAfter",afterHome).put("removeTaskBefore",beforeRemove).put("completed",written.size()).put("userPaused",SessionState.prefs(c).getBoolean("userPaused",false)).put("activeDownloadNotificationVerified",true).put("completionNotificationRemoved",!completionVisible).put("fixture",true);
+    JSONObject out=new JSONObject().put("screenWasOff",screenWasOff).put("screenOffBefore",beforeScreenOff).put("screenOffAfter",afterScreenOff).put("validFiles",validFiles).put("notificationDownloaded",progress.downloaded).put("notificationProgress",progress.done).put("homeBefore",beforeHome).put("homeAfter",afterHome).put("removeTaskBefore",beforeRemove).put("completed",written.size()).put("userPaused",SessionState.prefs(c).getBoolean("userPaused",false)).put("activeDownloadNotificationVerified",true).put("completionNotificationRemoved",!completionVisible).put("fixture",true);
   try(FileOutputStream stream=c.openFileOutput("background-fixture.json",Context.MODE_PRIVATE)){stream.write(out.toString(2).getBytes(java.nio.charset.StandardCharsets.UTF_8));}sendStatus(0,status("BACKGROUND_HOME_TASK_OK "+out));
  }
  // Offline viewer identity fixture for the mandatory pre-batch authentication.
