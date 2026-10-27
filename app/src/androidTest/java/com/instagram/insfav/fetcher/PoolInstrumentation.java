@@ -52,7 +52,8 @@ public final class PoolInstrumentation extends Instrumentation{
   WebViewProfileProvider p=new WebViewProfileProvider(c,CookieJar.parse("sessionid=OFFLINE_BACKGROUND; ds_user_id=123",System.currentTimeMillis()),(view,url)->{if(!url.equals("https://www.instagram.com/"))navigation.countDown();view.loadUrl(url);},url->{if(url.equals("https://www.instagram.com/"))return viewerFixture();if(url.startsWith("https://www.instagram.com/")){String u=url.substring("https://www.instagram.com/".length()).replace("/","");String h="<html><head><link rel='canonical' href='"+url+"'></head><body><main><header><img id='a' alt=\""+u+"'s profile picture\"></header></main><script>setTimeout(()=>document.getElementById('a').src='https://fixture.cdninstagram.com/"+u+".png',4000)</script></body></html>";return new WebResourceResponse("text/html","UTF-8",new ByteArrayInputStream(h.getBytes(java.nio.charset.StandardCharsets.UTF_8)));}return new WebResourceResponse("image/png",null,new ByteArrayInputStream(png));},()->new PublicProfileProvider(url->new FixtureConnection(url,png,new AtomicInteger(),new AtomicInteger())));
   FetchBroker b=new FetchBroker(c,full->p);java.lang.reflect.Field f=FetchBroker.class.getDeclaredField("instance");f.setAccessible(true);f.set(null,b);QueueControl.requested=false;
   FetchService.request(c,"missing");if(!navigation.await(15,TimeUnit.SECONDS))throw new AssertionError("Service did not start two real pages");
-  getUiAutomation().executeShellCommand("input keyevent KEYCODE_HOME").close();int beforeHome=written.size();until=SystemClock.elapsedRealtime()+20000;while(written.size()<=beforeHome&&SystemClock.elapsedRealtime()<until)Thread.sleep(100);
+  assertWorkingNotification(c);
+    getUiAutomation().executeShellCommand("input keyevent KEYCODE_HOME").close();int beforeHome=written.size();until=SystemClock.elapsedRealtime()+20000;while(written.size()<=beforeHome&&SystemClock.elapsedRealtime()<until)Thread.sleep(100);
   if(written.size()<=beforeHome||QueueControl.requested)throw new AssertionError("Background Home interrupted retrieval");int afterHome=written.size();
   getUiAutomation().executeShellCommand("input keyevent KEYCODE_SLEEP").close();Thread.sleep(500);boolean screenWasOff=!c.getSystemService(PowerManager.class).isInteractive();if(!screenWasOff)throw new AssertionError("Emulator display did not turn off");int beforeScreenOff=written.size();
   until=SystemClock.elapsedRealtime()+25000;while(written.size()<=beforeScreenOff&&SystemClock.elapsedRealtime()<until)Thread.sleep(100);
@@ -64,18 +65,29 @@ public final class PoolInstrumentation extends Instrumentation{
   try(QueueStore q=new QueueStore(c)){progress=new DownloadNotification.Progress(q.counts(),SessionState.prefs(c).getString("state",""),"");}
   OutputFolder output=new OutputFolder(c,FixtureDocuments.tree().toString());int validFiles=0;for(String u:users)if(output.valid(Identity.outputFilename(u)))validFiles++;
   if(progress.downloaded!=validFiles||validFiles!=8||progress.existing!=0||progress.pending!=0)throw new AssertionError("Queue/files mismatch");
-  Notification resultNotification=null;until=SystemClock.elapsedRealtime()+5000;
-  while(resultNotification==null&&SystemClock.elapsedRealtime()<until){for(android.service.notification.StatusBarNotification notification:c.getSystemService(NotificationManager.class).getActiveNotifications())if(notification.getId()==3)resultNotification=notification.getNotification();if(resultNotification==null)Thread.sleep(100);}
-  if(resultNotification==null||!resultNotification.extras.getCharSequence(Notification.EXTRA_TEXT).toString().startsWith("Completed")||resultNotification.extras.getInt(Notification.EXTRA_PROGRESS)!=8)throw new AssertionError("Missing or incorrect result notification");
-  if(resultNotification.getTimeoutAfter()!=6000)throw new AssertionError("Completion timeout missing");
-  until=SystemClock.elapsedRealtime()+10000;boolean completionVisible=true;
-  while(completionVisible&&SystemClock.elapsedRealtime()<until){completionVisible=false;for(android.service.notification.StatusBarNotification n:c.getSystemService(NotificationManager.class).getActiveNotifications())if(n.getId()==3)completionVisible=true;if(completionVisible)Thread.sleep(100);}
-  if(completionVisible)throw new AssertionError("Completion notification did not expire");
-  JSONObject out=new JSONObject().put("screenWasOff",screenWasOff).put("screenOffBefore",beforeScreenOff).put("screenOffAfter",afterScreenOff).put("validFiles",validFiles).put("notificationDownloaded",progress.downloaded).put("notificationProgress",resultNotification.extras.getInt(Notification.EXTRA_PROGRESS)).put("homeBefore",beforeHome).put("homeAfter",afterHome).put("removeTaskBefore",beforeRemove).put("completed",written.size()).put("userPaused",SessionState.prefs(c).getBoolean("userPaused",false)).put("completionNotificationRemoved",!completionVisible).put("fixture",true);
+  assertNoDownloadNotifications(c);
+    boolean completionVisible=false;
+    JSONObject out=new JSONObject().put("screenWasOff",screenWasOff).put("screenOffBefore",beforeScreenOff).put("screenOffAfter",afterScreenOff).put("validFiles",validFiles).put("downloaded",progress.downloaded).put("queueProcessed",progress.done).put("homeBefore",beforeHome).put("homeAfter",afterHome).put("removeTaskBefore",beforeRemove).put("completed",written.size()).put("userPaused",SessionState.prefs(c).getBoolean("userPaused",false)).put("activeDownloadNotificationVerified",true).put("completionNotificationRemoved",!completionVisible).put("fixture",true);
   try(FileOutputStream stream=c.openFileOutput("background-fixture.json",Context.MODE_PRIVATE)){stream.write(out.toString(2).getBytes(java.nio.charset.StandardCharsets.UTF_8));}sendStatus(0,status("BACKGROUND_HOME_TASK_OK "+out));
  }
  // Offline viewer identity fixture for the mandatory pre-batch authentication.
- static WebResourceResponse viewerFixture(){return new WebResourceResponse("text/html","UTF-8",new ByteArrayInputStream("<script type='application/json'>{\"viewerId\":\"123\"}</script>".getBytes(java.nio.charset.StandardCharsets.UTF_8)));}
+ static void assertWorkingNotification(Context c) {
+    for(android.service.notification.StatusBarNotification n:c.getSystemService(NotificationManager.class).getActiveNotifications())
+      if((n.getId()==1||n.getId()==2)&&(n.getNotification().flags&Notification.FLAG_ONGOING_EVENT)!=0)return;
+    throw new AssertionError("Running download has no ongoing notification");
+  }
+  static void assertNoDownloadNotifications(Context c) throws InterruptedException {
+    long deadline=SystemClock.elapsedRealtime()+5000;
+    do {
+      boolean found=false;
+      for(android.service.notification.StatusBarNotification n:c.getSystemService(NotificationManager.class).getActiveNotifications())
+        if(n.getId()==1||n.getId()==2||n.getId()==3)found=true;
+      if(!found)return;
+      Thread.sleep(100);
+    }while(SystemClock.elapsedRealtime()<deadline);
+    throw new AssertionError("Stopped download retained a notification");
+  }
+  static WebResourceResponse viewerFixture(){return new WebResourceResponse("text/html","UTF-8",new ByteArrayInputStream("<script type='application/json'>{\"viewerId\":\"123\"}</script>".getBytes(java.nio.charset.StandardCharsets.UTF_8)));}
  static byte[] png(){Bitmap b=Bitmap.createBitmap(640,480,Bitmap.Config.ARGB_8888);b.eraseColor(Color.BLUE);ByteArrayOutputStream o=new ByteArrayOutputStream();b.compress(Bitmap.CompressFormat.PNG,100,o);b.recycle();return o.toByteArray();}
  static final class FixtureConnection extends HttpsURLConnection{
   final byte[] bytes;final AtomicInteger active,peak;
