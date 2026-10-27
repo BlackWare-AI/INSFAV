@@ -56,5 +56,33 @@ class DeliveryTest(unittest.TestCase):
             self.write_json("emulator-pool/rescan-15000.json", {**self.rescan, **change})
             with self.assertRaises(AssertionError):self.package()
 
+    def current_background(self):
+        return dict(validFiles=8, downloaded=8, queueProcessed=8, completed=8,
+                    activeDownloadNotificationVerified=True, completionNotificationRemoved=True,
+                    screenWasOff=True, screenOffBefore=0, screenOffAfter=1)
+
+    def test_accepts_active_only_notification_evidence_without_changing_raw_fields(self):
+        background = self.current_background()
+        self.write_json("emulator-pool/background-fixture.json", background)
+        self.package()
+        record = json.loads((self.root / "final-delivery/Verification.json").read_text())
+        self.assertEqual(background, record["backgroundFixture"])
+        report = (self.root / "final-delivery/Development-Report-TR.md").read_text()
+        self.assertIn("Aktif indirme bildirimi doğrulandı", report)
+        self.assertNotIn("6 saniye", report)
+
+    def test_rejects_unverified_or_inconsistent_current_notification_evidence(self):
+        for change in ({"activeDownloadNotificationVerified": False}, {"queueProcessed": 7},
+                       {"downloaded": 7}, {"notificationDownloaded": 7},
+                       {"completionNotificationRemoved": False}):
+            self.write_json("emulator-pool/background-fixture.json", {**self.current_background(), **change})
+            with self.assertRaises(AssertionError):self.package()
+
+    def test_requires_current_notification_verification(self):
+        background = self.current_background()
+        background.pop("activeDownloadNotificationVerified")
+        self.write_json("emulator-pool/background-fixture.json", background)
+        with self.assertRaises((AssertionError, KeyError)):self.package()
+
 
 if __name__ == "__main__":unittest.main()
