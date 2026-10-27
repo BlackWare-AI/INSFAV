@@ -63,16 +63,16 @@ final class FetchBroker {
   if(provider!=null&&active.isEmpty()&&(poisoned||provider.blockingFailure()!=null||!sessionGeneration.equals(prefs.getString("cookieGeneration","")))){ProfileProvider p=provider;provider=null;p.close();authenticationRequired=true;}
   QueueControl.queuedAccounts=tasks.size();Request r=tasks.peek();if(r==null||active.size()>=limit){Thread.sleep(20);continue;}
   if(r.result.isCancelled()){tasks.remove(r);continue;}
-  String blocked=prefs.getString("blocked","");if(!blocked.isEmpty()){tasks.remove(r);r.result.completeExceptionally(new ProfileProvider.Failure(blocked,0,prefs.getLong("retryAt",0),true));continue;}
+  String blocked=prefs.getString("blocked","");if(!blocked.isEmpty()&&(!r.full||InstagramSession.security(blocked)||(blocked.equals("RATE_LIMITED")&&(prefs.getLong("retryAt",0)<=0||time.now()<prefs.getLong("retryAt",0))))){tasks.remove(r);r.result.completeExceptionally(new ProfileProvider.Failure(blocked,0,prefs.getLong("retryAt",0),true));continue;}
   if(!r.full&&!RunPolicy.read(prefs).contains(java.time.Instant.ofEpochMilli(time.now()).atZone(java.time.ZoneId.systemDefault()))){tasks.remove(r);r.result.completeExceptionally(new ProfileProvider.Failure("OUTSIDE_WORKING_HOURS"));continue;}
-  long now=time.now(),gate=Math.max(prefs.getLong("nextRequestAt",0),prefs.getLong("retryAt",0));if(now<gate){time.sleep(Math.min(50,gate-now));continue;}
+  long now=time.now(),gate=r.full?prefs.getLong("retryAt",0):Math.max(prefs.getLong("nextRequestAt",0),prefs.getLong("retryAt",0));if(now<gate){time.sleep(Math.min(50,gate-now));continue;}
   boolean[] busy=new boolean[30];for(Request a:active)if(a.slot>=0)busy[a.slot]=true;
-  int slot=-1;long earliest=Long.MAX_VALUE;for(int i=0;i<limit;i++)if(!busy[i]){long ready=WorkerPacing.ready(prefs,i);if(ready<=now){slot=i;break;}earliest=Math.min(earliest,ready);}
+  int slot=-1;long earliest=Long.MAX_VALUE;for(int i=0;i<limit;i++)if(!busy[i]){long ready=r.full?0:WorkerPacing.ready(prefs,i);if(ready<=now){slot=i;break;}earliest=Math.min(earliest,ready);}
   if(slot<0){time.sleep(Math.min(50,Math.max(1,earliest-now)));continue;}
   // Interactive work drains existing batch operations, then owns the same session at a safe boundary.
   if((r.full&&!active.isEmpty())||active.stream().anyMatch(a->a.full)){Thread.sleep(20);continue;}
   if(!r.full&&batch&&authenticationRequired&&!active.isEmpty()){Thread.sleep(20);continue;}
-  tasks.remove(r);r.slot=slot;WorkerPacing.reserve(prefs,slot,now,RunPolicy.read(prefs));
+  tasks.remove(r);r.slot=slot;if(!r.full)WorkerPacing.reserve(prefs,slot,now,RunPolicy.read(prefs));
   try{if(provider==null){provider=factory.open(false);authenticationRequired=true;poisoned=false;sessionGeneration=prefs.getString("cookieGeneration","");}provider.trim(limit);authenticateBatch(r,provider);if(r.result.isCancelled())continue;}catch(ProfileProvider.Failure e){if(FailurePolicy.pause(e))block(e);r.result.completeExceptionally(e);continue;}catch(OutOfMemoryError e){ProfileProvider.Failure error=new ProfileProvider.Failure("IMAGE_MEMORY_LIMIT",0,0,true);block(error);r.result.completeExceptionally(error);continue;}catch(RuntimeException e){ProfileProvider.Failure error=new ProfileProvider.Failure("PROCESSING_ERROR",0,0,true);block(error);r.result.completeExceptionally(error);continue;}
   r.deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(110);active.add(r);QueueControl.activeAccounts=active.size();QueueControl.peakAccounts=Math.max(QueueControl.peakAccounts,active.size());
   workers.execute(()->execute(r));
