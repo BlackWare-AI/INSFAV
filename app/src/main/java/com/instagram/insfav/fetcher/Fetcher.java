@@ -19,12 +19,13 @@ public final class Fetcher {
   default JSONObject catalog()throws Exception{return new JSONObject();}
  }
  public interface Listener{void changed();
-    default void changed(boolean critical){changed();}void fullReady(String user,String token,int width,int height);void fullFailed(String token,String code);}
+    default void changed(boolean critical){changed();}void fullReady(String user,String token,int width,int height);void fullFailed(String token,String code);
+    default void thumbnailProgress(String user,boolean busy){}}
  private static android.database.ContentObserver catalogObserver;private static String observerTree="";
  private static List<String> lastSynced;private static final AtomicLong lastPublished=new AtomicLong();
  private static Context context;private static Host host;private static final CopyOnWriteArraySet<Listener> listeners=new CopyOnWriteArraySet<>();
  private static final AtomicLong generation=new AtomicLong();private static volatile String viewerToken="";private static volatile byte[] fullBytes;private static volatile String fullMime="image/jpeg";private static CompletableFuture<byte[]> viewing;
- public static void initialize(Context c,Host h){context=c.getApplicationContext();host=h;lastSynced=null;ManualRun.reset(SessionState.prefs(context));WorkScheduler.cancel(context);if(!running())DownloadNotification.clear(context);}
+ public static void initialize(Context c,Host h){context=c.getApplicationContext();host=h;HdThumbnailJobs.recover(context,h);lastSynced=null;ManualRun.reset(SessionState.prefs(context));WorkScheduler.cancel(context);if(!running())DownloadNotification.clear(context);}
  static Host host(){if(host==null)throw new IllegalStateException("FETCHER_NOT_READY");return host;}
  public static void addListener(Listener l){listeners.add(l);}public static void removeListener(Listener l){listeners.remove(l);}
   private static final ScheduledExecutorService updates =
@@ -161,22 +162,30 @@ public final class Fetcher {
     while ((error instanceof java.util.concurrent.CompletionException || error instanceof java.util.concurrent.ExecutionException) && error.getCause() != null) error = error.getCause();
     return error instanceof ProfileProvider.Failure ? ((ProfileProvider.Failure) error).code : "REMOTE_IMAGE_UNAVAILABLE";
   }
+  public static void thumbnailProgress(String user,boolean busy){for(Listener l:listeners)l.thumbnailProgress(user,busy);}
   public static void view(String name,String token){
-  closeViewer();if(!Identity.valid(name)||!token.matches("[a-zA-Z0-9_-]{1,80}"))return;
-  if(InstagramSession.manual(context)&&!InstagramSession.configured(context)){for(Listener l:listeners)l.fullFailed(token,"COOKIE_REQUIRED");return;}
-  final long id=generation.get();viewerToken=token;CompletableFuture<byte[]> future=FetchBroker.get(context).submit(name,true);viewing=future;
-  future.whenCompleteAsync((bytes,error)->{
-   try{
-    if(error!=null){for(Listener l:listeners)if(id==generation.get())l.fullFailed(token,viewFailure(error));return;}
-    // Validate the whole container and decoder before replacing an existing view or thumbnail.
-    ThumbnailCodec.convert(bytes);BitmapFactory.Options bounds=new BitmapFactory.Options();bounds.inJustDecodeBounds=true;BitmapFactory.decodeByteArray(bytes,0,bytes.length,bounds);
-    byte[] thumbnailSource = null;
-    synchronized(Fetcher.class){if(id!=generation.get()||!token.equals(viewerToken)){Arrays.fill(bytes,(byte)0);return;}fullBytes=bytes;fullMime=bounds.outMimeType;viewing=null;try{thumbnailSource=bytes.clone();}catch(OutOfMemoryError ignored){}}
-    for(Listener l:listeners)if(id==generation.get())l.fullReady(name,token,bounds.outWidth,bounds.outHeight);
-    if(thumbnailSource!=null&&HdThumbnailWriter.save(context,host(),name,thumbnailSource))for(Listener l:listeners)l.changed();
-   }catch(Exception|OutOfMemoryError issue){if(bytes!=null&&bytes!=fullBytes)Arrays.fill(bytes,(byte)0);if(id==generation.get()&&bytes!=fullBytes)for(Listener l:listeners)l.fullFailed(token,"IMAGE_VALIDATION_FAILED");new Diagnostics(context).log("IMAGE","VIEW_OR_REFRESH_FAILED",0);}
-   finally{if(id==generation.get())viewing=null;publish();}
-  });
- }
+    closeViewer();if(!Identity.valid(name)||!token.matches("[a-zA-Z0-9_-]{1,80}"))return;
+    if(InstagramSession.manual(context)&&!InstagramSession.configured(context)){for(Listener l:listeners)l.fullFailed(token,"COOKIE_REQUIRED");return;}
+    final long id=generation.get();final Host destination=host();viewerToken=token;
+    thumbnailProgress(name,HdThumbnailJobs.busy(destination,name));
+    CompletableFuture<byte[]> future=FetchBroker.get(context).submit(name,true);viewing=future;
+    future.whenCompleteAsync((bytes,error)->{
+      try{
+        if(error!=null){for(Listener l:listeners)if(id==generation.get())l.fullFailed(token,viewFailure(error));return;}
+        BitmapFactory.Options bounds=HdThumbnailWriter.validate(bytes);
+        // Handoff occurs before the viewer-generation guard. Completed downloads survive navigation.
+        try{HdThumbnailJobs.enqueue(context,destination,name,bytes);}catch(Exception|OutOfMemoryError cacheFailure){new Diagnostics(context).log("IMAGE","THUMBNAIL_CACHE_FAILED",0);}
+        synchronized(Fetcher.class){
+          if(id!=generation.get()||!token.equals(viewerToken)){Arrays.fill(bytes,(byte)0);return;}
+          fullBytes=bytes;fullMime=bounds.outMimeType;viewing=null;
+        }
+        for(Listener l:listeners)if(id==generation.get())l.fullReady(name,token,bounds.outWidth,bounds.outHeight);
+      }catch(Exception|OutOfMemoryError issue){
+        if(bytes!=null&&bytes!=fullBytes)Arrays.fill(bytes,(byte)0);
+        if(id==generation.get()&&bytes!=fullBytes)for(Listener l:listeners)l.fullFailed(token,"IMAGE_VALIDATION_FAILED");
+        new Diagnostics(context).log("IMAGE","VIEW_OR_REFRESH_FAILED",0);
+      }finally{if(id==generation.get())viewing=null;publish();}
+    });
+  }
  private Fetcher(){}
 }

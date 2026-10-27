@@ -42,6 +42,9 @@ public final class MainActivity extends Activity {
     private final Fetcher.Listener fetchListener=new Fetcher.Listener(){
         public void changed(){changed(false);}
         public void changed(boolean critical){if(!foreground)return;if(!io.isShutdown())try{queueFetcherStatus(critical,()->{try{send("fetcher-status",Fetcher.snapshot());}catch(Exception error){store.log("fetcher_status","FAILED");}});}catch(RejectedExecutionException ignored){}}
+        public void thumbnailProgress(String user,boolean busy) {
+          try{send("hd-thumbnail-progress",new JSONObject().put("user",user).put("busy",busy));}catch(Exception ignored){}
+        }
         public void fullReady(String user,String token,int width,int height){try{send("remote-full",new JSONObject().put("user",user).put("token",token).put("width",width).put("height",height));}catch(Exception ignored){}}
         public void fullFailed(String token,String code){try{send("remote-full-failed",new JSONObject().put("token",token).put("code",code));}catch(Exception ignored){}}
     };

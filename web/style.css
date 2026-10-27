@@ -60,3 +60,5 @@ html.main-scroll-visible{scrollbar-color:transparent transparent}html.main-scrol
 
 .person-placeholder{width:27.6px;height:27.6px}
 @media(prefers-reduced-motion:reduce){#main-scroll,#main-scroll button{transition:none}}
+
+#hd-thumbnail-spinner{position:absolute;left:18px;bottom:calc(18px + env(safe-area-inset-bottom,0px));width:24px;height:24px;border:3px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:hd-thumbnail-turn .8s linear infinite;pointer-events:none;z-index:4}@keyframes hd-thumbnail-turn{to{transform:rotate(360deg)}}
