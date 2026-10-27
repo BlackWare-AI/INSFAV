@@ -69,6 +69,7 @@ final class WebViewProfileProvider implements ProfileProvider {
         try (InputStream in = context.getAssets().open("profile-probe-hd.js")) { ByteArrayOutputStream out = new ByteArrayOutputStream(); byte[] b = new byte[4096]; int n; while((n=in.read(b))!=-1){if(out.size()+n>32768)throw new IOException();out.write(b,0,n);} hdProbe = out.toString("UTF-8"); } catch(IOException e) { throw new Failure("WEBVIEW_PROBE_UNAVAILABLE"); }
     }
     private volatile boolean verifiedSession;
+    @Override public boolean requiresAuthentication() { return false; }
     @Override public void authenticate() throws Failure {
         if (sessionReady.getCount() == 0 && sessionFailure == null) log.session("SHARED_COOKIES_REUSED");
         log.session("AUTHENTICATION_STARTED"); verifiedSession = false;

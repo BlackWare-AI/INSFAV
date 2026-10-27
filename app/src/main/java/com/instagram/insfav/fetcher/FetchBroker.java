@@ -44,6 +44,7 @@ final class FetchBroker {
  private void cancel(Request r,boolean timeout){if(timeout)r.result.completeExceptionally(new ProfileProvider.Failure("PROFILE_OPERATION_TIMEOUT"));else r.result.cancel(false);ProfileProvider p=provider;if(p!=null)p.cancel(r.user);Thread thread=r.thread;if(thread!=null)thread.interrupt();}
  private void block(ProfileProvider.Failure e){poisoned=true;prefs.edit().putString("sessionEvidence",SessionState.invalid(e)?"UNVERIFIED":SessionState.evidence(prefs)).putString("blocked",e.code).putInt("blockedHttp",e.http).putLong("retryAt",Math.max(prefs.getLong("retryAt",0),e.retryAt)).putString("state",SessionState.pausedText(e.code)).commit();ProfileProvider p=provider;if(p!=null)p.cancel();for(Request a:active)if(a.thread!=Thread.currentThread())cancel(a,false);}
  private void authenticateBatch(Request r, ProfileProvider p)throws ProfileProvider.Failure {
+  if(!p.requiresAuthentication()){authenticationRequired=false;return;}
   if(r.full||!batch||!authenticationRequired)return;
   authenticating=r;r.thread=Thread.currentThread();
   try {

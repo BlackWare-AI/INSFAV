@@ -26,6 +26,7 @@ final class CookieVault {
     }); }
     CookieVault(Context context, Keys keys) { this(context, keys, "fetcher-cookies.enc"); }
     CookieVault(Context context, Keys keys, String name) { file = new AtomicFile(new File(context.getFilesDir(), name)); this.keys = keys; }
+    static CookieVault namedBrowser(Context c, String name) { return new CookieVault(c, new CookieVault(c).keys, name); }
     static CookieVault browser(Context c) {
         CookieVault original = new CookieVault(c);
         return new CookieVault(c, original.keys, "instagram-webview-cookies.enc");
