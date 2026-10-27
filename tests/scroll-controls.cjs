@@ -20,7 +20,9 @@ let checks=0;const check=(ok,label)=>{assert.ok(ok,label);console.log('PASS '+la
  const validGutter=()=>{const list=document.getElementById('list').getBoundingClientRect(),c=document.getElementById('main-scroll').getBoundingClientRect(),thumb=document.getElementById('scroll-thumb').getBoundingClientRect(),nav=document.querySelector('.bottom-nav').getBoundingClientRect();return c.width===26&&document.documentElement.clientWidth-c.right>=3.9&&document.getElementById('scroll-grip').getBoundingClientRect().width===15&&thumb.bottom<nav.top&&document.documentElement.scrollWidth<=innerWidth;};
  check(await page.evaluate(validGutter),'larger controls and 15px grip stay inside screen above bottom bar without layout changes');
  for(const width of [280,320,393,600]){
-  await page.setViewportSize({width,height:820});await page.waitForTimeout(40);
+  await page.setViewportSize({width,height:820});
+  const deadline=Date.now()+3000;
+  while(!await page.evaluate(validGutter)&&Date.now()<deadline)await page.waitForTimeout(16);
   check(await page.evaluate(validGutter),'bounded overlay at '+width+'px');
   for(const scale of [1.3,1.5]){
    const style=await page.addStyleTag({content:`.folder-title{font-size:${15.47*scale}px}.folder-count{font-size:${11.05*scale}px}.folder-arrow{font-size:${32.76*scale}px}.card-name{font-size:${16.575*scale}px}.card-user{font-size:${14.365*scale}px}`});
