@@ -96,9 +96,20 @@ public final class ScrollDeviceChecks {
     private static String js(Instrumentation test,WebView web,String script)throws Exception {AtomicReference<String> value=new AtomicReference<>();CountDownLatch done=new CountDownLatch(1);test.runOnMainSync(()->web.evaluateJavascript(script,result->{value.set(result);done.countDown();}));if(!done.await(10,TimeUnit.SECONDS))throw new AssertionError("WebView evaluation timed out");return value.get();}
     private static JSONObject json(Instrumentation test,WebView web,String expression)throws Exception {return new JSONObject((String)new JSONTokener(js(test,web,"JSON.stringify("+expression+")")).nextValue());}
     private static void await(Instrumentation test,WebView web,String condition)throws Exception {long until=SystemClock.elapsedRealtime()+15000;while(SystemClock.elapsedRealtime()<until){if("true".equals(js(test,web,condition)))return;Thread.sleep(50);}throw new AssertionError("Timed out: "+condition+"; layout="+js(test,web,"JSON.stringify({hidden:document.hidden,width:innerWidth,clientWidth:document.documentElement.clientWidth,root:document.documentElement.getBoundingClientRect().toJSON(),list:document.getElementById('list').getBoundingClientRect().toJSON(),scrollY,scrollHeight:document.scrollingElement.scrollHeight,controlsHidden:document.getElementById('main-scroll').hidden,rows:rows.length,surfaces:[...document.querySelectorAll('.screen,.modal-overlay,#splash,#viewer')].map(e=>[e.id,e.hidden])})"));}
-    private static float[] point(Instrumentation test,WebView web,String id)throws Exception {JSONObject p=json(test,web,"(()=>{const r=document.getElementById('"+id+"').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,width:innerWidth};})()");int[] origin=new int[2];test.runOnMainSync(()->web.getLocationOnScreen(origin));float ratio=web.getWidth()/(float)p.getDouble("width");return new float[]{origin[0]+(float)p.getDouble("x")*ratio,origin[1]+(float)p.getDouble("y")*ratio};}
+    private static float[] point(Instrumentation test,WebView web,String id)throws Exception {
+        // A visible DOM node can still be moving/fading or covered in the compositor.
+        // Wait for the actual hit target and its ancestors' animations before computing input coordinates.
+        String target=JSONObject.quote(id);
+        await(test,web,"(()=>{const e=document.getElementById("+target+");if(!e)return false;for(let a=e;a;a=a.parentElement){if(a.inert||a.getAnimations().some(x=>x.playState==='running'))return false;}const r=e.getBoundingClientRect(),h=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return r.width>0&&r.height>0&&(h===e||e.contains(h)||(e.id==='scroll-grip'&&h===e.parentElement));})()");
+        CountDownLatch drawn=new CountDownLatch(1);
+        test.runOnMainSync(()->web.postVisualStateCallback(SystemClock.uptimeMillis(),new WebView.VisualStateCallback(){@Override public void onComplete(long requestId){drawn.countDown();}}));
+        if(!drawn.await(10,TimeUnit.SECONDS))throw new AssertionError("Input target was not drawn");
+        JSONObject p=json(test,web,"(()=>{const r=document.getElementById("+target+").getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,width:innerWidth};})()");
+        int[] origin=new int[2];test.runOnMainSync(()->web.getLocationOnScreen(origin));float ratio=web.getWidth()/(float)p.getDouble("width");
+        return new float[]{origin[0]+(float)p.getDouble("x")*ratio,origin[1]+(float)p.getDouble("y")*ratio};
+    }
     private static void touch(Instrumentation test,long down,int action,float x,float y){MotionEvent event=MotionEvent.obtain(down,SystemClock.uptimeMillis(),action,x,y,0);event.setSource(InputDevice.SOURCE_TOUCHSCREEN);try{test.sendPointerSync(event);}finally{event.recycle();}}
-    private static void tap(Instrumentation test,WebView web,float[] point){long down=SystemClock.uptimeMillis();touch(test,down,MotionEvent.ACTION_DOWN,point[0],point[1]);touch(test,down,MotionEvent.ACTION_UP,point[0],point[1]);}
+    private static void tap(Instrumentation test,WebView web,float[] point){long down=SystemClock.uptimeMillis();touch(test,down,MotionEvent.ACTION_DOWN,point[0],point[1]);SystemClock.sleep(60);touch(test,down,MotionEvent.ACTION_UP,point[0],point[1]);}
     private static void require(boolean condition,String message){if(!condition)throw new AssertionError(message);}
     private ScrollDeviceChecks(){}
 }
