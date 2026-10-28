@@ -112,7 +112,15 @@ final class PublicProfileProvider implements ProfileProvider {
         } catch (Failure failure) { throw failure; }
         catch (IOException error) { throw new Failure(cancelled ? "REQUEST_CANCELLED" : error instanceof UnknownHostException ? "DNS_ERROR" : error instanceof javax.net.ssl.SSLException ? "TLS_ERROR" : error instanceof java.net.SocketTimeoutException ? "NETWORK_TIMEOUT" : "NETWORK_ERROR"); }
     }
+  String imageEtag="";
+  private String conditionalUrl="",conditionalEtag="",initialImageUrl="";
+  private byte[] conditionalBytes;
+  byte[] downloadConditional(URL url,String etag,byte[] cached)throws Failure {
+    conditionalUrl=url.toString();conditionalEtag=etag;conditionalBytes=cached;
+    try{return download(url);}finally{conditionalUrl="";conditionalEtag="";conditionalBytes=null;}
+  }
     byte[] download(URL url) throws Failure {
+    initialImageUrl=url.toString();imageEtag="";
         try { return get(url, true, null); }
         catch (Failure error) { throw error; }
         catch (IOException error) { throw new Failure("DOWNLOAD_FAILED"); }
@@ -139,6 +147,7 @@ final class PublicProfileProvider implements ProfileProvider {
                 connection.setRequestProperty("Accept", image ? "image/webp,image/jpeg,image/png" : "text/html");
                 connection.setRequestProperty("Accept-Encoding", "identity");
                 if (image) connection.setRequestProperty("Referer", "https://www.instagram.com/");
+                if(image&&url.toString().equals(conditionalUrl)&&HdImageCache.strongEtag(conditionalEtag))connection.setRequestProperty("If-None-Match",conditionalEtag);
                 if (cancelled) throw new Failure("REQUEST_CANCELLED");
                 int status = connection.getResponseCode();
                 if (cancelled) throw new Failure("REQUEST_CANCELLED");
@@ -147,13 +156,15 @@ final class PublicProfileProvider implements ProfileProvider {
                 if (status == 401) throw new Failure(image ? "DOWNLOAD_FAILED" : cookies == null ? "LOGIN_REQUIRED" : "COOKIE_INVALID_EXPIRED", status, 0, true);
                 if (status == 403) throw new Failure(image ? "DOWNLOAD_FAILED" : "PRIVATE_RESTRICTED", status, 0, true);
                 if (status == 404) throw new Failure(image ? "DOWNLOAD_FAILED" : "PROFILE_NOT_FOUND_OR_UNAVAILABLE", status, 0, false);
+                if(image&&status==304&&url.toString().equals(conditionalUrl)&&HdImageCache.strongEtag(conditionalEtag)&&conditionalBytes!=null){imageEtag=conditionalEtag;return conditionalBytes;}
                 if (status >= 300 && status < 400) {
                     String location = connection.getHeaderField("Location");
                     if (location == null) throw new Failure("REDIRECT_INVALID", status, 0, true);
                     url = new URL(url, location); continue;
                 }
                 if (status != 200) throw new Failure(image ? "DOWNLOAD_FAILED" : "HTTP_ERROR", status, 0, false);
-                String type = connection.getContentType();
+                if(image)imageEtag=url.toString().equals(initialImageUrl)?connection.getHeaderField("ETag"):"";
+        String type = connection.getContentType();
                 if (type == null || !(image ? type.matches("(?i)image/(jpeg|png|webp)(;.*)?") : type.toLowerCase(Locale.ROOT).startsWith("text/html"))) throw new Failure("CONTENT_TYPE_REJECTED", status, 0, false);
                 int limit = image ? 8 * 1024 * 1024 : 4 * 1024 * 1024;
                 if (connection.getContentLengthLong() > limit) throw new Failure("RESPONSE_TOO_LARGE");

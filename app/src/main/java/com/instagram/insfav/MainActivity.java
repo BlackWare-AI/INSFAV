@@ -36,6 +36,7 @@ public final class MainActivity extends Activity {
     private final ExecutorService scans = Executors.newSingleThreadExecutor();
     private String pendingExport;
     private SettingsBackupUi settingsBackup;
+    private com.instagram.insfav.updates.UpdateUi updates;
     private final DoubleBackExit exitBack = new DoubleBackExit();
     private final java.util.concurrent.atomic.AtomicBoolean scanPending = new java.util.concurrent.atomic.AtomicBoolean();
     private static final int IMPORT = 20, EXPORT = 21, FOLDER = 22, WRITE_FOLDER = 23;
@@ -50,6 +51,15 @@ public final class MainActivity extends Activity {
     };
     @Override public void onCreate(Bundle state) {
         super.onCreate(state); Fetcher.addListener(fetchListener); store = Store.get(this); images = new LocalImages(this, store);
+        updates = new com.instagram.insfav.updates.UpdateUi(this, new com.instagram.insfav.updates.UpdateUi.Host() {
+ public void send(String event,Object value){MainActivity.this.send(event,value);}
+ public void idle() throws Exception {if(images.scanning()||scanPending.get())throw new IOException("Wait for scan");Fetcher.requireBackupIdle();}
+ public JSONObject backup(char[] pin) throws Exception {
+  idle();synchronized(store){store.flushIndex();JSONObject extra=new JSONObject();for(String key:new String[]{"treeUri","directoryId","folderLabel"})if(store.settings.has(key))extra.put(key,store.settings.getString(key));
+   return new JSONObject().put("settingsArchive",new JSONObject(Fetcher.exportSettings(pin,extra))).put("sessionVaults",Fetcher.exportSessionBackup());
+  }
+ }
+});
         settingsBackup=new SettingsBackupUi(this,io,new SettingsBackupUi.Host(){
             public String export(char[] pass)throws Exception {
                 JSONObject extra=new JSONObject();synchronized(store){for(String k:new String[]{"treeUri","directoryId","folderLabel"})if(store.settings.has(k))extra.put(k,store.settings.getString(k));}
@@ -167,6 +177,8 @@ public final class MainActivity extends Activity {
             try {statusTasks.request(raw,() -> {
                 try {
                     JSONObject input = new JSONObject(raw); String command = input.getString("command");
+                    if(com.instagram.insfav.updates.UpdateBackup.busy()&&!java.util.Arrays.asList("bootstrap","status","updates-status","fetcher-status","main-scroll-controls").contains(command)){send("error","Backup in progress. Wait before changing app data.");return;}
+                    if(updates != null && updates.command(command,input)) return;
                     switch (command) {
                         case "bootstrap": {
                             images.checkAccess(); JSONObject result = imageSnapshot(true);
@@ -279,6 +291,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onActivityResult(int request, int result, Intent intent) {
         super.onActivityResult(request, result, intent);
+        if(updates != null && updates.result(request,result,intent)) return;
         if(settingsBackup.result(request,result,intent))return;
         if (result != RESULT_OK || intent == null || intent.getData() == null) {if (request == EXPORT) pendingExport = null; return;}
         Uri uri = intent.getData(); int flags = intent.getFlags();
@@ -317,6 +330,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onStop(){ com.instagram.insfav.fetcher.InstagramSession.flush();exitBack.reset();foreground=false;Fetcher.foregroundStopped();if(!io.isShutdown())io.execute(()->{try{store.flushIndex();}catch(Exception error){store.log("index_snapshot","FAILED");Fetcher.indexPersistenceFailure();}});super.onStop();}
     @Override protected void onDestroy() {
+        if(updates != null) updates.close();
         Fetcher.removeListener(fetchListener);Fetcher.closeViewer();
         images.cancelScan(); images.closeStreams(); scans.shutdownNow(); io.shutdownNow();
         if (web != null) {web.removeJavascriptInterface("Android"); web.destroy(); web = null;} super.onDestroy();

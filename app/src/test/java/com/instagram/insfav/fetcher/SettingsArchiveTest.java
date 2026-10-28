@@ -10,6 +10,11 @@ import static org.junit.Assert.*;
 public class SettingsArchiveTest {
  Context c;
  @Before public void setup(){c=RuntimeEnvironment.getApplication();QueueControl.lock.set(false);SessionState.prefs(c).edit().clear().commit();new CookieVault(c).remove();}
+ @Test public void fourDigitPinRoundTripsAndOtherShortPasswordsAreRejected()throws Exception {
+  char[] pin="0123".toCharArray();String raw=SettingsArchive.export(c,pin,new JSONObject());assertNotNull(SettingsArchive.inspect(c,raw,pin));
+  for(String invalid:new String[]{"123","12345","abcd","12a4"})assertThrows(java.io.IOException.class,()->SettingsArchive.export(c,invalid.toCharArray(),new JSONObject()));
+  assertTrue(BackupPinUi.valid(pin));assertFalse(BackupPinUi.valid("١٢٣٤".toCharArray()));
+ }
  @Test public void exportChangeImportRestoresAllUserPreferencesWithoutFavorites()throws Exception {
   SharedPreferences p=SessionState.prefs(c);p.edit().putInt("minimum",6).putInt("maximum",25).putInt("startMinute",1320).putInt("endMinute",360).putInt("concurrentWebViews",5).putBoolean("background",true).putLong("retryAt",123456789L).commit();
   char[] password="portable test password".toCharArray();String backup=SettingsArchive.export(c,password,new JSONObject());assertFalse(backup.contains("favorite_page_pref"));

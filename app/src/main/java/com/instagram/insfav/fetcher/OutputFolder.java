@@ -89,6 +89,15 @@ final class OutputFolder {
         }
         if(found==null)catalog.image(new QueueStore.Image(user,"",filename,0,0,0,0,false));return found;
     }
+  String verifiedDigest(String filename) throws IOException {
+    synchronized(WRITE_LOCK){
+      Uri file=lookup(filename);if(file==null)return null;
+      exactName(file,filename);
+      byte[] bytes=read(resolver.openInputStream(file));
+      return ThumbnailCodec.valid(bytes)?HdImageCache.digest(bytes):null;
+    }
+  }
+
     boolean valid(String filename) throws IOException {
         Uri file=lookup(filename);if(file==null)return false;
         if(catalog!=null){QueueStore.Image image=catalog.image(Identity.normalize(filename.substring(0,filename.length()-5)));return image!=null&&image.readable;}
