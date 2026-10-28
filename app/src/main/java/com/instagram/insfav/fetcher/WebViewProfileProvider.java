@@ -301,6 +301,7 @@ final class WebViewProfileProvider implements ProfileProvider {
             }
             @Override public void onPageFinished(WebView v, String url) {
                 // A finished page alone is not authentication proof.
+                if (cookies == null && InstagramLoginActivity.instagram(android.net.Uri.parse(url))) BrowserCookieStore.updated(context);
                 if (sessionManager != null) sessionManager.flush();
                 if (!finishing) { pageFinished = true; log.log("WEBVIEW", "PAGE_FINISHED", 0); }
             }
@@ -380,6 +381,7 @@ final class WebViewProfileProvider implements ProfileProvider {
         void finish(JSONObject data, Failure error) {
             if (finishing) return;
             finishing = true; result = data; failure = error;
+            if (error == null && cookies == null) BrowserCookieStore.updated(context);
             if (error == null && user.isEmpty() && data != null && data.optBoolean("authenticated")) {
                 if (sessionManager != null) sessionManager.flush();
                 InstagramSession.recordVerified(context, cookies != null);
