@@ -26,10 +26,10 @@
     }
   },
   "style.css": {
-    "sourceBytes": 19558,
-    "bundleBytes": 19031,
-    "sourceSha256": "3296fef929ba0bb1393b527f226a10681d9f0b7d750bf8a5c5f5c9c98bf18ee9",
-    "bundleSha256": "c8db2c8350e389a30e1838acb1cb4f1ee727a9f42ab02554f0585b3cb9f86e00"
+    "sourceBytes": 19843,
+    "bundleBytes": 19201,
+    "sourceSha256": "3447430a31d33f01e50558bcfa315206b8854d0c998c192d609424592274e3f0",
+    "bundleSha256": "0eea7ed9c537d6ae4cee5a321a9e32980d624282739834776f46a135fe6c75ea"
   },
   "fonts.css": {
     "sourceBytes": 2012,
