@@ -7,11 +7,11 @@ import org.json.JSONObject;
 /** Display preferences are independent of Favorites, SAF and the thumbnail index. */
 public final class UiPreferences {
     private static SharedPreferences prefs(Context c){return c.getSharedPreferences("insfav-ui",Context.MODE_PRIVATE);}
-    public static JSONObject read(Context c)throws org.json.JSONException{return new JSONObject().put("columns",prefs(c).getInt("columns",0)).put("language",language(c));}
+    public static JSONObject read(Context c)throws org.json.JSONException{return new JSONObject().put("columns",prefs(c).getInt("columns",0)).put("folderColumns",prefs(c).getInt("folderColumns",0)).put("language",language(c));}
     public static String language(Context c){return prefs(c).getString("language","en");}
     public static void save(Context c,JSONObject value)throws Exception{
-        int columns=value.getInt("columns");String language=value.getString("language");
-        if((columns!=0&&columns!=2&&columns!=3&&columns!=4&&columns!=5)||(!language.equals("en")&&!language.equals("tr")))throw new IllegalArgumentException("Invalid display preference");
-        if(!prefs(c).edit().putInt("columns",columns).putString("language",language).commit())throw new java.io.IOException("Could not save display preferences");
+        int columns=value.getInt("columns");int folderColumns=value.optInt("folderColumns",0);String language=value.getString("language");
+        if((columns!=0&&columns!=2&&columns!=3&&columns!=4&&columns!=5)||(folderColumns!=0&&folderColumns!=2&&folderColumns!=3&&folderColumns!=4&&folderColumns!=5)||(!language.equals("en")&&!language.equals("tr")))throw new IllegalArgumentException("Invalid display preference");
+        if(!prefs(c).edit().putInt("columns",columns).putInt("folderColumns",folderColumns).putString("language",language).commit())throw new java.io.IOException("Could not save display preferences");
     }
 }
