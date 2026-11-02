@@ -43,7 +43,7 @@ html.main-scroll-visible{scrollbar-color:transparent transparent}html.main-scrol
 #scroll-grip{position:absolute;right:100%;top:50%;transform:translateY(-50%);width:15px;height:34px;border:1px solid #222;border-radius:10px 0 0 10px;background:#333e}
 #scroll-grip::after{content:"";position:absolute;inset:9px 5px;border-left:1px solid #aaa;border-right:1px solid #aaa}
 #scroll-thumb.holding::before{transition:background-color 1s linear}#scroll-thumb.armed::before,#scroll-thumb.armed #scroll-grip{box-shadow:0 0 8px #aaa8}
-#settings header h2{flex:1;min-width:0}#language-choice,#display-mode{color:#bbb;background:#000;border:1px solid #111;border-radius:18px;padding:10px;font:inherit;color-scheme:dark;max-width:100%}
+#settings header h2{flex:1;min-width:0}#language-choice,#display-mode,#folder-display-mode{color:#bbb;background:#000;border:1px solid #111;border-radius:18px;padding:10px;font:inherit;color-scheme:dark;max-width:100%}
 #language-choice{font-size:13px;flex:none}#display-settings{margin-top:24px}.display-label{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;color:#888;border:1px solid #111;border-radius:26px;padding:12px}
 .matrix-row{display:grid;grid-template-columns:repeat(var(--columns),minmax(0,1fr));gap:8px;padding:8px;border-left:1px solid #111;border-right:1px solid #111;background:#000;overflow:hidden}
 .matrix-row.last{border-bottom:1px solid #111;border-radius:0 0 26px 26px}.matrix-cell{min-width:0;display:flex;flex-direction:column;gap:6px}.matrix-cell .avatar{width:100%;height:auto;aspect-ratio:1;flex:none;border-radius:14px}.matrix-user{flex-shrink:0;display:block;width:100%;min-width:0;padding:0;background:none;border:0;color:#aaa;font:12px/20px Inter,sans-serif;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -70,3 +70,12 @@ html.main-scroll-visible{scrollbar-color:transparent transparent}html.main-scrol
 
 /* Control labels are not document text. Editable fields and readable content retain selection. */
 :where(button,[role="button"],[role="tab"],[role="option"],[role="scrollbar"],input[type="checkbox"],input[type="radio"],input[type="range"]){-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+
+/* A folder-only grid. Existing account matrix styles are unchanged. */
+.folder-grid-row{display:grid;grid-template-columns:repeat(var(--folder-columns),minmax(0,1fr));gap:8px;padding:0 0 10px;align-items:stretch}
+.folder-grid-cell{min-width:0;overflow:hidden;background:#000;border:1px solid var(--border);border-radius:20px}
+.folder-grid-cell .folder-header{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:4px;width:100%;height:100%;min-height:0;padding:7px 3px;text-align:center}
+.folder-grid-cell .folder-title{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:0;max-width:100%;width:100%}
+.folder-grid-cell .folder-title>span:first-child{max-width:100%;white-space:normal;overflow-wrap:anywhere;word-break:break-word;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;text-align:center;line-height:1.15}
+.folder-grid-cell .folder-count{max-width:100%;padding:3px 3px;flex:none}
+.folder-grid-cell .folder-arrow{flex:none;line-height:1;transform:rotate(90deg)}

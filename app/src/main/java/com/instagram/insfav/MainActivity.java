@@ -56,23 +56,25 @@ public final class MainActivity extends Activity {
  public void idle() throws Exception {if(images.scanning()||scanPending.get())throw new IOException("Wait for scan");Fetcher.requireBackupIdle();}
  public JSONObject backup(char[] pin) throws Exception {
   idle();synchronized(store){store.flushIndex();JSONObject extra=new JSONObject();for(String key:new String[]{"treeUri","directoryId","folderLabel"})if(store.settings.has(key))extra.put(key,store.settings.getString(key));
-   return new JSONObject().put("settingsArchive",new JSONObject(Fetcher.exportSettings(pin,extra))).put("sessionVaults",Fetcher.exportSessionBackup());
+   return new JSONObject().put("settingsArchive",new JSONObject(Fetcher.exportSettings(pin,FolderLayout.append(MainActivity.this,extra)))).put("sessionVaults",Fetcher.exportSessionBackup());
   }
  }
 });
         settingsBackup=new SettingsBackupUi(this,io,new SettingsBackupUi.Host(){
             public String export(char[] pass)throws Exception {
                 JSONObject extra=new JSONObject();synchronized(store){for(String k:new String[]{"treeUri","directoryId","folderLabel"})if(store.settings.has(k))extra.put(k,store.settings.getString(k));}
-                return Fetcher.exportSettings(pass,extra);
+                return Fetcher.exportSettings(pass,FolderLayout.append(MainActivity.this,extra));
             }
             public JSONObject inspect(String raw,char[] pass)throws Exception {
                 JSONObject data=Fetcher.inspectSettings(raw,pass),extra=data.getJSONObject("extra");
-                for(java.util.Iterator<String> i=extra.keys();i.hasNext();){String key=i.next();if(!java.util.Arrays.asList("treeUri","directoryId","folderLabel").contains(key)||!(extra.get(key) instanceof String))throw new IOException("Invalid settings.");}
+                for(java.util.Iterator<String> i=extra.keys();i.hasNext();){String key=i.next();if(key.equals("folderColumns")){FolderLayout.validate(extra);continue;}if(!java.util.Arrays.asList("treeUri","directoryId","folderLabel").contains(key)||!(extra.get(key) instanceof String))throw new IOException("Invalid settings.");}
                 return data;
             }
             public void apply(JSONObject data)throws Exception {
                 if(images.scanning()||scanPending.get())throw new IOException("Wait for the scan to finish.");
-                Fetcher.restoreSettings(data);
+                JSONObject folderExtra=data.getJSONObject("extra");FolderLayout.validate(folderExtra);int beforeFolder=FolderLayout.choice(MainActivity.this);
+                FolderLayout.restore(MainActivity.this,folderExtra);try{Fetcher.restoreSettings(data);}catch(Exception failure){FolderLayout.save(MainActivity.this,beforeFolder);throw failure;}
+                send("ui-preferences",UiPreferences.read(MainActivity.this));
                 // SAF grants are device-owned, never restored from a JSON claim.
                 JSONObject extra=data.getJSONObject("extra");String tree=extra.optString("treeUri");boolean granted=false;
                 for(UriPermission grant:getContentResolver().getPersistedUriPermissions())if(grant.getUri().toString().equals(tree)&&grant.isReadPermission())granted=true;

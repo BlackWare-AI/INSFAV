@@ -1,21 +1,21 @@
 {
   "core.js": {
-    "sourceBytes": 4227,
-    "bundleBytes": 3181,
-    "sourceSha256": "6532f1fd5c1b3fab9ca274e0af708b4a4c89f73f4089d08e12d65e3e45eb0550",
-    "bundleSha256": "a5a599ea5ad68245ff76c74dd5071b3c4044751da38646cffecc7ffcf9a8ad74"
+    "sourceBytes": 4925,
+    "bundleBytes": 3550,
+    "sourceSha256": "5fad42faaea110e3e6efff8e4bf8da44830da8ee575b30bf0f375fc2fc2ef14c",
+    "bundleSha256": "632886ef3014f2d56bbe6dffa2da44c2e91c0cf9c8861af632fed2230e0af941"
   },
   "i18n.js": {
-    "sourceBytes": 10521,
-    "bundleBytes": 9613,
-    "sourceSha256": "b70fce931c12c14bf8a1b0ee7f07bd5c935c6cdb8f54bf4a3328b4441c2575bc",
-    "bundleSha256": "fcd8b493f15898d8c792c7ad1a5162e232fc6251ef23494c6276c06282a1cb22"
+    "sourceBytes": 10560,
+    "bundleBytes": 9652,
+    "sourceSha256": "e4f54ab264c4cc33cf7b1106ba2d7f01b1ae9fe256364480d2ab0562d5e35370",
+    "bundleSha256": "2130a51a4626e6ce910021f8f09db2777d60fbb8887a56fb7540c9bf506b29e9"
   },
   "app.js": {
-    "sourceBytes": 63380,
-    "bundleBytes": 53996,
-    "sourceSha256": "e5813a21252d1e418b313561c8a2ae8ee28f37bb8cb8e7e46beca37bc9887000",
-    "bundleSha256": "75a9c15b0f6cb82a02d2641a173376574e78a6909db1497fae09031d4768421d",
+    "sourceBytes": 65964,
+    "bundleBytes": 56124,
+    "sourceSha256": "2bb181eedb26731438d602bb8d57d66a853bf3415b9959a026219721aa3df493",
+    "bundleSha256": "ed4ef833ea3cb9d6a3ff0784ce3b630ea91a29ed322418c1591be307668cd75c",
     "includedSources": {
       "avatar-loader.js": {
         "sourceSha256": "07280dd8ccd4f7ad98cc5da80c7c6ff271c03e9543946382424d5a10a2462e43"
@@ -26,10 +26,10 @@
     }
   },
   "style.css": {
-    "sourceBytes": 19843,
-    "bundleBytes": 19201,
-    "sourceSha256": "3447430a31d33f01e50558bcfa315206b8854d0c998c192d609424592274e3f0",
-    "bundleSha256": "0eea7ed9c537d6ae4cee5a321a9e32980d624282739834776f46a135fe6c75ea"
+    "sourceBytes": 20941,
+    "bundleBytes": 20219,
+    "sourceSha256": "326ef7c64ba2be7bf38ae01bb0d2a3c8d1e7b809c65bca1b7a41e27349e29193",
+    "bundleSha256": "4db2c8e0bd57f0eb55902a4443c3335cabc438028274e4e2b24211744bbc2013"
   },
   "fonts.css": {
     "sourceBytes": 2012,
