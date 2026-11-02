@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "web": "node tools/minify.cjs",
-    "test": "node --test tests/core.test.cjs"
+    "test": "node --test tests/core.test.cjs tests/folder-grid.test.cjs"
   },
   "devDependencies": {
     "terser": "5.51.2",

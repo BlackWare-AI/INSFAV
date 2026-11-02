@@ -54,19 +54,6 @@ window.nativeEvent=(event,data)=>{
 };
 
 function normalizeFolderColumns(value){const n=Number(value);return [2,3,4,5].includes(n)?n:0;}
-function folderGridRows(source,columns){
- if(!columns||query.trim())return source;
- const rows=[],pending=[];
- const flush=()=>{for(let p=0;p<pending.length;p+=columns){
-  const slice=pending.slice(p,p+columns);
-  rows.push({type:'folder-grid',key:'fg'+columns+':'+slice.map(row=>row.key).join(','),groups:slice.map(row=>row.group),columns,height:116});
- }pending.length=0;};
- for(const row of source){
-  if(row.type==='folder'&&!opened.has(row.group.key))pending.push(row);
-  else{flush();rows.push(row);}
- }
- flush();return rows;
-}
 function createFolderGridTile(group){
  const tile=document.createElement('div');tile.className='folder-grid-cell';
  const head=document.createElement('button');head.className='folder-header';head.type='button';
@@ -87,7 +74,7 @@ function rebuild(preserve=false){
   const cell=document.createElement('div');cell.className='matrix-cell';const image=document.createElement('button');image.className='avatar';const label=document.createElement('button');label.className='matrix-user';label.textContent='@';cell.append(image,label);probe.append(cell);document.body.append(probe);
   measured={cellSize:image.getBoundingClientRect().width,rowHeight:probe.getBoundingClientRect().height,labelHeight:label.getBoundingClientRect().height};probe.classList.add('last');measured.lastRowHeight=probe.getBoundingClientRect().height;probe.remove();
  }
- rows=folderGridRows(C.rowsFor(groups,opened,!!query.trim(),{columns:uiPreferences.columns,width:$('list').getBoundingClientRect().width,...measured}),uiPreferences.folderColumns);positions=C.offsets(rows);
+ rows=C.folderGridRows(C.rowsFor(groups,opened,!!query.trim(),{columns:uiPreferences.columns,width:$('list').getBoundingClientRect().width,...measured}),uiPreferences.folderColumns,opened,!!query.trim());positions=C.offsets(rows);
  mainScroll.setExpanded(rows.some(row=>row.type==='account'||row.type==='matrix'));
  $('list').style.height=positions.at(-1)+'px';
  if(!preserve){for(const node of mounted.values()){releaseRow(node);node.remove();}mounted.clear();}

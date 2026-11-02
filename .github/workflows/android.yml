@@ -30,7 +30,7 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run web
       - run: git diff --exit-code -- app/src/main/assets tools/web-bundle.json web/maps
-      - run: node --test tests/core.test.cjs
+      - run: npm test
       - run: |
           mkdir -p /tmp/insfav-policy
           javac -d /tmp/insfav-policy app/src/main/java/com/instagram/insfav/ThumbnailPolicy.java tests/java/com/instagram/insfav/ThumbnailPolicyTest.java

@@ -26,6 +26,25 @@ function rowsFor(groups,open,search,view={}){
   }
  }return rows;
 }
+
+// Compose closed-folder tiles without changing the original expanded folder/account rows.
+function folderGridRows(source,columns,open,searching){
+ if(![2,3,4,5].includes(columns)||searching)return source;
+ const result=[],pending=[];
+ const flush=()=>{
+  for(let i=0;i<pending.length;i+=columns){
+   const segment=pending.slice(i,i+columns);
+   result.push({type:'folder-grid',key:'fg'+columns+':'+segment.map(row=>row.key).join(','),groups:segment.map(row=>row.group),columns,height:112});
+  }
+  pending.length=0;
+ };
+ for(const row of source){
+  if(row.type==='folder'&&!open.has(row.group.key))pending.push(row);
+  else {flush();result.push(row);}
+ }
+ flush();
+ return result;
+}
 function offsets(rows){const out=[0];for(const r of rows)out.push(out[out.length-1]+r.height);return out;}
 function windowRange(off,top,height,overscan=350){let lo=0,hi=off.length-1;const before=typeof overscan==='number'?overscan:overscan.before,after=typeof overscan==='number'?overscan:overscan.after;const start=Math.max(0,top-before),end=top+height+after;while(lo<hi){const mid=(lo+hi)>>1;if(off[mid+1]<=start)lo=mid+1;else hi=mid;}const a=lo;while(lo<off.length-1&&off[lo]<end)lo++;return [a,lo];}
 function overscanFor(velocity){const speed=Math.abs(velocity),forward=speed>12?240:Math.min(700,180+speed*90),back=100;return velocity<0?{before:forward,after:back}:{before:back,after:forward};}
@@ -37,5 +56,5 @@ function scrollMetrics(content,viewport,track,position){
  return {max,thumb,travel,position,offset:max?position/max*travel:0};
 }
 function dragScrollTarget(metrics,origin,delta){return metrics.travel>0?Math.max(0,Math.min(metrics.max,origin+delta/metrics.travel*metrics.max)):metrics.position;}
-const api={scrollMetrics,dragScrollTarget,overscanFor,normalize,parseDocument,filterCollections,rowsFor,offsets,windowRange};if(typeof module!=='undefined')module.exports=api;root.InsfavCore=api;
+const api={folderGridRows,scrollMetrics,dragScrollTarget,overscanFor,normalize,parseDocument,filterCollections,rowsFor,offsets,windowRange};if(typeof module!=='undefined')module.exports=api;root.InsfavCore=api;
 })(typeof globalThis!=='undefined'?globalThis:this);
